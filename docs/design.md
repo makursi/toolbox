@@ -65,7 +65,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 ## 四、布局
 
 - 内容列宽：Mantine `Container size="md"`（960px）。
-- 页面内距：首页 `py-12 sm:py-24`，工具页 `py-10 sm:py-16`。
+- 页面内距：首页 `py-12 sm:py-24`，工具页与 404 页 `py-10 sm:py-16`。
 - 这些**写成 Tailwind 工具类而不是 Mantine 属性**是有原因的：`py` 和 `gap` 的类型是 spacing，**不接受断点对象**。而 `utilities` 层在 `globals.css` 里排在 `mantine` 之后，所以工具类能稳定覆盖 Mantine 的默认值。这也是 ADR-0006 之后 Tailwind 仍然留在 App 里的理由。
 - 首页节奏：标题块与工具列表之间 `gap-10 sm:gap-14`；工具页正文在标题下方 `mt-10 sm:mt-12`。
 - **卡片是整行堆叠，不是网格。** 只有一个 Tool 时网格会留出一个空格子，那看起来像布局出错而不是留白。等到列表显得拥挤的那天再改成网格，其它都不用动。
@@ -83,6 +83,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 - **按钮**：Mantine `filled`，用 `ink` 调色板（浅色接近黑、深色接近白），对比色由 Mantine 自动计算（17.33:1）。
 - **折叠控件（disclosure）**：用文字形的 `+` / `−`，配 `aria-expanded`，并把字形对读屏隐藏（属性已经表达了状态）。`+` 是排版字符，不是手搓的 SVG 图标——这也是目前还不需要图标依赖的原因。Iconify 接进来之后会替换掉这两个字形。
 - **输入控件**：发丝边框；占位符与标签的对比度都按它们实际所在的表面测过；聚焦环取 ink 色。
+- **404 页**（`apps/web/src/app/not-found.tsx`）：三个东西，不多不少 —— 发生了什么、为什么可能发生、一个出口。用它自己的排版站起来（`Container size="md"`、标题用 `h1`、说明用 `dimmed`、出口是一个主按钮）；**不放超大数字、不放插画、不列「你可能想找」的链接清单** —— 一个只有一个工具的站点没有那么多去处可推荐。回首页的按钮写成 `component="a"` 而不是 `component={Link}`：字符串让 Mantine 渲染成真锚点，页面因此保持 Server Component（传函数给 Client Component 会被构建拒绝），代价是一次整页加载，而对一个 404 来说这反而更稳：关掉 JavaScript 也回得去。
 - **触控目标 ≥44px**：视觉尺寸与可点尺寸不是一回事。`.touch-target` 用一个居中的伪元素把可点区域撑到至少 44×44，不改绘制、不改布局；它只用在四周留白足够、扩出去不会碰到别的控件的控件上（格式勾选、无损开关、高级选项、移除文件）。主要动作按钮用 `size="md"`（42px）：Mantine 默认的 `sm` 是 36px，在触屏上偏小。
 - **「拖到这里」只在有指针的地方出现**：`.drag-hint` 在 `@media (hover: none)` 下隐藏。手机上不能拖拽，这句话在那边是错的，而选择文件的按钮就在它上方。注意 Chrome 的 CDP 设备模拟**不会**让 `(hover: none)` 生效，验证这条要用 `Emulation.setTouchEmulationEnabled`，或者用真机打开局域网地址。
 - **并排的输入控件贴底对齐**：说明文字长短不一时，网格里每一列都拉满等高、控件贴到列底（`globals.css` 里的 `.output-settings`）。「少一行说明，控件就往上跑 19px」是这个页面第一个被发现的对齐 bug；给说明行固定行高只能保住写那条文案时的样子，改一个字就复发。
