@@ -1,6 +1,6 @@
 # A manual colour-scheme switch
 
-ADR-0007 set the scheme to `auto` in both `ColorSchemeScript` and the provider, and recorded "no manual toggle" as part of that decision. That held while the dark scheme had never been rendered; once both schemes had been seen in a browser, a dark scheme nobody can choose is a dark scheme nobody sees. The header now carries a two-state switch.
+ADR-0007 set the scheme to `auto` in both `ColorSchemeScript` and the provider, and `docs/design.md` section 7 turned that into a rule: "跟随操作系统，**不做手动切换开关**". It held while the dark scheme had never been rendered; once both schemes had been seen in a browser, a dark scheme nobody can choose is a dark scheme nobody sees. The header now carries a two-state switch.
 
 The trade-off, taken deliberately: the site follows the operating system **until the switch is touched**, and stops following it afterwards. `localStorageColorSchemeManager` (Mantine's default manager) persists the choice and `ColorSchemeScript` reads it before the first paint, so no theme flashes on load. Two states rather than three (auto / light / dark): the header has one row of budget, and "follows the system until you say otherwise" already preserves what ADR-0007 wanted for anyone who never touches it. The cost, stated so nobody has to discover it: after one use, the operating system preference is ignored until site data is cleared.
 
