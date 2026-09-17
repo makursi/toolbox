@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { advancedFields, type AdvancedField } from "./core/advanced";
 import { formatSpecs, imageFormats, type ImageFormat } from "./core/formats";
 import type { Rotation } from "./core/geometry";
+import { backgroundHint, convertHint } from "./core/hints";
 import { checkLimits } from "./core/limits";
 import type { TargetSettings } from "./core/options";
 import { planConversions, type PlannedConversion } from "./core/plan";
@@ -103,6 +104,9 @@ export function ImageConverter() {
     () => enabledTargets.some((target) => !formatSpecs[target.format].alpha),
     [enabledTargets],
   );
+
+  /** Why the Convert button is greyed out, or null when it is live. */
+  const blocked = running ? null : convertHint(files.length, enabledTargets.length);
 
   useEffect(
     () => () => {
@@ -393,7 +397,7 @@ export function ImageConverter() {
           />
 
           <ColorInput
-            description="为不支持透明通道的格式填充透明像素。"
+            description={backgroundHint(enabledTargets.length, flattening)}
             disabled={running || !flattening}
             format="hex"
             label="背景色"
@@ -415,6 +419,13 @@ export function ImageConverter() {
           <Button onClick={cancel} size="md" variant="default">
             取消
           </Button>
+        )}
+        {/* A greyed-out button with no reason is a dead end: say which of the
+            conditions is unmet, next to the button that is waiting on it. */}
+        {blocked !== null && (
+          <Text c="dimmed" size="sm">
+            {blocked}
+          </Text>
         )}
       </Group>
 
