@@ -14,6 +14,8 @@ pnpm install
 pnpm dev        # http://localhost:3000
 ```
 
+**Open the site at the host the dev server prints.** Next's dev server rejects requests from other hostnames, and, less obviously, it holds back hydration until its HMR socket connects: a page loaded from a hostname it does not allow is served, renders, and then ignores every click, with one failed-websocket line in the console as the only clue. `apps/web/next.config.ts` lists the extra hostnames this project allows — `127.0.0.1` and the `10/8` LAN range, so a phone can reach the dev server. Add this machine's address there when it is on another network. The same reason is why interactive work is worth verifying against `pnpm build && pnpm start`: a production build has no HMR socket to wait for.
+
 ## Structure
 
 ```

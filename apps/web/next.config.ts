@@ -28,6 +28,19 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  /*
+   * Dev-only: page origins other than `localhost` that may talk to the dev
+   * server. Next rejects every other hostname and answers with a bare
+   * `Unauthorized`, and — the expensive part — it holds back hydration until its
+   * HMR socket connects. So the page still renders from the server and then
+   * ignores every click, with one websocket error as the only clue.
+   *
+   * That is what `http://127.0.0.1:3000` and a phone on the LAN hit. Entries are
+   * hostnames only: no scheme, no port, and `*` stands for one label. Add this
+   * machine's LAN address here when testing on a real device; `10.*.*.*` covers
+   * a 10/8 network like the one this was written on.
+   */
+  allowedDevOrigins: ["127.0.0.1", "10.*.*.*"],
   experimental: {
     // Mantine ships a module per component; this is the tree-shaking hint its
     // own Next.js guide asks for.
