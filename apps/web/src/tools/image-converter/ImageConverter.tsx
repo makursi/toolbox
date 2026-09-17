@@ -363,7 +363,7 @@ export function ImageConverter() {
           3. 输出设置
         </Title>
 
-        <SimpleGrid cols={{ base: 1, sm: 3 }} mt="sm">
+        <SimpleGrid className="output-settings" cols={{ base: 1, sm: 3 }} mt="sm">
           <NumberInput
             description="留空表示保持原尺寸。"
             disabled={running}
@@ -377,6 +377,7 @@ export function ImageConverter() {
           <Select
             allowDeselect={false}
             data={rotationOptions}
+            description="顺时针旋转所有输出。"
             disabled={running}
             label="旋转"
             onChange={(value) => setRotate(parseRotation(value ?? "0"))}

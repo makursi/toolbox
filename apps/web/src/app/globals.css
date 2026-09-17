@@ -45,6 +45,24 @@
   box-shadow: 0 2px 8px rgb(0 0 0 / 4%);
 }
 
+/*
+ * Three controls side by side, each with help text of a different length. The
+ * grid already stretches every column to the height of the tallest; pinning each
+ * control to the bottom of its column is then what keeps the three boxes level
+ * whatever the copy does. Fixing the height of the help line instead would only
+ * survive the copy it was written for.
+ */
+@layer components {
+  .output-settings > * {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .output-settings > * > :last-child {
+    margin-top: auto;
+  }
+}
+
 @keyframes reveal {
   from {
     opacity: 0;
