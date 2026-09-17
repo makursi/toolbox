@@ -170,6 +170,24 @@
 }
 
 /*
+ * The Tool card's cover frame. Its geometry lives here rather than in the card's
+ * `style` prop: an inline declaration outranks every breakpoint (see section 4),
+ * so the only part of the frame that belongs in the component is the width, which
+ * is the part that responds. The 180px cap is inert on a wide screen, where the
+ * frame is 220x165 anyway.
+ */
+.cover-frame {
+  aspect-ratio: 4 / 3;
+  background-color: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  flex-shrink: 0;
+  max-height: 180px;
+  overflow: hidden;
+  position: relative;
+}
+
+/*
  * The colour-scheme switch's label: both words are in the markup and the
  * scheme attribute picks one. Doing it here rather than in React state is what
  * keeps the server-rendered markup and the first client render identical — the

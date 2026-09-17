@@ -78,23 +78,10 @@ function ToolCard({ tool }: { tool: ToolMeta }) {
            * puts the cover back on the left from `sm` up.
            */
           <Flex direction={{ base: "column-reverse", sm: "row" }} gap="lg">
-            {/* Width comes from the responsive prop alone: a `width` in `style`
-                is an inline declaration and would outrank every breakpoint. The
-                height stops rising once it hits the cap, which crops the cover
-                instead of letting it eat the card. */}
-            <Box
-              style={{
-                aspectRatio: "4 / 3",
-                backgroundColor: "var(--mantine-color-default)",
-                border: "1px solid var(--mantine-color-default-border)",
-                borderRadius: "var(--mantine-radius-sm)",
-                flexShrink: 0,
-                maxHeight: 180,
-                overflow: "hidden",
-                position: "relative",
-              }}
-              w={{ base: "100%", sm: 220 }}
-            >
+            {/* Width comes from the responsive prop alone; the rest of the
+                frame is `.cover-frame` in globals.css, so no inline declaration
+                can outrank a breakpoint (see section 4 of the design guide). */}
+            <Box className="cover-frame" w={{ base: "100%", sm: 220 }}>
               {/* Decorative: the card's text already names the Tool. */}
               <Image
                 alt=""

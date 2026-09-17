@@ -36,8 +36,8 @@ export function ThemeToggle() {
       size="compact-sm"
       variant="default"
     >
-      <span className="theme-label theme-label-light">深色</span>
-      <span className="theme-label theme-label-dark">浅色</span>
+      <span className="theme-label-light">深色</span>
+      <span className="theme-label-dark">浅色</span>
     </Button>
   );
 }
