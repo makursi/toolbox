@@ -21,21 +21,27 @@ import {
   UnstyledButton,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+
+import { useObjectUrl } from "@/hooks/use-object-url/use-object-url";
 
 import { advancedFields, type AdvancedField } from "./core/advanced";
 import { formatSpecs, imageFormats, type ImageFormat } from "./core/formats";
 import { convertHint } from "./core/hints";
-import { checkLimits } from "./core/limits";
 import type { TargetSettings } from "./core/options";
-import { planConversions, type PlannedConversion } from "./core/plan";
-import { sniffByteLength, sniffFormat } from "./core/sniff";
-import { ConversionPool, type Outcome } from "./worker/converter";
+import { useConversionBatch } from "./hooks/use-conversion-batch/use-conversion-batch";
+import { useFileQueue } from "./hooks/use-file-queue/use-file-queue";
+import type { Outcome } from "./worker/converter";
 import { zipConversions } from "./zip";
 
 /**
  * The image converter, client-side by necessity: the codecs are WebAssembly
  * running in a Worker and the files never leave the tab.
+ *
+ * Two things this file is not: it does not hold the visitor's files (that is
+ * `useFileQueue`) and it does not run a Batch (that is `useConversionBatch`).
+ * What is left is the form — which formats are on, what each one is set to, and
+ * the words around it.
  *
  * The controls are Mantine components, so labels, roles and keyboard behaviour
  * come from the library rather than being re-derived here — which is also why
@@ -48,8 +54,6 @@ type TargetState = {
   lossless: boolean;
   advanced: Record<string, number | boolean>;
 };
-
-type Rejected = { name: string; message: string };
 
 /**
  * Every format starts disabled except WebP, which is what most conversions want.
@@ -71,15 +75,9 @@ function initialTargets(): Record<ImageFormat, TargetState> {
 }
 
 export function ImageConverter() {
-  const [files, setFiles] = useState<File[]>([]);
-  const [rejected, setRejected] = useState<Rejected[]>([]);
+  const { files, refused, add, removeAt, clear } = useFileQueue();
+  const { running, planned, outcomes, start, cancel } = useConversionBatch();
   const [targets, setTargets] = useState(initialTargets);
-  const [running, setRunning] = useState(false);
-  const [planned, setPlanned] = useState<PlannedConversion[]>([]);
-  const [outcomes, setOutcomes] = useState<Outcome[]>([]);
-
-  const pool = useRef<ConversionPool | null>(null);
-  const cancelled = useRef(false);
 
   const enabledTargets = useMemo<TargetSettings[]>(
     () =>
@@ -97,97 +95,9 @@ export function ImageConverter() {
   /** Why the Convert button is greyed out, or null when it is live. */
   const blocked = running ? null : convertHint(files.length, enabledTargets.length);
 
-  useEffect(
-    () => () => {
-      cancelled.current = true;
-      pool.current?.terminate();
-    },
-    [],
-  );
-
-  const addFiles = useCallback(async (incoming: readonly File[]) => {
-    if (incoming.length === 0) return;
-
-    const accepted: File[] = [];
-    const refused: Rejected[] = [];
-
-    for (const file of incoming) {
-      const size = checkLimits({ bytes: file.size });
-      if (!size.ok) {
-        refused.push({ name: file.name, message: size.message });
-        continue;
-      }
-
-      // Extensions lie, so the format comes from the bytes themselves. Read as
-      // many as `sniffFormat` may look at, or a brand late in an ISO-BMFF
-      // header would be missed.
-      const head = new Uint8Array(await file.slice(0, sniffByteLength).arrayBuffer());
-      const format = sniffFormat(head);
-
-      if (format === null) {
-        refused.push({ name: file.name, message: "无法识别这个文件的格式。" });
-      } else if (format === "heic") {
-        refused.push({ name: file.name, message: "暂不支持 HEIC 文件。" });
-      } else {
-        accepted.push(file);
-      }
-    }
-
-    setFiles((previous) => [...previous, ...accepted]);
-    setRejected((previous) => [...previous, ...refused]);
-  }, []);
-
   const updateTarget = useCallback((format: ImageFormat, patch: Partial<TargetState>) => {
     setTargets((previous) => ({ ...previous, [format]: { ...previous[format], ...patch } }));
   }, []);
-
-  // The rejected list goes with the files it describes: a stale "there was a
-  // problem with this file" under an empty list reads as a failure of the next
-  // Batch.
-  const clearFiles = useCallback(() => {
-    setFiles([]);
-    setRejected([]);
-  }, []);
-
-  const cancel = useCallback(() => {
-    cancelled.current = true;
-    pool.current?.terminate();
-    pool.current = null;
-    setPlanned([]);
-    setOutcomes([]);
-    setRunning(false);
-  }, []);
-
-  // Not memoised: it is passed to a plain button, and the dependency list drew
-  // a false "extra dependencies" report while buying nothing.
-  async function start(): Promise<void> {
-    const plan = planConversions(
-      files.map((file) => file.name),
-      enabledTargets,
-    );
-    if (plan.length === 0) return;
-
-    cancelled.current = false;
-    setPlanned(plan);
-    setOutcomes([]);
-    setRunning(true);
-
-    const instance = new ConversionPool();
-    pool.current = instance;
-
-    try {
-      await instance.run(files, plan, (outcome) => {
-        if (cancelled.current) return;
-        setOutcomes((previous) => [...previous, outcome]);
-      });
-    } finally {
-      // Whatever happened, the Workers go away and the form becomes usable
-      // again — a Batch that fails must not leave the Convert button disabled.
-      instance.terminate();
-      pool.current = null;
-      setRunning(false);
-    }
-  }
 
   const succeeded = outcomes.flatMap((outcome) =>
     outcome.ok ? [{ name: outcome.conversion.outputName, bytes: outcome.bytes }] : [],
@@ -223,14 +133,14 @@ export function ImageConverter() {
           mt="sm"
           multiple
           onDrop={(dropped) => {
-            void addFiles(dropped);
+            void add(dropped);
           }}
         >
           <Stack align="center" gap="sm">
             <FileButton
               disabled={running}
               multiple
-              onChange={(picked) => void addFiles(toFiles(picked))}
+              onChange={(picked) => void add(toFiles(picked))}
             >
               {(props) => (
                 <Button
@@ -259,7 +169,7 @@ export function ImageConverter() {
 
         {/* The row is also there when every file was refused: the rejected list
             is what is left to clear, and it is the only way to clear it. */}
-        {(files.length > 0 || rejected.length > 0) && (
+        {(files.length > 0 || refused.length > 0) && (
           <Stack gap="xs" mt="md">
             <Group justify="space-between" wrap="nowrap">
               <Text c="dimmed" size="sm">
@@ -271,7 +181,7 @@ export function ImageConverter() {
               {!running && (
                 <Button
                   className="touch-target"
-                  onClick={clearFiles}
+                  onClick={clear}
                   size="compact-sm"
                   variant="default"
                 >
@@ -295,7 +205,7 @@ export function ImageConverter() {
                     aria-label={`移除 ${file.name}`}
                     className="touch-target"
                     disabled={running}
-                    onClick={() => setFiles((previous) => previous.filter((_, at) => at !== index))}
+                    onClick={() => removeAt(index)}
                   />
                 </Group>
               ))}
@@ -303,10 +213,10 @@ export function ImageConverter() {
           </Stack>
         )}
 
-        {rejected.length > 0 && (
+        {refused.length > 0 && (
           <Alert color="red" mt="md" title="有文件没能加入">
             <Stack gap={4}>
-              {rejected.map((entry) => (
+              {refused.map((entry) => (
                 <Text key={entry.name} size="sm">
                   <Text component="span" fw={500} inherit>
                     {entry.name}
@@ -410,7 +320,7 @@ export function ImageConverter() {
         <Button
           className="action-full-width"
           disabled={running || files.length === 0 || enabledTargets.length === 0}
-          onClick={() => void start()}
+          onClick={() => void start(files, enabledTargets)}
           size="md"
         >
           {files.length > 0 ? `转换 ${files.length} 个文件` : "转换"}
@@ -575,12 +485,7 @@ function AdvancedPanel({
 }
 
 function DownloadLink({ outcome }: { outcome: Extract<Outcome, { ok: true }> }) {
-  const url = useMemo(
-    () => URL.createObjectURL(new Blob([outcome.bytes], { type: outcome.mime })),
-    [outcome.bytes, outcome.mime],
-  );
-
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const url = useObjectUrl(outcome.bytes, outcome.mime);
 
   return (
     <Anchor download={outcome.conversion.outputName} href={url} size="sm">

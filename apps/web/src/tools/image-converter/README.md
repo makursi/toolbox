@@ -7,17 +7,24 @@ Nothing is uploaded: the files are read with the File API, decoded and encoded i
 ## Layout
 
 ```
-ImageConverter.tsx   the Tool's UI; the route renders this and nothing else
+ImageConverter.tsx   the Tool's UI — the form, and nothing that survives a render
 meta.ts              the Tool Registry entry
 README.md            this file: how it works, and what to check by hand
 zip.ts               turns the finished outputs into one download
 core/                pure, browser-free logic — the part `pnpm test` covers
-  formats · advanced · options · bmp · limits · naming · plan · sniff · hints · failures
+  formats · advanced · options · bmp · limits · naming · plan · sniff · hints · failures · admission
   __tests__/         the tests for those modules
+hooks/               the Tool's React state; only this Tool uses them
+  use-file-queue     the files added, and the ones refused, and why
+  use-conversion-batch  one Batch: its plan, its progress, and cancelling it
 worker/              the browser-only half
   worker.ts          decode, flatten, encode — one Conversion
   converter.ts       the Worker pool and the Batch queue
 ```
+
+A hook that outlives this Tool goes to `src/hooks/` instead (today only
+`useObjectUrl`, which is about blob URLs and knows nothing about images), and UI
+more than one route uses goes to `src/components/`; see the toolbox `AGENTS.md`.
 
 ## How a Conversion runs
 
