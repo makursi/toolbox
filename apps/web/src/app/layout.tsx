@@ -4,7 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { siteDescription, siteName, siteUrl } from "@/lib/site";
+import { siteDescription, siteName, siteUrl, shareMetadata } from "@/lib/site";
 
 import { Providers } from "./providers";
 
@@ -28,10 +28,18 @@ export const metadata: Metadata = {
     template: `%s | ${siteName}`,
   },
   description: siteDescription,
+  ...shareMetadata(siteName, siteDescription),
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
+    /*
+     * The app icons are files rather than code, and Next wires them into the
+     * head from the file convention: `icon.svg` is the mark a tab shows, and
+     * `apple-icon.png` is the one iOS uses when the site is added to a home
+     * screen. Both are the same drawing — see the comment in `icon.svg` for the
+     * geometry and for the two values that are literal there.
+     */
     <html
       className={`${geistSans.variable} ${geistMono.variable}`}
       lang="zh-CN"

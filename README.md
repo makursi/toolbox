@@ -62,12 +62,15 @@ Every Tool runs in the browser and the site makes **no outbound requests** after
 
 `apps/web/public/` holds the site's own images. There are no third-party asset hosts: the CSP in `apps/web/next.config.ts` allows `img-src 'self'` and `font-src 'self'` only, so every image is served from this origin — see `docs/adr/0005-no-outbound-requests.md`.
 
-Two assets are expected, and the site is designed to look finished without either of them:
+The site mark is the wordmark's first letter, drawn as a geometric `T` on an ink tile. The header's `Toolbox` text _is_ the logo, not a stand-in for one, so the icon is derived from it rather than invented beside it:
 
-| Asset      | Path                                     | Wired up by                                                         |
-| ---------- | ---------------------------------------- | ------------------------------------------------------------------- |
-| Site logo  | `apps/web/public/logo.svg`               | the header, replacing the wordmark in `apps/web/src/app/layout.tsx` |
-| Tool cover | `apps/web/public/tools/<slug>/cover.jpg` | the Tool's card, via `cover` in that Tool's `meta.ts`               |
+| Asset            | Path                                        | Wired up by                                                                     |
+| ---------------- | ------------------------------------------- | ------------------------------------------------------------------------------- |
+| Site mark        | `apps/web/src/app/icon.svg`                 | Next's icon file convention; used by browser tabs, bookmarks and search results |
+| Home screen icon | `apps/web/src/app/apple-icon.png` (180×180) | the same convention; used by iOS "add to home screen"                           |
+| Tool cover       | `apps/web/public/tools/<slug>/cover.jpg`    | the Tool's card, via `cover` in that Tool's `meta.ts`                           |
+
+Two things to know before editing the mark: its two colours are the design tokens written out literally (a favicon cannot read a stylesheet), and `apple-icon.png` is a hand export of the same geometry at 180×180 with no alpha channel, so both need redoing together with `theme.ts`.
 
 A cover is two steps: drop the file at the path above, then set `cover: "/tools/<slug>/cover.jpg"` in `apps/web/src/tools/<slug>/meta.ts`. Until then the card is set in type rather than showing an invented placeholder graphic, and `registry.test.ts` checks that any declared cover is a same-origin image path.
 
