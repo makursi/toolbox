@@ -1,6 +1,6 @@
 # A manual colour-scheme switch
 
-> **Updated by ADR-0009**: the switch is now an icon-only button — a moon in the light scheme, a sun in the dark one — and its accessible name is hidden text in the markup rather than a visible word. The reasoning below about CSS choosing the state, and about `aria-label` being unusable, still holds.
+> **Updated by ADR-0009**: the switch is now an icon-only button — a moon in the light scheme, a sun in the dark one — whose accessible name is `sr-only` text in the markup. That turns two things below into history rather than current state: the second implementation note ("the visible word is its accessible name (verified: '深色'…)") and the closing sentence ("a labelled button rather than a sun and a moon because this site has no icon set yet"). The reasoning about CSS choosing the state, and about a hand-written `aria-label` being unusable, still holds — the hidden sentence is a sentence now («切换到深色»), which is what invisible text bought.
 
 ADR-0007 set the scheme to `auto` in both `ColorSchemeScript` and the provider, and `docs/design.md` section 7 turned that into a rule: "跟随操作系统，**不做手动切换开关**". It held while the dark scheme had never been rendered; once both schemes had been seen in a browser, a dark scheme nobody can choose is a dark scheme nobody sees. The header now carries a two-state switch.
 

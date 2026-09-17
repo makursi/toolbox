@@ -118,7 +118,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 
 ## 七、明暗配色
 
-`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，`variant="default"`、`size="compact-sm"`、带 `.touch-target`），标签写的是**它将要切到的模式**（浅色下显示「深色」）。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
+`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，`variant="default"`、`size="compact-sm"`、带 `.touch-target`），**只有图标**（浅色下是月亮、深色下是太阳），图标写的是**它将要切到的模式**。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
 
 持久化由 Mantine 自带的 `localStorageColorSchemeManager` 完成（就是 provider 的默认值，没改一行配置），`ColorSchemeScript` 在首屏前读取它，所以没有闪白也没有 hydration 不匹配。
 
@@ -168,7 +168,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 任何 UI 改动合并前跑一遍。标了*（可机械验证）*的条目要用命令检查，不能靠读代码。
 
 - [ ] _（可机械验证）_ **渲染产物里零破折号**：构建后 `find .next/server/app -name "*.html" -exec grep -o "—\|–" {} \; | wc -l` 为 0。
-- [ ] _（可机械验证）_ **没有远程资源与字体**：`find .next/server/app -name "*.html" -exec grep -o "fonts.googleapis\|fonts.gstatic" {} \; | wc -l` 为 0。（刻意不用 `grep -c`：它在计数为 0 时退出码非 0，看起来像失败。）
+- [ ] _（可机械验证）_ **没有远程资源与字体**：`find .next/server/app -name "*.html" -exec grep -o "fonts.googleapis\|fonts.gstatic" {} \; | wc -l` 为 0，**并且同一件事对构建出的 CSS 再查一遍**：`find .next/static/chunks -name "*.css" -exec grep -o "url(http" {} \; | wc -l` 为 0、`grep -rl "api.iconify.design" .next` 无输出。第二条不是重复：字体由 `next/font` 自托管所以 HTML 里查得到它，而图标是构建期编进去的 `data:` URI，一旦有人把 Iconify 改回运行期取图，**只有 CSS 这一路会报警**。（刻意不用 `grep -c`：它在计数为 0 时退出码非 0，看起来像失败。）
 - [ ] _（可机械验证）_ **层顺序未被破坏**：构建产物 CSS 里 `theme` → `base` → `mantine` → `components` → `utilities`（用 `find .next/static/chunks -name "*.css"` 找到文件后按字节偏移比较）。改动 `globals.css` 里那行 `@layer` 会**静默**翻转 Tailwind 与 Mantine 的优先级。
 - [ ] _（可机械验证）_ **新颜色都测过对比度**：对着它实际所在的表面测，文字至少 AA（4.5:1）。
 - [ ] _（可机械验证）_ **新 token 两个模式都定义了**：在预渲染 HTML 里核对浅色与深色两组值。
@@ -189,7 +189,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 2. **配色开关的视觉尺寸**：只用图标以后，按钮从一个带字的宽按钮变成一个约 30px 的方块（可点区域仍由 `.touch-target` 撑到 44×44，画出来的东西却小了）。接线时先保持 `size="compact-sm"`，要在浏览器里和 wordmark 摆在一起看过再决定是否升到 `sm`。
 3. **在浏览器里验证**：**2026-09-17 已做两轮，大部分补上了**。第二轮（窄屏卡片、触屏拖拽区、配色开关、返回入口）在生产构建里跑过：首页 5 个宽度 × 2 配色、工具页 4 种（触屏/鼠标 × 窄/宽）组合、开关的"点击 → 存储 → 刷新 → 再点"全链路，外加 `elementFromPoint` 量可点区域、浏览器无障碍树读按钮的可访问名字。第一轮（审计）如下：浅色与深色、首页/工具页/404 都在 Chrome 里渲染并截图核对过；360 / 390 / 768 / 1024 / 1280 五个宽度都过了（无横向溢出，可点控件不小于 44px）；触控目标用 `elementFromPoint` 量过；禁用态与格式勾选的联动用**键盘**（空格）在生产构建里跑过；封面在有图/无图两条路径下都验过。检查清单里的机械项（破折号 0、无远程资源、层顺序）是对着生产构建产物跑的。
    **仍未做的**：hover 提升与入场动效没有被逐帧看过（只确认了 CSS 与 reduced-motion 门控存在）；Lighthouse 没跑过；真机（手机）没试过；**加文件 → 转换 → 下载**这条主流程没有端到端跑过（headless 里塞不进 `input[type=file]`，交给工具自己的 QA 清单）。
-   **第三轮（图标）也还没做**：六个 Phosphor 图标与开关的最终形态是按 ADR-0009 接的，机械项（图标已编进 CSS、零外发请求）可以跑命令，但"图标在两种配色下的观感与开关的尺寸"只能看。
+   **第三轮（图标）也还没做**：六个 Phosphor 图标与开关的最终形态是按 ADR-0009 接的，机械项跑的是第十节那两条（图标已编进 CSS、产物里零外发 URL），但"图标在两种配色下的观感与开关的尺寸"只能看。
    **一条经验**：交互要对着 `pnpm build && pnpm start` 验，不是 dev。dev server 在 HMR socket 连上之前不 hydrate，而它的源守卫会把不带 `Origin` 的客户端放进来、把浏览器拦在外面——页面看着是好的，实际每一下点击都没反应。
 4. **中文字体是否自托管**：目前用系统字体（见第三节）。如果在意跨平台观感一致，再换成 `next/font` 自托管。
 5. **第二个 Tool 到来时**：整行堆叠改成网格。改的时候守住格数规则——有几个内容就几个格子，不要为了凑行留空格子。
