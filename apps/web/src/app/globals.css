@@ -165,6 +165,19 @@
  */
 
 /*
+ * The files that made it in, one line each. This sits beside the drop zone
+ * because it is the same area of the page; each row's rule is what separates it
+ * from the row above, and the first row's own rule is what separates the list
+ * from the count and the clear button.
+ */
+@layer components {
+  .file-row {
+    border-top: 1px solid var(--mantine-color-default-border);
+    padding-block: var(--mantine-spacing-xs);
+  }
+}
+
+/*
  * Controls that are visually small still need a 44px touch target: the box that
  * draws the control and the box that answers a thumb do not have to be the same
  * size. This pseudo-element is centred on the control and given at least 44px on

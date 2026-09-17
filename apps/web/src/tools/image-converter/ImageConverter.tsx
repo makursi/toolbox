@@ -153,6 +153,14 @@ export function ImageConverter() {
     setTargets((previous) => ({ ...previous, [format]: { ...previous[format], ...patch } }));
   }, []);
 
+  // The rejected list goes with the files it describes: a stale "there was a
+  // problem with this file" under an empty list reads as a failure of the next
+  // Batch.
+  const clearFiles = useCallback(() => {
+    setFiles([]);
+    setRejected([]);
+  }, []);
+
   const cancel = useCallback(() => {
     cancelled.current = true;
     pool.current?.terminate();
@@ -275,9 +283,29 @@ export function ImageConverter() {
 
         {files.length > 0 && (
           <Stack gap="xs" mt="md">
-            {files.map((file, index) => (
-              <Paper key={`${file.name}-${index}`} p="xs" withBorder>
-                <Group justify="space-between" wrap="nowrap">
+            <Group justify="space-between" wrap="nowrap">
+              <Text c="dimmed" size="sm">{`已添加 ${files.length} 张`}</Text>
+              {/* `compact-sm` is 30px tall, which is under a thumb: the class
+                  is what makes it a 44px target (see `.touch-target`). */}
+              <Button
+                className="touch-target"
+                disabled={running}
+                onClick={clearFiles}
+                size="compact-sm"
+                variant="default"
+              >
+                清空
+              </Button>
+            </Group>
+
+            <Stack gap={0}>
+              {files.map((file, index) => (
+                <Group
+                  className="file-row"
+                  key={`${file.name}-${index}`}
+                  justify="space-between"
+                  wrap="nowrap"
+                >
                   <Text size="sm" truncate>
                     {file.name}
                   </Text>
@@ -288,8 +316,8 @@ export function ImageConverter() {
                     onClick={() => setFiles((previous) => previous.filter((_, at) => at !== index))}
                   />
                 </Group>
-              </Paper>
-            ))}
+              ))}
+            </Stack>
           </Stack>
         )}
 
