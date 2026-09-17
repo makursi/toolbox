@@ -24,6 +24,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `pnpm test`      | run Vitest via `turbo run test`   |
 | `pnpm fmt`       | format the repo with Oxfmt        |
 
+One thing that is not a `turbo` task because CI cannot run it: `pnpm --filter @toolbox/web fingerprint capture|compare` (`apps/web/scripts/ui-fingerprint.mjs`) snapshots both pages at five widths in both colour schemes and diffs two snapshots — the check that says a refactor moved code without moving anything on screen. The usage, including the Chrome it needs already running, is in the script's header comment.
+
 ## Layout
 
 - `apps/web` — the only App, arranged the way Next.js documents for a project that uses `src` (see “Project structure and organization” in the installed `next` package's docs). `src/app` is the routing tree plus this project's own site-level files there (`globals.css`, `theme.ts`, `providers.tsx`, and the tests for the icon check).

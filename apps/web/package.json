@@ -6,6 +6,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "fingerprint": "node scripts/ui-fingerprint.mjs",
     "start": "next start",
     "lint": "oxlint --type-aware",
     "test": "vitest run",

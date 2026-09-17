@@ -41,6 +41,8 @@ The pure parts — `sniff`, `naming`, `limits`, `bmp`, `options`, `planConversio
 
 CI runs `fmt:check`, `lint`, `typecheck`, `test` and `build`. It cannot run a browser, so it does not know whether a codec produces a valid file, whether the drop zone is reachable from the keyboard, or whether the CSS layers still order correctly. Re-run the checklist by hand when a `@jsquash/*` version changes, when an encoder is touched, when the CSP in `next.config.ts` changes, or when the `@layer` line in `globals.css` changes — that line is what keeps Tailwind's utilities able to override Mantine, and getting it wrong is invisible in a build.
 
+One part of this **is** in the repo: `pnpm --filter @toolbox/web fingerprint capture|compare` snapshots this page and the homepage at five widths in both colour schemes and diffs two snapshots. Run it before and after a change that is supposed to be structural only — it is what turns “nothing looks different” into evidence.
+
 ## Manual QA checklist
 
 One conversion each way, using a photo with transparency and a photo without:
