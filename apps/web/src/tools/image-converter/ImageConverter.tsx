@@ -266,8 +266,11 @@ export function ImageConverter() {
           </Stack>
         </Dropzone>
 
+        {/* The promise belongs at the point of action, not under the title: this
+            is where someone decides whether to hand over a file. The capability
+            and the list of formats are one line up, in the description. */}
         <Text c="dimmed" mt="xs" size="xs">
-          支持 PNG、JPEG、WebP、AVIF 与 BMP。文件不会上传，全程只在这个标签页里完成。
+          文件不会上传，全程只在这个标签页里完成。
         </Text>
 
         {files.length > 0 && (
