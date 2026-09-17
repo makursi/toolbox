@@ -42,51 +42,63 @@ export default function HomePage() {
 }
 
 function ToolCard({ tool }: { tool: ToolMeta }) {
+  /*
+   * The cover frame exists only when there is a cover to put in it. An earlier
+   * version reserved the 4:3 frame unconditionally, which meant the card's most
+   * prominent box held nothing and, because that box also carried an inline
+   * `width: 100%`, squeezed the text into a sliver from 768px up (Mantine's `sm`
+   * is 48em, not Tailwind's 640px). A Tool without artwork is set in type.
+   *
+   * The frame keeps its aspect ratio when it *is* rendered, so an arriving image
+   * cannot shift the layout; what changes when a cover lands is the card's shape,
+   * which is a deliberate revision rather than a load-time jump.
+   */
+  const text = (
+    <Stack gap="xs">
+      <Text fw={500} size="lg">
+        {tool.title}
+      </Text>
+      <Text c="dimmed">{tool.description}</Text>
+      <Text mt="xs" size="sm">
+        打开 <span aria-hidden="true">→</span>
+      </Text>
+    </Stack>
+  );
+
   return (
     <Link href={toolPath(tool.slug)} style={{ color: "inherit", textDecoration: "none" }}>
       <Paper className="lift" p="lg" radius="md" withBorder>
-        <Flex direction={{ base: "column", sm: "row" }} gap="lg">
-          {/*
-            TODO: cover image, 4:3, at least 660x495.
-            Drop it at apps/web/public/tools/<slug>/cover.jpg and set `cover` in
-            that Tool's meta.ts. The frame is reserved either way so the card does
-            not reflow the day it lands, and nothing invented is drawn in it.
-          */}
-          <Box
-            style={{
-              aspectRatio: "4 / 3",
-              backgroundColor: "var(--mantine-color-default)",
-              border: "1px solid var(--mantine-color-default-border)",
-              borderRadius: "var(--mantine-radius-sm)",
-              flexShrink: 0,
-              overflow: "hidden",
-              position: "relative",
-              width: "100%",
-            }}
-            w={{ base: "100%", sm: 220 }}
-          >
-            {tool.cover ? (
-              /* Decorative: the card's text already names the Tool. */
+        {tool.cover ? (
+          <Flex direction={{ base: "column", sm: "row" }} gap="lg">
+            {/* Width comes from the responsive prop alone: a `width` in `style`
+                is an inline declaration and would outrank every breakpoint. */}
+            <Box
+              style={{
+                aspectRatio: "4 / 3",
+                backgroundColor: "var(--mantine-color-default)",
+                border: "1px solid var(--mantine-color-default-border)",
+                borderRadius: "var(--mantine-radius-sm)",
+                flexShrink: 0,
+                overflow: "hidden",
+                position: "relative",
+              }}
+              w={{ base: "100%", sm: 220 }}
+            >
+              {/* Decorative: the card's text already names the Tool. */}
               <Image
                 alt=""
                 fill
-                sizes="(min-width: 640px) 220px, 100vw"
+                sizes="(min-width: 768px) 220px, 100vw"
                 src={tool.cover}
                 style={{ objectFit: "cover" }}
               />
-            ) : null}
-          </Box>
+            </Box>
 
-          <Stack gap="xs">
-            <Text fw={500} size="lg">
-              {tool.title}
-            </Text>
-            <Text c="dimmed">{tool.description}</Text>
-            <Text mt="xs" size="sm">
-              打开 <span aria-hidden="true">→</span>
-            </Text>
-          </Stack>
-        </Flex>
+            {text}
+          </Flex>
+        ) : (
+          text
+        )}
       </Paper>
     </Link>
   );
