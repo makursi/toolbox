@@ -43,6 +43,7 @@ One conversion each way, using a photo with transparency and a photo without:
 - [ ] PNG, WebP and AVIF keep transparency when the source has it.
 - [ ] **Every format row and the 无损 switch toggles under a real mouse press, not only under the keyboard.** The keyboard is what let a dead hit area ship once: the toggle was on a `<label>`, the 44px overlay that was supposed to grow the target sat on the root `<div>` above it, and every pointer click was taken by an element that handles none. Point at the words, the box, and 20px below the words, and watch the state change.
 - [ ] The file list says how many files were added, 清空 empties it (including the rejected list), and one file's cross removes only that file.
+- [ ] When every file in a Batch was refused, the error Alert is still there and 清空 is what dismisses it.
 - [ ] Moving the quality slider changes the file size of a JPEG, WebP and AVIF output.
 - [ ] The lossless switch on WebP and AVIF produces a file at least as large as the lossy one, and the quality slider is disabled while it is on.
 - [ ] The Advanced panel changes something observable: AVIF `speed: 10` is faster than `speed: 0`; oxipng `level: 6` produces a PNG no larger than `level: 0`.

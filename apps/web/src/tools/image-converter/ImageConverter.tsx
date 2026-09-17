@@ -257,21 +257,27 @@ export function ImageConverter() {
           文件不会上传，全程只在这个标签页里完成。
         </Text>
 
-        {files.length > 0 && (
+        {/* The row is also there when every file was refused: the rejected list
+            is what is left to clear, and it is the only way to clear it. */}
+        {(files.length > 0 || rejected.length > 0) && (
           <Stack gap="xs" mt="md">
             <Group justify="space-between" wrap="nowrap">
-              <Text c="dimmed" size="sm">{`已添加 ${files.length} 张`}</Text>
-              {/* `compact-sm` is 30px tall, which is under a thumb: the class
-                  is what makes it a 44px target (see `.touch-target`). */}
-              <Button
-                className="touch-target"
-                disabled={running}
-                onClick={clearFiles}
-                size="compact-sm"
-                variant="default"
-              >
-                清空
-              </Button>
+              <Text c="dimmed" size="sm">
+                {files.length > 0 ? `已添加 ${files.length} 张` : null}
+              </Text>
+              {/* Hidden while a Batch runs, the way 取消 only appears while one
+                  does — a greyed control would owe the visitor a reason, and
+                  the reason here is the one 取消 already names. */}
+              {!running && (
+                <Button
+                  className="touch-target"
+                  onClick={clearFiles}
+                  size="compact-sm"
+                  variant="default"
+                >
+                  清空
+                </Button>
+              )}
             </Group>
 
             <Stack gap={0}>
