@@ -9,6 +9,7 @@ import {
   Collapse,
   ColorInput,
   FileButton,
+  Flex,
   Group,
   NumberInput,
   Paper,
@@ -229,6 +230,10 @@ export function ImageConverter() {
         <Dropzone
           activateOnClick={false}
           activateOnKeyboard={false}
+          /* Padding comes from a class rather than the `p` prop on purpose: a
+             simple style prop is written inline, and inline beats every layer,
+             so `p="lg"` could not be undone on a touch screen. */
+          className="dropzone-pad dropzone-touch-flat"
           disabled={running}
           enablePointerEvents
           mt="sm"
@@ -236,7 +241,6 @@ export function ImageConverter() {
           onDrop={(dropped) => {
             void addFiles(dropped);
           }}
-          p="lg"
         >
           <Stack align="center" gap="sm">
             <FileButton
@@ -245,7 +249,12 @@ export function ImageConverter() {
               onChange={(picked) => void addFiles(toFiles(picked))}
             >
               {(props) => (
-                <Button {...props} size="md" variant="default">
+                <Button
+                  {...props}
+                  className="action-full-width add-files-button"
+                  size="md"
+                  variant="default"
+                >
                   选择文件
                 </Button>
               )}
@@ -407,8 +416,15 @@ export function ImageConverter() {
         </SimpleGrid>
       </section>
 
-      <Group>
+      {/* A Flex rather than a Group: on a narrow screen the buttons take the
+          width and the reason sits under them, which a Group cannot express. */}
+      <Flex
+        align={{ base: "stretch", sm: "center" }}
+        direction={{ base: "column", sm: "row" }}
+        gap="md"
+      >
         <Button
+          className="action-full-width"
           disabled={running || files.length === 0 || enabledTargets.length === 0}
           onClick={() => void start()}
           size="md"
@@ -416,7 +432,7 @@ export function ImageConverter() {
           {files.length > 0 ? `转换 ${files.length} 个文件` : "转换"}
         </Button>
         {running && (
-          <Button onClick={cancel} size="md" variant="default">
+          <Button className="action-full-width" onClick={cancel} size="md" variant="default">
             取消
           </Button>
         )}
@@ -427,7 +443,7 @@ export function ImageConverter() {
             {blocked}
           </Text>
         )}
-      </Group>
+      </Flex>
 
       <section aria-live="polite">
         {planned.length > 0 && (

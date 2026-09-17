@@ -126,12 +126,46 @@
 }
 
 /*
- * "drag files here" is a lie on a device that cannot drag, and the button above
- * it is how a file is added there anyway.
+ * The drop zone, and the two ways a small screen changes it.
+ *
+ * Padding is a class rather than the `p` prop because a simple style prop is
+ * written inline, and an inline declaration outranks every layer: `p="lg"`
+ * could not be taken back below.
+ */
+.dropzone-pad {
+  padding: var(--mantine-spacing-lg);
+}
+
+/*
+ * Touch: there is nothing to drag with, so the dashed box promises something
+ * the device cannot do. The element stays — the file button lives inside it —
+ * and only its box goes, which leaves the button as the whole of "add files".
+ * The button grows to a thumb target at the same time.
  */
 @media (hover: none) {
   .drag-hint {
     display: none;
+  }
+
+  .dropzone-touch-flat {
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+  }
+
+  .add-files-button {
+    min-height: 50px;
+  }
+}
+
+/*
+ * A narrow screen: an action takes the width it can get. Deliberately separate
+ * from the rule above — a narrow window on a desktop still drags files, and a
+ * wide tablet still wants the thumb-sized button.
+ */
+@media (max-width: 640px) {
+  .action-full-width {
+    width: 100%;
   }
 }
 
