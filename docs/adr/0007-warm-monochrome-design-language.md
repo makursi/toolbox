@@ -1,5 +1,7 @@
 # A warm monochrome design language, in both colour schemes
 
+> **Partly superseded by ADR-0009**: the site now has an icon set (Phosphor, through Iconify at build time), so the disclosure no longer uses the `+` / `−` glyphs and the reason given below for having no icon library no longer applies.
+
 The site had no design language of its own. Mantine's defaults sat on top of the colour tokens `shadcn init` had written before shadcn was removed (ADR-0006), which left the light scheme a pure white canvas and no dark scheme at all. This records what replaced that: a warm monochrome with no accent colour, in both schemes, following the operating system's preference.
 
 Two skill protocols were consulted and one was chosen as the language: **`minimalist-ui`** supplies the palette, the typographic hierarchy, the whitespace and the component specifications, while **`design-taste-frontend`** (the default skill of the `taste-skill` family) supplies the gates — its §6 accessibility and performance rules, its §9 list of AI tells, its §11 redesign protocol and the §14 pre-flight check that has to pass before the work counts as done.

@@ -532,10 +532,16 @@ function AdvancedPanel({
   return (
     <div>
       {/*
-        A glyph rather than an icon: a disclosure whose only job is to show state
-        does not need an icon dependency, and the reference convention for these
-        is a sharp + and -. The glyph is hidden from assistive tech because
-        `aria-expanded` already carries the state.
+        The disclosure's mark is an icon rather than the `+` / `-` glyphs it used
+        to be. The glyphs were not wrong, but they came from whichever CJK font
+        the operating system fell back to, so their width and weight differed per
+        machine; a Phosphor icon is the same drawing everywhere and is the same
+        family as the arrows and the scheme switch. Still hidden from assistive
+        tech, because `aria-expanded` already carries the state.
+
+        The two names are written out rather than assembled from a variable:
+        Tailwind reads class names out of the source, so a name built at runtime
+        would never be compiled. `icons.test.ts` fails on that mistake.
       */}
       <UnstyledButton
         aria-expanded={expanded}
@@ -544,7 +550,11 @@ function AdvancedPanel({
         style={{ borderRadius: "var(--mantine-radius-sm)", padding: "2px 6px" }}
       >
         <Text fw={500} size="sm">
-          <span aria-hidden="true">{expanded ? "− " : "+ "}</span>
+          {expanded ? (
+            <span aria-hidden className="icon mr-1 icon-[ph--minus-bold]" />
+          ) : (
+            <span aria-hidden className="icon mr-1 icon-[ph--plus-bold]" />
+          )}
           高级选项
         </Text>
       </UnstyledButton>

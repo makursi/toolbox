@@ -62,7 +62,8 @@ function ToolCard({ tool }: { tool: ToolMeta }) {
       </Text>
       <Text c="dimmed">{tool.description}</Text>
       <Text mt="xs" size="sm">
-        打开 <span aria-hidden="true">→</span>
+        打开
+        <span aria-hidden className="icon ml-1 icon-[ph--arrow-right-bold]" />
       </Text>
     </Stack>
   );

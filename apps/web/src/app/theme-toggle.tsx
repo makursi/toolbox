@@ -11,18 +11,18 @@ import { Button, useComputedColorScheme, useMantineColorScheme } from "@mantine/
  * it before the first paint, so nothing flashes. See ADR-0008 for why a site
  * that used to refuse this control now has one.
  *
- * **The label is chosen by the stylesheet, not by React state.** The server
- * cannot know the operating system's preference, so anything derived from the
- * scheme at render time would either mismatch on hydration or briefly lie and
- * then correct itself. Both labels are in the markup and
- * `[data-mantine-color-scheme]` — which the script above sets before the first
- * paint — decides which one is visible. That also means **no `aria-label`**: the
- * visible word is the accessible name, and a label supplied by hand would
- * disagree with whichever word is on screen.
+ * The icon names the mode it switches *to* — a moon in the light scheme — and
+ * both icons live in the markup together with the words that name them, which
+ * are hidden from sight and read out instead. Which pair is live is decided by
+ * the stylesheet from `[data-mantine-color-scheme]`, not by React state: the
+ * server cannot know the operating system's preference, so a value read during
+ * render would either mismatch on hydration or briefly lie and then correct
+ * itself. The same constraint is why the button carries no `aria-label` — a
+ * label written here is one fixed string, and it would name the wrong mode in
+ * one of the two schemes.
  *
- * The word names the mode it switches *to*: one word with no state to infer.
- * It is a word rather than a sun and a moon because this site has no icon set
- * yet (issue #14); when Phosphor lands those two replace it.
+ * Icons are Phosphor from Iconify, compiled in at build time; see
+ * `docs/adr/0009-phosphor-icons-through-iconify.md`.
  */
 export function ThemeToggle() {
   const { setColorScheme } = useMantineColorScheme();
@@ -36,8 +36,14 @@ export function ThemeToggle() {
       size="compact-sm"
       variant="default"
     >
-      <span className="theme-label-light">深色</span>
-      <span className="theme-label-dark">浅色</span>
+      <span className="theme-toggle-light">
+        <span aria-hidden className="icon icon-[ph--moon-bold]" />
+        <span className="sr-only">切换到深色</span>
+      </span>
+      <span className="theme-toggle-dark">
+        <span aria-hidden className="icon icon-[ph--sun-bold]" />
+        <span className="sr-only">切换到浅色</span>
+      </span>
     </Button>
   );
 }
