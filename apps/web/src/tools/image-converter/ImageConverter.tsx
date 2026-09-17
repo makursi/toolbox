@@ -320,10 +320,16 @@ export function ImageConverter() {
             const state = targets[format];
 
             return (
-              <Paper key={format} p="lg" withBorder>
+              <Paper
+                className="format-card"
+                data-checked={state.enabled || undefined}
+                key={format}
+                p="lg"
+                withBorder
+              >
                 <Checkbox
                   checked={state.enabled}
-                  className="touch-target"
+                  className="format-row"
                   disabled={running}
                   label={`${spec.label} (.${spec.extension})`}
                   onChange={(event) =>
@@ -336,7 +342,9 @@ export function ImageConverter() {
                     {spec.lossless === "optional" && (
                       <Switch
                         checked={state.lossless}
-                        className="touch-target"
+                        /* `body` is the `<label>` that owns the toggle; the
+                           root `<div>` above it would swallow the click. */
+                        classNames={{ body: "touch-target" }}
                         disabled={running}
                         label="无损"
                         onChange={(event) =>
