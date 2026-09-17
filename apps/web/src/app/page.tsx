@@ -55,7 +55,9 @@ function ToolCard({ tool }: { tool: ToolMeta }) {
    */
   const text = (
     <Stack gap="xs">
-      <Text fw={500} size="lg">
+      {/* A notch larger on a phone: with the cover below the fold of the card
+          rather than beside it, the title is the only thing doing the talking. */}
+      <Text fw={500} fz={{ base: "xl", sm: "lg" }}>
         {tool.title}
       </Text>
       <Text c="dimmed">{tool.description}</Text>
@@ -69,9 +71,17 @@ function ToolCard({ tool }: { tool: ToolMeta }) {
     <Link href={toolPath(tool.slug)} style={{ color: "inherit", textDecoration: "none" }}>
       <Paper className="lift" p="lg" radius="md" withBorder>
         {tool.cover ? (
-          <Flex direction={{ base: "column", sm: "row" }} gap="lg">
+          /*
+           * The cover sits beside the text on a wide screen and *under* it on a
+           * phone. That order comes from one prop: the markup is [cover, text],
+           * `column-reverse` reads the text first on a narrow screen, and `row`
+           * puts the cover back on the left from `sm` up.
+           */
+          <Flex direction={{ base: "column-reverse", sm: "row" }} gap="lg">
             {/* Width comes from the responsive prop alone: a `width` in `style`
-                is an inline declaration and would outrank every breakpoint. */}
+                is an inline declaration and would outrank every breakpoint. The
+                height stops rising once it hits the cap, which crops the cover
+                instead of letting it eat the card. */}
             <Box
               style={{
                 aspectRatio: "4 / 3",
@@ -79,6 +89,7 @@ function ToolCard({ tool }: { tool: ToolMeta }) {
                 border: "1px solid var(--mantine-color-default-border)",
                 borderRadius: "var(--mantine-radius-sm)",
                 flexShrink: 0,
+                maxHeight: 180,
                 overflow: "hidden",
                 position: "relative",
               }}
