@@ -187,6 +187,20 @@
   display: inline;
 }
 
+/*
+ * A link that sits in dimmed text and comes up to full contrast under the
+ * pointer. The card's whole surface answers a hover, and the wordmark is plainly
+ * a wordmark; a lone dimmed word in a page of dimmed text has nothing else to
+ * say that it is a link.
+ */
+.quiet-link {
+  color: var(--mantine-color-dimmed);
+}
+
+.quiet-link:hover {
+  color: var(--mantine-color-text);
+}
+
 @keyframes reveal {
   from {
     opacity: 0;
