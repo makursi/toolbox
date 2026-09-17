@@ -45,9 +45,7 @@ export function checkLimits(
       return {
         ok: false,
         reason: "too-many-pixels",
-        message: `这张图有 ${input.width}×${input.height} 像素，上限是 ${Math.round(
-          limits.maxPixels / 1_000_000,
-        )} megapixels.`,
+        message: `这张图有 ${input.width}×${input.height} 像素，上限是 ${formatPixels(limits.maxPixels)}。`,
       };
     }
   }
@@ -57,4 +55,19 @@ export function checkLimits(
 
 function megabytes(bytes: number): number {
   return Math.round(bytes / (1024 * 1024));
+}
+
+/**
+ * Chinese counts pixels in 万 and 亿; a megapixel is not a unit this interface
+ * uses anywhere else, and "268 megapixels" was the one English phrase left in a
+ * sentence a visitor reads. The name says it returns text, unlike its sibling
+ * `megabytes`, which returns a number for the message to wrap.
+ */
+function formatPixels(count: number): string {
+  if (count >= 100_000_000) return `${(count / 100_000_000).toFixed(2)} 亿像素`;
+  // Under 万 the number itself is the clearest thing to say: rounding 5000 would
+  // produce "1 万像素", which is not what the limit is.
+  if (count < 10_000) return `${count} 像素`;
+
+  return `${Math.round(count / 10_000)} 万像素`;
 }

@@ -12,7 +12,7 @@ meta.ts              the Tool Registry entry
 README.md            this file: how it works, and what to check by hand
 zip.ts               turns the finished outputs into one download
 core/                pure, browser-free logic — the part `pnpm test` covers
-  formats · advanced · options · bmp · geometry · limits · naming · plan · sniff
+  formats · advanced · options · bmp · geometry · limits · naming · plan · sniff · hints · failures
   __tests__/         the tests for those modules
 worker/              the browser-only half
   worker.ts          decode, rotate, flatten, resize, encode — one Conversion

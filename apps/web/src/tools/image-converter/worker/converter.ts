@@ -1,3 +1,9 @@
+import {
+  ConversionFailure,
+  describeFailure,
+  failureCause,
+  failureSentence,
+} from "../core/failures";
 import type { Rotation } from "../core/geometry";
 import type { TargetSettings } from "../core/options";
 import type { PlannedConversion } from "../core/plan";
@@ -113,7 +119,7 @@ export class ConversionPool {
 
       const file = files[conversion.sourceIndex];
       if (!file) {
-        onOutcome({ ok: false, conversion, message: "这个文件已经不在列表里了。" });
+        onOutcome({ ok: false, conversion, message: failureSentence("gone") });
         continue;
       }
 
@@ -144,7 +150,14 @@ export class ConversionPool {
             : { ok: false, conversion, message: response.message },
         );
       } catch (error) {
-        onOutcome({ ok: false, conversion, message: describe(error) });
+        // Cancelling is not a mystery, so it does not get a console line;
+        // anything else does, including the Worker that just died — which is
+        // why the rejection below carries the event's own error as its cause.
+        if (!(error instanceof ConversionFailure) || !this.#stopped) {
+          // oxlint-disable-next-line no-console -- the raw failure is the only clue for the ones we cannot explain.
+          console.error(`Conversion ${conversion.id} failed:`, failureCause(error));
+        }
+        onOutcome({ ok: false, conversion, message: describeFailure(error) });
         if (!this.#stopped) this.#replaceWorker(index);
       }
     }
@@ -159,8 +172,11 @@ export class ConversionPool {
         worker.removeEventListener("error", onError);
         result();
       };
-      const abort = () => settle(() => reject(new Error("已取消。")));
-      const onError = () => settle(() => reject(new Error("转换进程中断了。")));
+      const abort = () => settle(() => reject(new ConversionFailure("interrupted")));
+      const onError = (event: ErrorEvent) =>
+        settle(() =>
+          reject(new ConversionFailure("interrupted", { cause: event.error ?? event.message })),
+        );
       const onMessage = (event: MessageEvent<ConvertResponse>) => {
         if (event.data.id !== request.id) return;
         settle(() => resolve(event.data));
@@ -172,8 +188,4 @@ export class ConversionPool {
       worker.postMessage(request, [request.bytes]);
     });
   }
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
