@@ -4,21 +4,8 @@ import {
   failureCause,
   failureSentence,
 } from "../core/failures";
-import type { Rotation } from "../core/geometry";
-import type { TargetSettings } from "../core/options";
 import type { PlannedConversion } from "../core/plan";
 import type { ConvertRequest, ConvertResponse } from "./worker";
-
-/**
- * A Batch: every file the user added, the targets they enabled, and the output
- * settings that apply to all of them.
- */
-export type BatchSettings = {
-  targets: TargetSettings[];
-  rotate: Rotation;
-  maxEdge: number | null;
-  background: string;
-};
 
 export type Outcome =
   | {
@@ -62,7 +49,6 @@ export class ConversionPool {
   async run(
     files: readonly File[],
     planned: readonly PlannedConversion[],
-    settings: BatchSettings,
     onOutcome: (outcome: Outcome) => void,
   ): Promise<void> {
     if (planned.length === 0) return;
@@ -76,9 +62,7 @@ export class ConversionPool {
     const claim = () =>
       this.#stopped || claimed >= planned.length ? undefined : planned[claimed++];
 
-    await Promise.all(
-      this.#workers.map((_, index) => this.#pump(index, files, settings, claim, onOutcome)),
-    );
+    await Promise.all(this.#workers.map((_, index) => this.#pump(index, files, claim, onOutcome)));
   }
 
   /** Stops every Worker, including one in the middle of a WebAssembly encode. */
@@ -109,7 +93,6 @@ export class ConversionPool {
   async #pump(
     index: number,
     files: readonly File[],
-    settings: BatchSettings,
     claim: () => PlannedConversion | undefined,
     onOutcome: (outcome: Outcome) => void,
   ): Promise<void> {
@@ -132,9 +115,6 @@ export class ConversionPool {
           id: conversion.id,
           bytes,
           target: conversion.target,
-          rotate: settings.rotate,
-          maxEdge: settings.maxEdge,
-          background: settings.background,
         });
 
         onOutcome(

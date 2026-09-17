@@ -7,15 +7,12 @@ import {
   Checkbox,
   CloseButton,
   Collapse,
-  ColorInput,
   FileButton,
   Flex,
   Group,
   NumberInput,
   Paper,
   Progress,
-  Select,
-  SimpleGrid,
   Slider,
   Stack,
   Switch,
@@ -28,8 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { advancedFields, type AdvancedField } from "./core/advanced";
 import { formatSpecs, imageFormats, type ImageFormat } from "./core/formats";
-import type { Rotation } from "./core/geometry";
-import { backgroundHint, convertHint } from "./core/hints";
+import { convertHint } from "./core/hints";
 import { checkLimits } from "./core/limits";
 import type { TargetSettings } from "./core/options";
 import { planConversions, type PlannedConversion } from "./core/plan";
@@ -78,9 +74,6 @@ export function ImageConverter() {
   const [files, setFiles] = useState<File[]>([]);
   const [rejected, setRejected] = useState<Rejected[]>([]);
   const [targets, setTargets] = useState(initialTargets);
-  const [maxEdge, setMaxEdge] = useState("");
-  const [rotate, setRotate] = useState<Rotation>(0);
-  const [background, setBackground] = useState("#ffffff");
   const [running, setRunning] = useState(false);
   const [planned, setPlanned] = useState<PlannedConversion[]>([]);
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
@@ -99,11 +92,6 @@ export function ImageConverter() {
           advanced: targets[format].advanced,
         })),
     [targets],
-  );
-
-  const flattening = useMemo(
-    () => enabledTargets.some((target) => !formatSpecs[target.format].alpha),
-    [enabledTargets],
   );
 
   /** Why the Convert button is greyed out, or null when it is live. */
@@ -153,6 +141,14 @@ export function ImageConverter() {
     setTargets((previous) => ({ ...previous, [format]: { ...previous[format], ...patch } }));
   }, []);
 
+  // The rejected list goes with the files it describes: a stale "there was a
+  // problem with this file" under an empty list reads as a failure of the next
+  // Batch.
+  const clearFiles = useCallback(() => {
+    setFiles([]);
+    setRejected([]);
+  }, []);
+
   const cancel = useCallback(() => {
     cancelled.current = true;
     pool.current?.terminate();
@@ -179,23 +175,11 @@ export function ImageConverter() {
     const instance = new ConversionPool();
     pool.current = instance;
 
-    const parsed = Number.parseInt(maxEdge, 10);
-
     try {
-      await instance.run(
-        files,
-        plan,
-        {
-          targets: enabledTargets,
-          rotate,
-          maxEdge: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
-          background,
-        },
-        (outcome) => {
-          if (cancelled.current) return;
-          setOutcomes((previous) => [...previous, outcome]);
-        },
-      );
+      await instance.run(files, plan, (outcome) => {
+        if (cancelled.current) return;
+        setOutcomes((previous) => [...previous, outcome]);
+      });
     } finally {
       // Whatever happened, the Workers go away and the form becomes usable
       // again — a Batch that fails must not leave the Convert button disabled.
@@ -273,11 +257,37 @@ export function ImageConverter() {
           文件不会上传，全程只在这个标签页里完成。
         </Text>
 
-        {files.length > 0 && (
+        {/* The row is also there when every file was refused: the rejected list
+            is what is left to clear, and it is the only way to clear it. */}
+        {(files.length > 0 || rejected.length > 0) && (
           <Stack gap="xs" mt="md">
-            {files.map((file, index) => (
-              <Paper key={`${file.name}-${index}`} p="xs" withBorder>
-                <Group justify="space-between" wrap="nowrap">
+            <Group justify="space-between" wrap="nowrap">
+              <Text c="dimmed" size="sm">
+                {files.length > 0 ? `已添加 ${files.length} 张` : null}
+              </Text>
+              {/* Hidden while a Batch runs, the way 取消 only appears while one
+                  does — a greyed control would owe the visitor a reason, and
+                  the reason here is the one 取消 already names. */}
+              {!running && (
+                <Button
+                  className="touch-target"
+                  onClick={clearFiles}
+                  size="compact-sm"
+                  variant="default"
+                >
+                  清空
+                </Button>
+              )}
+            </Group>
+
+            <Stack gap={0}>
+              {files.map((file, index) => (
+                <Group
+                  className="file-row"
+                  key={`${file.name}-${index}`}
+                  justify="space-between"
+                  wrap="nowrap"
+                >
                   <Text size="sm" truncate>
                     {file.name}
                   </Text>
@@ -288,8 +298,8 @@ export function ImageConverter() {
                     onClick={() => setFiles((previous) => previous.filter((_, at) => at !== index))}
                   />
                 </Group>
-              </Paper>
-            ))}
+              ))}
+            </Stack>
           </Stack>
         )}
 
@@ -320,10 +330,16 @@ export function ImageConverter() {
             const state = targets[format];
 
             return (
-              <Paper key={format} p="lg" withBorder>
+              <Paper
+                className="format-card"
+                data-checked={state.enabled || undefined}
+                key={format}
+                p="lg"
+                withBorder
+              >
                 <Checkbox
                   checked={state.enabled}
-                  className="touch-target"
+                  className="format-row"
                   disabled={running}
                   label={`${spec.label} (.${spec.extension})`}
                   onChange={(event) =>
@@ -336,7 +352,9 @@ export function ImageConverter() {
                     {spec.lossless === "optional" && (
                       <Switch
                         checked={state.lossless}
-                        className="touch-target"
+                        /* `body` is the `<label>` that owns the toggle; the
+                           root `<div>` above it would swallow the click. */
+                        classNames={{ body: "touch-target" }}
                         disabled={running}
                         label="无损"
                         onChange={(event) =>
@@ -380,43 +398,6 @@ export function ImageConverter() {
             );
           })}
         </Stack>
-      </section>
-
-      <section>
-        <Title order={2} size="h4">
-          3. 输出设置
-        </Title>
-
-        <SimpleGrid className="output-settings" cols={{ base: 1, sm: 3 }} mt="sm">
-          <NumberInput
-            description="留空表示保持原尺寸。"
-            disabled={running}
-            label="最长边（像素）"
-            min={16}
-            onChange={(value) => setMaxEdge(typeof value === "number" ? String(value) : value)}
-            placeholder="保持原图"
-            value={maxEdge}
-          />
-
-          <Select
-            allowDeselect={false}
-            data={rotationOptions}
-            description="顺时针旋转所有输出。"
-            disabled={running}
-            label="旋转"
-            onChange={(value) => setRotate(parseRotation(value ?? "0"))}
-            value={String(rotate)}
-          />
-
-          <ColorInput
-            description={backgroundHint(enabledTargets.length, flattening)}
-            disabled={running || !flattening}
-            format="hex"
-            label="背景色"
-            onChange={setBackground}
-            value={background}
-          />
-        </SimpleGrid>
       </section>
 
       {/* A Flex rather than a Group: on a narrow screen the buttons take the
@@ -477,7 +458,7 @@ export function ImageConverter() {
           <Stack gap="sm" mt="xl">
             <Group justify="space-between">
               <Title order={2} size="h4">
-                4. 下载
+                3. 下载
               </Title>
               <Button
                 onClick={() => saveBlob(zipConversions(succeeded), "converted-images.zip")}
@@ -608,11 +589,6 @@ function DownloadLink({ outcome }: { outcome: Extract<Outcome, { ok: true }> }) 
   );
 }
 
-const rotationOptions = ["0", "90", "180", "270"].map((degrees) => ({
-  value: degrees,
-  label: `${degrees}°`,
-}));
-
 /** FileButton hands back one file, an array of them, or nothing. */
 function toFiles(picked: File[] | File | null): File[] {
   if (!picked) return [];
@@ -627,18 +603,4 @@ function saveBlob(blob: Blob, name: string): void {
   anchor.download = name;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-/** The rotation degrees are a union, so the select's string is mapped, not cast. */
-function parseRotation(value: string): Rotation {
-  switch (value) {
-    case "90":
-      return 90;
-    case "180":
-      return 180;
-    case "270":
-      return 270;
-    default:
-      return 0;
-  }
 }

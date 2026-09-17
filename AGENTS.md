@@ -55,6 +55,7 @@ Traps that cost an hour to find the first time and that no check can see.
 - **`next build` rewrites `apps/web/CLAUDE.md`**, the agent-rules block Next re-adds itself. Run `pnpm fmt` after a build so the tree reads clean.
 - **A build that dies spawning a worker** — `node process exited before we could connect`, exit code `0xc0000142` — is a Turbopack flake on this machine. Retry once before treating it as a regression.
 - **Build large fixtures in a page that is not the one under test.** Generating a 13.7 MB PNG and then uploading it from that same page wedged the renderer twice; a fresh page took the same file in 9 ms. The mechanism is unknown, so the habit is the rule: build in one page, upload in another.
+- **A control can pass keyboard QA and be dead to the mouse.** Mantine's `Checkbox` and `Switch` put the toggle on the inner `<input>` and its `<label for>`; the root `<div>` in between handles nothing. An overlay on that root (`.touch-target`, the 44px hit area) covers the control and takes every pointer click without passing it on, because a pseudo-element's clicks belong to the element it is generated on. A key never hits a pseudo-element, so the keyboard kept working and the bug survived a QA round that used Space. Put the class on the element that owns the click, or stretch the `<label>` across the row — `.format-row` in `globals.css`.
 
 ## Agent skills
 

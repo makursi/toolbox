@@ -76,24 +76,6 @@
 }
 
 /*
- * Three controls side by side, each with help text of a different length. The
- * grid already stretches every column to the height of the tallest; pinning each
- * control to the bottom of its column is then what keeps the three boxes level
- * whatever the copy does. Fixing the height of the help line instead would only
- * survive the copy it was written for.
- */
-@layer components {
-  .output-settings > * {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .output-settings > * > :last-child {
-    margin-top: auto;
-  }
-}
-
-/*
  * The drop zone wears this site's clothes, not Mantine's stock ones.
  *
  * Mantine's own dropzone stylesheet is written against its default palette:
@@ -112,6 +94,37 @@
  * page that does not mean an error.
  */
 @layer components {
+  /*
+   * A format row: the label, not the box beside it, is the row.
+   *
+   * Mantine puts the toggle on the input and on `<label for>`; the root `<div>`
+   * between them handles nothing, so the label is stretched to the whole row and
+   * given the 44px minimum. `.touch-target` cannot be used here — its overlay
+   * would sit on that wrapper and swallow the click, which is exactly the bug
+   * this replaced.
+   */
+  .format-row .mantine-Checkbox-body {
+    align-items: center;
+  }
+
+  .format-row .mantine-Checkbox-labelWrapper {
+    flex: 1;
+  }
+
+  .format-row .mantine-Checkbox-label {
+    align-items: center;
+    display: flex;
+    min-height: 44px;
+  }
+
+  /*
+   * The card, not only the 20px box, says whether a format is on. One token
+   * moves: the hairline becomes ink. No new colour, so no new contrast pairing.
+   */
+  .format-card[data-checked] {
+    border-color: var(--mantine-color-text);
+  }
+
   .mantine-Dropzone-root {
     background-color: var(--mantine-color-default);
     border-color: var(--mantine-color-default-border);
@@ -134,12 +147,35 @@
  */
 
 /*
+ * The files that made it in, one line each. This sits beside the drop zone
+ * because it is the same area of the page; each row's rule is what separates it
+ * from the row above, and the first row's own rule is what separates the list
+ * from the count and the clear button.
+ */
+@layer components {
+  .file-row {
+    border-top: 1px solid var(--mantine-color-default-border);
+    padding-block: var(--mantine-spacing-xs);
+  }
+}
+
+/*
  * Controls that are visually small still need a 44px touch target: the box that
  * draws the control and the box that answers a thumb do not have to be the same
  * size. This pseudo-element is centred on the control and given at least 44px on
  * both axes, which grows the hit area without touching the layout or the
  * drawing. Every control it is used on sits in card padding wide enough that the
  * expanded areas cannot overlap each other.
+ *
+ * It goes on the element that *owns the click* — a `<button>`, an `<a>`, a
+ * `<label for>` — and never on a wrapper that merely renders one. A
+ * pseudo-element's clicks target the element it is generated on, and a wrapper
+ * has no handler, so there the overlay does not grow the hit area: it covers it.
+ * That is what happened to the format checkbox and the lossless switch, whose
+ * class sat on Mantine's root `<div>`: a full-width 44px overlay took every
+ * pointer click and dropped it, while the keyboard still worked, because a key
+ * never hits a pseudo-element. The format row no longer needs this class at all
+ * (see `.format-row`); the switch puts it on its `<label>` body.
  */
 .touch-target {
   position: relative;
