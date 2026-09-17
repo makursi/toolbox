@@ -27,3 +27,7 @@ _Avoid_: tool list, manifest, catalog
 **Conversion**:
 One input image together with the target settings it is encoded with. A Batch is many Conversions, and each Conversion yields at most one output file per target format.
 _Avoid_: job, task, transform
+
+**Lossless**:
+An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF are lossless only when asked, and JPEG cannot be lossless at all, because the format has no such mode. This is a property of the format, not of a Batch.
+_Avoid_: maximum quality, no compression
