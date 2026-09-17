@@ -56,3 +56,5 @@ One conversion each way, using a photo with transparency and a photo without:
 - [ ] With DevTools open, a full Batch produces **no outbound requests** after the page has loaded.
 - [ ] With the console open, no CSP violation is reported (a violation means `next.config.ts` and the Worker disagree about something).
 - [ ] A large image (near the pixel limit) does not freeze the page while it converts.
+
+**最近一次全量执行**：2026-09-17，全部条目通过（质量与无损、高级面板、命名冲突、超限、单个坏文件、取消、纯键盘、大图长任务、CSP）。执行方法：无头 Chrome 对着 `pnpm build && pnpm start`，用 CDP 的 `DOM.setFileInputFiles` 把文件送进文件选择器（无头浏览器做得到，React 也照常收到 change）。逐条证据记在 `docs/design.md` 第十一节。**像素上限那条是例外**，它由 `core/__tests__/limits.test.ts` 的单测覆盖（造一张超过 268 MP 的真图要差不多 1 GB 内存），下面这条同理。
