@@ -58,13 +58,21 @@
  * The card answers the pointer, because a card that does not is a card nobody
  * clicks. 200ms and a shadow at 4% opacity: enough to register as touchable,
  * not enough to read as depth.
+ *
+ * Only the transition is gated by reduced motion, not the state: a visitor who
+ * asked for less motion still gets the shadow, it simply arrives at once.
+ * Section 6 of `docs/design.md` asks for everything above the gate to degrade
+ * to stillness, which 200ms of moving shadow is not — this transition used to
+ * sit outside the gate while the entrance animation sat inside it.
  */
-.lift {
-  transition: box-shadow 200ms ease;
-}
-
 .lift:hover {
   box-shadow: 0 2px 8px rgb(0 0 0 / 4%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lift {
+    transition: box-shadow 200ms ease;
+  }
 }
 
 /*
