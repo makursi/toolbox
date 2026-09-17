@@ -63,6 +63,46 @@
   }
 }
 
+/*
+ * The drop zone wears this site's clothes, not Mantine's stock ones.
+ *
+ * Mantine's own dropzone stylesheet is written against its default palette:
+ * `--mantine-color-white` and `gray-4` in light, `dark-6` and `dark-4` in dark.
+ * Neither is this site's palette — the surface token is the warm one, and pure
+ * white is banned outright (section 7 of docs/design.md) — so that box read as
+ * a piece of another product sitting in the middle of the page.
+ *
+ * The `components` layer is declared after `mantine` at the top of this file, so
+ * an override here beats the library's rule at equal specificity. The dashed
+ * hairline is kept on purpose: this is the one box on the site that asks to be
+ * dropped on, and that difference should be legible without an icon.
+ *
+ * The dragging state is drawn in ink and not in a hue: this design has no
+ * accent colour, so Mantine's green "accept" would be the only colour on the
+ * page that does not mean an error.
+ */
+@layer components {
+  .mantine-Dropzone-root {
+    background-color: var(--mantine-color-default);
+    border-color: var(--mantine-color-default-border);
+  }
+
+  .mantine-Dropzone-root[data-accept] {
+    background-color: var(--mantine-color-default-hover);
+    border-color: var(--mantine-color-text);
+    color: var(--mantine-color-text);
+  }
+}
+
+/*
+ * There is no rule for `[data-reject]`: this drop zone passes no `accept` prop,
+ * because the format is decided by sniffing the file's bytes rather than by what
+ * the browser claims it is, so react-dropzone has nothing to reject and the
+ * state never renders. Mantine's default would paint it in its own red, which is
+ * a colour nobody measured against this palette; a bad file is reported by the
+ * error Alert under the zone instead.
+ */
+
 @keyframes reveal {
   from {
     opacity: 0;
