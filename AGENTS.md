@@ -26,7 +26,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Layout
 
-- `apps/web` — the only App. Routes in `src/app`, Tool implementations in `src/tools`, the Tool Registry in `src/tools/registry.ts`.
+- `apps/web` — the only App, and this is the arrangement Next.js documents for a project that uses `src` (see “Project structure and organization” in the installed `next` package's docs). `src/app` is the routing tree and the file conventions that go with it (`layout`, `page`, `not-found`, `robots`, `sitemap`, `globals.css`, `theme.ts`); everything else in `src` is ours: `components/<name>/<name>.tsx` for UI more than one route uses, `hooks/<name>/<name>.ts` for hooks that outlive one Tool, `lib/` for non-UI helpers, and `tools/<slug>/` for a Tool's whole implementation — `core/` (pure and tested), `worker/`, `hooks/`, plus its `meta.ts` and `README.md`.
+- Directory name equals file name, kebab-case, and no barrel files: every import names the file it wants.
 - `packages/tsconfig` — the only Package: shared TypeScript config, no runtime code.
 - `docs/adr` — decisions worth not re-litigating, and `CONTEXT.md` — the vocabulary.
 
