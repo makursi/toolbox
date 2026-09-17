@@ -45,6 +45,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **UI work follows `docs/design.md`.** It holds the tokens, the rules that are not up for re-litigation, and the pre-flight checklist; update it in the same commit as the change. The visual language comes from the `minimalist-ui` protocol, the gates from `design-taste-frontend`.
 - **Nothing is loaded from a third party.** The CSP in `apps/web/next.config.ts` allows `img-src 'self'` and `font-src 'self'`, so images, fonts and icons are all self-hosted or built at build time. See `docs/adr/0005-no-outbound-requests.md`.
 
+## Gotchas
+
+Traps that cost an hour to find the first time and that no check can see.
+
+- **Verify UI against the production build** (`pnpm build && pnpm start`), because `next dev` holds back hydration until its HMR origin is accepted, so the page renders and then ignores every click. `docs/design.md` section 11 carries the method, the evidence and what is still unverified.
+- **A fixture that measures size has to be incompressible.** An index multiplied by a constant is periodic and compresses to nothing — a 3000×3000 "noise" PNG came out at 206 KB — so quality and file-size assertions pass on an image that has neither. Print the fixture's own size before trusting the measurement.
+- **Wait for a state transition, not for an absence.** Polling for a transient control to disappear succeeds before React has rendered it at all, which reads as an empty result. Wait for the control to go disabled and then enabled again.
+- **`next build` rewrites `apps/web/CLAUDE.md`**, the agent-rules block Next re-adds itself. Run `pnpm fmt` after a build so the tree reads clean.
+- **A build that dies spawning a worker** — `node process exited before we could connect`, exit code `0xc0000142` — is a Turbopack flake on this machine. Retry once before treating it as a regression.
+- **Build large fixtures in a page that is not the one under test.** Generating a 13.7 MB PNG and then uploading it from that same page wedged the renderer twice; a fresh page took the same file in 9 ms. The mechanism is unknown, so the habit is the rule: build in one page, upload in another.
+
 ## Agent skills
 
 ### Issue tracker
