@@ -8,7 +8,7 @@ The price is weight: Vitest brings Vite (and with it Rolldown's native binaries)
 
 - `vite` and `vitest` move together in the catalog: a Vitest upgrade can raise the Vite floor, and nothing else in the repo depends on Vite.
 - What is testable is what is pure. Component, DOM and routing tests are out of scope until a Tool actually needs them, and would mean adding a DOM environment (`jsdom` or `happy-dom`) plus a testing library in the same package.
-- A test file must be named `*.test.ts` under `apps/web/src` and lives in a `__tests__` directory beside the module it covers; `test.include` is scoped there so build output in `.next` is never collected.
+- A test file must be named `*.test.ts` under `apps/web/src` and lives in a `__tests__` directory beside the module it covers; `test.include` is scoped there so build output in `.next` is never collected. Not everything covered is behaviour: `registry.test.ts` guards the shape of the Tool Registry's data, and `icons.test.ts` reads the source for icon class names, because that is where the toolchain is blind — a name the icon plugin cannot resolve logs a warning and emits no CSS, and a name assembled at runtime is never looked at in the first place.
 - Type-aware linting and `tsc --noEmit` cover test files too, so `describe`/`it`/`expect` are imported explicitly from `vitest` rather than injected as globals — no ambient types to declare.
 
 ## Considered Options

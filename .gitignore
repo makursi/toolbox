@@ -35,7 +35,11 @@ next-env.d.ts
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# .vscode is local preference, except the extension list, which is a courtesy to
+# whoever clones this next: `antfu.iconify` is what previews and completes the
+# `icon-[ph--sun-bold]` class names.
+.vscode/*
+!.vscode/extensions.json
 *.swp
 *.swo
 

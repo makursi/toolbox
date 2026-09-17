@@ -18,7 +18,7 @@ UI 改动由两套 skill 协议共同约束，两者在动手前都已被完整�
 **明确不用**的（写在这里，免得以后有人重新捡起来）：
 
 - `high-end-visual-design`：它禁止 `1px` 发丝边框（而本设计的卡片正是靠发丝边框成立的），并要求主按钮做成药丸形，而 `minimalist-ui` 明令禁止主按钮用药丸。两者在最关键的地方正面冲突，所以只能选一个来主控。
-- `antfu-design`：它以 UnoCSS 为前提。只在**不依赖 UnoCSS**的地方借用它的约定（见「待办」第 2 条的 Iconify 部分）。
+- `antfu-design`：它以 UnoCSS 为前提。只在**不依赖 UnoCSS**的地方借用它的约定（Iconify 的预览扩展已按它的建议写进 `.vscode/extensions.json`）。
 - `antfu`（工程约定 skill）：它唯一与 UI 相关的内容是 Iconify 的 VS Code 扩展；其其余参考（ESLint、catalogs）与本仓 oxlint、字面量版本的约定冲突，不适用。
 
 ---
@@ -89,9 +89,10 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 - **卡片在窄屏上的形状**：封面在宽屏上在左侧（220×165），在窄屏上**移到文字下方**且**高度封顶 180px**（多余的裁掉），标题同时从 18px 升到 20px。理由：手机上封面占满屏宽会把标题挤到下面、又把卡片拉得很长，而直接隐藏封面等于把这张图在手机上删掉。换序由一个属性完成：标里是 `[封面, 文字]`，`direction={{ base: "column-reverse", sm: "row" }}`。
 - **圆角**：容器 8px、控件 4px（`Button` 默认 `radius="sm"`）。一套体系两个值；**药丸形主按钮被否决**——放在方正的卡片里，它读起来像装饰。
 - **按钮**：Mantine `filled`，用 `ink` 调色板（浅色接近黑、深色接近白），对比色由 Mantine 自动计算（17.33:1）。
-- **折叠控件（disclosure）**：用文字形的 `+` / `−`，配 `aria-expanded`，并把字形对读屏隐藏（属性已经表达了状态）。`+` 是排版字符，不是手搓的 SVG 图标——这也是目前还不需要图标依赖的原因。Iconify 接进来之后会替换掉这两个字形。
-- **Tool 页的返回入口**：标题上方一行 `← 返回首页`（`size="sm"`、dimmed，hover 提亮到正文色，用 `.quiet-link`）。页头的 wordmark 也回首页，两者是有意的：一个是上下文、一个是全局。404 页不加（它已经有一个主按钮）。`←` 和卡片上的 `→` 一样属于待换的排版字形。
-- **配色开关**：页头右侧，`variant="default"` + `size="compact-sm"`，带 `.touch-target`（页头里最小的靶子也是 44×44）。标签写**将要切到的模式**，且由样式表切换（见第七节）。它是全站第一个"形状上就该是图标"的控件，图标到位后换成日/月。
+- **图标**：来自 Phosphor，由 Iconify 的 Tailwind v4 插件在**构建期**编进 CSS（`apps/web/src/app/globals.css` 里的 `@plugin`），写成一个字面量类名 `icon-[ph--arrow-right-bold]`，绘制方式是 `currentColor` 的 mask，所以图标跟随所在文字的颜色与字号。**统一用 bold 一个字重**，尺寸就是 `1em`，没有图标专用的尺寸 token。**不做包装组件**：Tailwind 是从源码里读出类名的，拼出来的名字不会被编译，`apps/web/src/app/__tests__/icons.test.ts` 会拦下这种写法和写错的图标名。除了这三条，`.icon` 只负责插件管不到的两件事（`flex-shrink`、以及把 inline-block 的图标下移 `0.125em` 与文字对齐）。理由与取舍见 `docs/adr/0009-phosphor-icons-through-iconify.md`。
+- **折叠控件（disclosure）**：图标用 `ph--plus-bold` / `ph--minus-bold`，配 `aria-expanded`，图标对读屏隐藏（属性已经表达了状态）。
+- **Tool 页的返回入口**：标题上方一行（图标 + 返回首页，`size="sm"`、dimmed，hover 提亮到正文色，用 `.quiet-link`），箭头是 `ph--arrow-left-bold`。页头的 wordmark 也回首页，两者是有意的：一个是上下文、一个是全局。404 页不加（它已经有一个主按钮）。
+- **配色开关**：页头右侧，`variant="default"` + `size="compact-sm"`，带 `.touch-target`（页头里最小的靶子也是 44×44）。**只有图标，没有可见文字**：浅色下是月亮、深色下是太阳，写的都是**将要切到的模式**。名字给读屏（「切换到深色」/「切换到浅色」），用 `sr-only` 文字写在图标旁边，两套都在 DOM 里、由样式表切换（见第七节）。
 - **输入控件**：发丝边框；占位符与标签的对比度都按它们实际所在的表面测过；聚焦环取 ink 色。
 - **404 页**（`apps/web/src/app/not-found.tsx`）：三个东西，不多不少 —— 发生了什么、为什么可能发生、一个出口。用它自己的排版站起来（`Container size="md"`、标题用 `h1`、说明用 `dimmed`、出口是一个主按钮）；**不放超大数字、不放插画、不列「你可能想找」的链接清单** —— 一个只有一个工具的站点没有那么多去处可推荐。回首页的按钮写成 `component="a"` 而不是 `component={Link}`：字符串让 Mantine 渲染成真锚点，页面因此保持 Server Component（传函数给 Client Component 会被构建拒绝），代价是一次整页加载，而对一个 404 来说这反而更稳：关掉 JavaScript 也回得去。
 - **禁用的控件必须说明原因**：灰掉的按钮或输入框旁边要写清缺的是哪一步，而不是让人猜、也不是用 tooltip 藏起来。这些句子只有一个出处（`core/hints.ts`），有单测；而且必须**随状态变化**，一句通用的"请完成上面的步骤"等于没说。背景色一个控件就有三种状态：没选目标 / 选的格式不支持透明通道（需要它）/ 选中的格式都支持透明通道（用不到它）。
@@ -117,11 +118,11 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 
 ## 七、明暗配色
 
-`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，`variant="default"`、`size="compact-sm"`、带 `.touch-target`），标签写的是**它将要切到的模式**（浅色下显示「深色」）。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
+`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，`variant="default"`、`size="compact-sm"`、带 `.touch-target`），**只有图标**（浅色下是月亮、深色下是太阳），图标写的是**它将要切到的模式**。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
 
 持久化由 Mantine 自带的 `localStorageColorSchemeManager` 完成（就是 provider 的默认值，没改一行配置），`ColorSchemeScript` 在首屏前读取它，所以没有闪白也没有 hydration 不匹配。
 
-**标签由样式表切，不由 JS 状态切**：两个词都在 DOM 里，`[data-mantine-color-scheme]` 决定显示哪一个。服务端不可能知道系统配色，所以任何在渲染期读 scheme 的做法，要么 hydration 不匹配、要么先撒一句谎再自我纠正。也因此**它没有 `aria-label`**：可见的那个词就是它的可访问名字（已验：浅色下是「深色」，深色下是「浅色」），另外写一句反而会和屏幕上显示的字不一致。图标接线后（#14）可以改成只有图标 + `aria-label`。
+**名字由样式表切，不由 JS 状态切**：图标与 `sr-only` 的名字都按模式各备一份、都在 DOM 里，`[data-mantine-color-scheme]` 决定哪一份活着。服务端不可能知道系统配色，所以任何在渲染期读 scheme 的做法，要么 hydration 不匹配、要么先撒一句谎再自我纠正。也因此**它没有 `aria-label`**：写在组件里的 `aria-label` 是一个固定字符串，总有一种配色下会与实际显示的模式不符；而两份 `sr-only` 文字正好可以写成完整的句子（「切换到深色」），这是以前那个可见的词负担不起的。
 
 任何 token 都必须**先补齐两个模式**才能上线。禁止纯 `#000000` 与纯 `#ffffff`：两者都撑不起层次；浅色画布之所以是暖白（bone），正是为了让白卡片能落在它上面。任何一"节"都不允许在页面中途翻转成反色主题。
 
@@ -167,10 +168,11 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 任何 UI 改动合并前跑一遍。标了*（可机械验证）*的条目要用命令检查，不能靠读代码。
 
 - [ ] _（可机械验证）_ **渲染产物里零破折号**：构建后 `find .next/server/app -name "*.html" -exec grep -o "—\|–" {} \; | wc -l` 为 0。
-- [ ] _（可机械验证）_ **没有远程资源与字体**：`find .next/server/app -name "*.html" -exec grep -o "fonts.googleapis\|fonts.gstatic" {} \; | wc -l` 为 0。（刻意不用 `grep -c`：它在计数为 0 时退出码非 0，看起来像失败。）
+- [ ] _（可机械验证）_ **没有远程资源与字体**：`find .next/server/app -name "*.html" -exec grep -o "fonts.googleapis\|fonts.gstatic" {} \; | wc -l` 为 0，**并且同一件事对构建出的 CSS 再查一遍**：`find .next/static/chunks -name "*.css" -exec grep -o "url(http" {} \; | wc -l` 为 0、`grep -rl "api.iconify.design" .next` 无输出。第二条不是重复：字体由 `next/font` 自托管所以 HTML 里查得到它，而图标是构建期编进去的 `data:` URI，一旦有人把 Iconify 改回运行期取图，**只有 CSS 这一路会报警**。（刻意不用 `grep -c`：它在计数为 0 时退出码非 0，看起来像失败。）
 - [ ] _（可机械验证）_ **层顺序未被破坏**：构建产物 CSS 里 `theme` → `base` → `mantine` → `components` → `utilities`（用 `find .next/static/chunks -name "*.css"` 找到文件后按字节偏移比较）。改动 `globals.css` 里那行 `@layer` 会**静默**翻转 Tailwind 与 Mantine 的优先级。
 - [ ] _（可机械验证）_ **新颜色都测过对比度**：对着它实际所在的表面测，文字至少 AA（4.5:1）。
 - [ ] _（可机械验证）_ **新 token 两个模式都定义了**：在预渲染 HTML 里核对浅色与深色两组值。
+- [ ] _（可机械验证）_ **图标类名都是字面量、且在 Phosphor 里存在**：`pnpm test`。拼出来的名字（`icon-[ph--${x}]`）语法检查、lint 与构建都不会报错，只会静默地不生成 CSS。
 - [ ] _（可机械验证）_ **无 emoji**、容器与主按钮上没有 `rounded-full`、没有 `uppercase tracking` 眉标。
 - [ ] **在浏览器里把两个配色模式都看过一遍**（浅色与深色）。
 - [ ] **每个禁用控件都能说出理由**，并且理由随状态变化，而不是一句通用的话。
@@ -183,15 +185,14 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 
 ## 十一、待办
 
-1. **图标，用 Iconify 实现**（方向已定，尚未实施）。已核实：`@iconify/tailwind4`（1.2.3）是 Tailwind v4 的集成方式，`@iconify-json/ph`（1.2.2）是 Phosphor 图标集——Phosphor 正是设计语言规定的图标集。**约束**：图标绝不能在运行时去取，因为 `@iconify/react` 的默认行为是请求 `api.iconify.design`，那会被 CSP 拦掉；必须走构建期方案。**接线前要先查 Iconify 官方文档确认用法，不凭记忆。** 要替换的字形有四个：折叠用的 `+` / `−`、卡片上的 `→`、Tool 页返回链接的 `←`，以及配色开关（它现在用文字标签顶着，见第七节）。
-   - 附带项：`antfu` 约定里，`antfu.iconify`（Iconify 预览与自动补全）应写进 `.vscode/extensions.json`。**但那个文件现在提交不了**——`.vscode/` 在 `.gitignore` 里。要么改 ignore 规则，要么把它留在本地偏好里；这是一个待决事项，不是疏忽。
-2. **封面图**：已完成 —— 首张封面已入位（`apps/web/public/tools/image-converter/cover.jpg`）。以后每加一个 Tool 仍需一张 4:3 的封面；规格与投递位置见第九节。
-3. **在浏览器里验证**：**2026-09-17 已做两轮，大部分补上了**。第二轮（窄屏卡片、触屏拖拽区、配色开关、返回入口）在生产构建里跑过：首页 5 个宽度 × 2 配色、工具页 4 种（触屏/鼠标 × 窄/宽）组合、开关的"点击 → 存储 → 刷新 → 再点"全链路，外加 `elementFromPoint` 量可点区域、浏览器无障碍树读按钮的可访问名字。第一轮（审计）如下：浅色与深色、首页/工具页/404 都在 Chrome 里渲染并截图核对过；360 / 390 / 768 / 1024 / 1280 五个宽度都过了（无横向溢出，可点控件不小于 44px）；触控目标用 `elementFromPoint` 量过；禁用态与格式勾选的联动用**键盘**（空格）在生产构建里跑过；封面在有图/无图两条路径下都验过。检查清单里的机械项（破折号 0、无远程资源、层顺序）是对着生产构建产物跑的。
+1. **封面图**：已完成 —— 首张封面已入位（`apps/web/public/tools/image-converter/cover.jpg`）。以后每加一个 Tool 仍需一张 4:3 的封面；规格与投递位置见第九节。
+2. **在浏览器里验证**：**2026-09-17 已做三轮，大部分补上了**。第二轮（窄屏卡片、触屏拖拽区、配色开关、返回入口）在生产构建里跑过：首页 5 个宽度 × 2 配色、工具页 4 种（触屏/鼠标 × 窄/宽）组合、开关的"点击 → 存储 → 刷新 → 再点"全链路，外加 `elementFromPoint` 量可点区域、浏览器无障碍树读按钮的可访问名字。第一轮（审计）如下：浅色与深色、首页/工具页/404 都在 Chrome 里渲染并截图核对过；360 / 390 / 768 / 1024 / 1280 五个宽度都过了（无横向溢出，可点控件不小于 44px）；触控目标用 `elementFromPoint` 量过；禁用态与格式勾选的联动用**键盘**（空格）在生产构建里跑过；封面在有图/无图两条路径下都验过。检查清单里的机械项（破折号 0、无远程资源、层顺序）是对着生产构建产物跑的。
    **仍未做的**：hover 提升与入场动效没有被逐帧看过（只确认了 CSS 与 reduced-motion 门控存在）；Lighthouse 没跑过；真机（手机）没试过；**加文件 → 转换 → 下载**这条主流程没有端到端跑过（headless 里塞不进 `input[type=file]`，交给工具自己的 QA 清单）。
+   **第三轮（图标）已做**：六个 Phosphor 图标与只有图标的开关是在 Vercel 预览上看过的，两种配色下观感都无问题；开关因此**保留 `size="compact-sm"`**（原是一个待决项：去掉文字后按钮从约 60px 宽变成约 30px 的方块，可点区域仍由 `.touch-target` 撑到 44×44）。还没做的一件事是用读屏实读一次开关的可访问名字（「切换到深色」/「切换到浅色」）。
    **一条经验**：交互要对着 `pnpm build && pnpm start` 验，不是 dev。dev server 在 HMR socket 连上之前不 hydrate，而它的源守卫会把不带 `Origin` 的客户端放进来、把浏览器拦在外面——页面看着是好的，实际每一下点击都没反应。
-4. **中文字体是否自托管**：目前用系统字体（见第三节）。如果在意跨平台观感一致，再换成 `next/font` 自托管。
-5. **第二个 Tool 到来时**：整行堆叠改成网格。改的时候守住格数规则——有几个内容就几个格子，不要为了凑行留空格子。
-6. **工具页**：结构上已定，不必再动。曾经考虑过“全部折叠”，已放弃；四个步骤保持可见，只有选项区折叠。
+3. **中文字体是否自托管**：目前用系统字体（见第三节）。如果在意跨平台观感一致，再换成 `next/font` 自托管。
+4. **第二个 Tool 到来时**：整行堆叠改成网格。改的时候守住格数规则——有几个内容就几个格子，不要为了凑行留空格子。
+5. **工具页**：结构上已定，不必再动。曾经考虑过“全部折叠”，已放弃；四个步骤保持可见，只有选项区折叠。
 
 ---
 
@@ -199,14 +200,15 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 
 写在这里是为了不再被重新讨论：
 
-双层嵌套卡片外壳（Double-Bezel）；药丸形主按钮；渐变、霓虹、玻璃拟态；强调色；衬线大标题；Iconify 方案之外的图标库；远程图片与字体；页面中途的分节反色；在只占一屏的页面上做滚动驱动入场；滚动劫持；用 `h-screen` 而不是 `min-h-[100dvh]`；Tailwind 的重阴影；纯黑与纯白。
+双层嵌套卡片外壳（Double-Bezel）；药丸形主按钮；渐变、霓虹、玻璃拟态；强调色；衬线大标题；手搓 SVG 图标、Phosphor 之外的图标集、运行期取图标（见 `docs/adr/0009-phosphor-icons-through-iconify.md`）；远程图片与字体；页面中途的分节反色；在只占一屏的页面上做滚动驱动入场；滚动劫持；用 `h-screen` 而不是 `min-h-[100dvh]`；Tailwind 的重阴影；纯黑与纯白。
 
 ---
 
 ## 十三、怎么改
 
 - **Token**：`apps/web/src/app/theme.ts`（注意是 resolver，不是 `globals.css`）。
-- **动效**与两个工具类（`.reveal`、`.lift`）：`apps/web/src/app/globals.css`。
+- **动效**与三个工具类（`.reveal`、`.lift`、`.icon`）：`apps/web/src/app/globals.css`。
+- **图标**：在用了它的组件里写类名（`icon-[ph--sun-bold]`）；数据源与插件接线在 `globals.css` 顶部的 `@plugin`；能用的名字查 <https://icon-sets.iconify.design/ph/>。
 - **字号层级、圆角、按钮默认值**：同一个 `createTheme` 调用里。
 - **布局与节奏**：页面组件里；当 Mantine 的属性不接受断点对象时，用 Tailwind 工具类。
 - **改完要更新本文档。** 如果检查清单里的某条或「明确否掉的做法」里的某项不再成立，就改这里——不要让文档和代码互相矛盾。**一份说谎的设计文档比没有更糟。**

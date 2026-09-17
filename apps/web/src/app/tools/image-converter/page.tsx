@@ -19,17 +19,18 @@ export default function ImageConverterPage() {
         {/*
           A way back that is not the browser's back button. The wordmark in the
           header goes home too, and that is on purpose: one is contextual, the
-          other is global. The `←` is typography for now, like the arrow on the
-          card, and becomes an icon with the rest of them (issue #14).
+          other is global. The arrow is a Phosphor icon, like every other icon on
+          the site; see `docs/adr/0009-phosphor-icons-through-iconify.md`.
         */}
         {/* `alignSelf` matters: the hero is a Stack, which stretches its children,
             so without it the anchor's hit box is the whole 960px row and a click
             far to the right of the words would navigate home. The arrow is
             decoration — the word 返回 already carries the meaning — so it is
-            hidden from screen readers, as the card hides its `→`. */}
+            hidden from screen readers, as the card hides its own. */}
         <Link href="/" style={{ alignSelf: "flex-start", textDecoration: "none" }}>
           <Text className="quiet-link touch-target" size="sm">
-            <span aria-hidden="true">← </span>返回首页
+            <span aria-hidden className="icon mr-1 icon-[ph--arrow-left-bold]" />
+            返回首页
           </Text>
         </Link>
         <Title order={1}>{meta.title}</Title>

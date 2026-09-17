@@ -15,6 +15,28 @@
 @import "@mantine/dropzone/styles.layer.css";
 
 /*
+ * Icons, from Phosphor, compiled in at build time.
+ *
+ * The plugin turns a class like `icon-[ph--sun-bold]` into one rule holding the
+ * icon as a `data:` URI in a custom property painted through `mask-image`, in
+ * `currentColor` — so an icon takes the colour and the size of the text it sits
+ * in, and the browser never asks anything of the network. That matters here:
+ * the CSP allows `img-src 'self' blob: data:` and nothing else, and the site
+ * promises to make no outbound requests at all (`docs/adr/0005`). See
+ * `docs/adr/0009-phosphor-icons-through-iconify.md` for why this route and not
+ * an inline-SVG icon component.
+ *
+ * Icon *data* comes from the installed `@iconify-json/ph`, which is a dev
+ * dependency: the sets are read while building the CSS and none of them ship.
+ * Only the icons actually named in the source are compiled, and they are read
+ * as literal class names, which is why there is no wrapper component — Tailwind
+ * has to see the name in the source to know the icon is used. `icons.test.ts`
+ * fails on a name that is missing or assembled at runtime, the two mistakes
+ * that would otherwise ship an invisible icon with no error.
+ */
+@plugin "@iconify/tailwind4";
+
+/*
  * Entry motion.
  *
  * The page is two blocks and both are above the fold, so this runs on load rather
@@ -188,21 +210,42 @@
 }
 
 /*
- * The colour-scheme switch's label: both words are in the markup and the
- * scheme attribute picks one. Doing it here rather than in React state is what
- * keeps the server-rendered markup and the first client render identical — the
- * server cannot know what the operating system prefers (see theme-toggle.tsx).
+ * The colour-scheme switch: an icon plus the words that name it, hidden from
+ * sight, both in the markup with the scheme attribute deciding which pair is
+ * live. Doing it here rather than in React state is what keeps the
+ * server-rendered markup and the first client render identical — the server
+ * cannot know what the operating system prefers (see theme-toggle.tsx).
+ *
+ * The words are `sr-only` text rather than an `aria-label` for the same reason:
+ * a label written in the component is one fixed string that would disagree with
+ * the icon half the time. This is the accessible name, so it is written as the
+ * sentence a person would read out (切换到深色), which the visible-word version
+ * could not afford to be.
  */
-.theme-label-dark {
+.theme-toggle-light,
+[data-mantine-color-scheme="dark"] .theme-toggle-dark {
+  display: inline-flex;
+}
+
+.theme-toggle-dark,
+[data-mantine-color-scheme="dark"] .theme-toggle-light {
   display: none;
 }
 
-[data-mantine-color-scheme="dark"] .theme-label-light {
-  display: none;
-}
-
-[data-mantine-color-scheme="dark"] .theme-label-dark {
-  display: inline;
+/*
+ * The one thing an icon class cannot say for itself.
+ *
+ * The plugin draws an `inline-block` box the size of the current font, and an
+ * inline-block sits with its bottom edge on the baseline — which reads as too
+ * high beside text, because the icon is centred in its box while the letters are
+ * not. Nudging it down by an eighth of its own size is what puts the two on the
+ * same line; it is also why the size is `em` rather than a pixel value.
+ */
+@layer components {
+  .icon {
+    flex-shrink: 0;
+    vertical-align: -0.125em;
+  }
 }
 
 /*
