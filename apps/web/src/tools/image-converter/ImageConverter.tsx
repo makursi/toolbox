@@ -241,12 +241,13 @@ export function ImageConverter() {
               onChange={(picked) => void addFiles(toFiles(picked))}
             >
               {(props) => (
-                <Button {...props} variant="default">
+                <Button {...props} size="md" variant="default">
                   选择文件
                 </Button>
               )}
             </FileButton>
-            <Text c="dimmed" size="sm">
+            {/* Hidden where there is no pointer to drag with: see `.drag-hint`. */}
+            <Text c="dimmed" className="drag-hint" size="sm">
               也可以把文件拖到这里
             </Text>
           </Stack>
@@ -266,6 +267,7 @@ export function ImageConverter() {
                   </Text>
                   <CloseButton
                     aria-label={`移除 ${file.name}`}
+                    className="touch-target"
                     disabled={running}
                     onClick={() => setFiles((previous) => previous.filter((_, at) => at !== index))}
                   />
@@ -305,6 +307,7 @@ export function ImageConverter() {
               <Paper key={format} p="lg" withBorder>
                 <Checkbox
                   checked={state.enabled}
+                  className="touch-target"
                   disabled={running}
                   label={`${spec.label} (.${spec.extension})`}
                   onChange={(event) =>
@@ -317,11 +320,16 @@ export function ImageConverter() {
                     {spec.lossless === "optional" && (
                       <Switch
                         checked={state.lossless}
+                        className="touch-target"
                         disabled={running}
                         label="无损"
                         onChange={(event) =>
                           updateTarget(format, { lossless: event.currentTarget.checked })
                         }
+                        /* `fit-content`: a Stack stretches its children, which
+                           made the whole row a switch that could be flipped by
+                           clicking well to the right of it. */
+                        w="fit-content"
                       />
                     )}
 
@@ -399,11 +407,12 @@ export function ImageConverter() {
         <Button
           disabled={running || files.length === 0 || enabledTargets.length === 0}
           onClick={() => void start()}
+          size="md"
         >
           {files.length > 0 ? `转换 ${files.length} 个文件` : "转换"}
         </Button>
         {running && (
-          <Button onClick={cancel} variant="default">
+          <Button onClick={cancel} size="md" variant="default">
             取消
           </Button>
         )}
@@ -442,6 +451,7 @@ export function ImageConverter() {
               </Title>
               <Button
                 onClick={() => saveBlob(zipConversions(succeeded), "converted-images.zip")}
+                size="md"
                 variant="default"
               >
                 打包成 ZIP 下载
@@ -499,6 +509,7 @@ function AdvancedPanel({
       */}
       <UnstyledButton
         aria-expanded={expanded}
+        className="touch-target"
         onClick={() => setExpanded((open) => !open)}
         style={{ borderRadius: "var(--mantine-radius-sm)", padding: "2px 6px" }}
       >

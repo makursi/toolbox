@@ -103,6 +103,38 @@
  * error Alert under the zone instead.
  */
 
+/*
+ * Controls that are visually small still need a 44px touch target: the box that
+ * draws the control and the box that answers a thumb do not have to be the same
+ * size. This pseudo-element is centred on the control and given at least 44px on
+ * both axes, which grows the hit area without touching the layout or the
+ * drawing. Every control it is used on sits in card padding wide enough that the
+ * expanded areas cannot overlap each other.
+ */
+.touch-target {
+  position: relative;
+}
+
+.touch-target::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+/*
+ * "drag files here" is a lie on a device that cannot drag, and the button above
+ * it is how a file is added there anyway.
+ */
+@media (hover: none) {
+  .drag-hint {
+    display: none;
+  }
+}
+
 @keyframes reveal {
   from {
     opacity: 0;
