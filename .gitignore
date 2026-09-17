@@ -18,6 +18,10 @@ build/
 .env.*
 !.env.example
 
+# image assets waiting to be processed: a drop box, only its README is tracked
+apps/web/assets/inbox/*
+!apps/web/assets/inbox/README.md
+
 # logs
 *.log
 npm-debug.log*

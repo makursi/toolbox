@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Toolbox">
+  <!--
+    The site mark: the wordmark's first letter as a monogram on an ink tile.
+
+    The wordmark in the header *is* the logo (docs/design.md, section 5), so the
+    icon is derived from it rather than invented beside it. The letter is drawn,
+    not set: an SVG favicon cannot rely on a font being present, and Geist is not
+    installed on the machine reading it.
+
+    The two colours are the ink and canvas tokens as literal values, because a
+    favicon has no stylesheet to read them from. Change them here together with
+    `theme.ts`. One treatment for both schemes on purpose: a favicon is not told
+    which scheme the browser chrome is using, and a light letter on a dark tile
+    stays legible against either.
+
+    Geometry: crossbar 7..25 x 9..13, stem 14..18 x 13..23 — centred on 16,16.
+  -->
+  <rect width="32" height="32" fill="#111111" />
+  <path fill="#f7f6f3" d="M7 9h18v4h-7v10h-4V13H7z" />
+</svg>

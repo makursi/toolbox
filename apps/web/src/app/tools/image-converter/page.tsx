@@ -1,12 +1,14 @@
 import { Container, Stack, Text, Title } from "@mantine/core";
 import type { Metadata } from "next";
 
+import { shareMetadata } from "@/lib/site";
 import { ImageConverter } from "@/tools/image-converter/ImageConverter";
 import { meta } from "@/tools/image-converter/meta";
 
 export const metadata: Metadata = {
   title: meta.title,
   description: meta.description,
+  ...shareMetadata(meta.title, meta.description),
 };
 
 export default function ImageConverterPage() {
