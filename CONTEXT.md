@@ -24,6 +24,10 @@ _Avoid_: site, project
 The single list of Tools that exist; the homepage grid and the sitemap both read it.
 _Avoid_: tool list, manifest, catalog
 
+**Tool Card**:
+The card that presents one entry of the Tool Registry on the homepage, and the only place a Tool's cover is used. A Tool without a cover is set in type instead.
+_Avoid_: tile, list item, preview
+
 **Conversion**:
 One input image together with the target settings it is encoded with. A Batch is many Conversions, and each Conversion yields at most one output file per target format.
 _Avoid_: job, task, transform

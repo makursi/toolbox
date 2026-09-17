@@ -26,7 +26,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Layout
 
-- `apps/web` — the only App. Routes in `src/app`, Tool implementations in `src/tools`, the Tool Registry in `src/tools/registry.ts`.
+- `apps/web` — the only App, arranged the way Next.js documents for a project that uses `src` (see “Project structure and organization” in the installed `next` package's docs). `src/app` is the routing tree plus this project's own site-level files there (`globals.css`, `theme.ts`, `providers.tsx`, and the tests for the icon check).
+- The rest of `src` is ours, and the rule for it is **who owns it**: code a route or a Tool owns lives with it — a Tool's whole implementation is `src/tools/<slug>/` (`core/` pure and tested, `worker/`, `hooks/`, `meta.ts`, `README.md`), and the Tool Registry is `src/tools/registry.ts` with its `ToolMeta` in `src/tools/types.ts`; code no single route owns goes to `src/components/<name>/<name>.tsx`, `src/hooks/<name>/<name>.ts`, or `src/lib/` for helpers that are not UI.
+- Directory name equals file name, kebab-case, and no barrel files: every import names the file it wants.
+- **Ownership is the threshold here, not the number of consumers.** The one that counts consumers is `packages/*`, and it is unchanged: a second consumer is when something becomes a Package.
 - `packages/tsconfig` — the only Package: shared TypeScript config, no runtime code.
 - `docs/adr` — decisions worth not re-litigating, and `CONTEXT.md` — the vocabulary.
 
