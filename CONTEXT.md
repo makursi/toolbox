@@ -8,6 +8,10 @@ A collection of single-purpose browser utilities. This glossary fixes the words 
 One user-facing capability, reachable at `/tools/<slug>`.
 _Avoid_: feature, utility, project, app
 
+**Tool page**:
+The route `/tools/<slug>` that renders one Tool. The page _is_ the Tool, not a view of one.
+_Avoid_: detail page, tool detail, tool view
+
 **Package**:
 Code under `packages/*` that other workspace packages import. Not user-facing.
 _Avoid_: library, module, shared folder

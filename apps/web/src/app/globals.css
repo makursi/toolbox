@@ -126,13 +126,97 @@
 }
 
 /*
- * "drag files here" is a lie on a device that cannot drag, and the button above
- * it is how a file is added there anyway.
+ * The drop zone, and the two ways a small screen changes it.
+ *
+ * Padding is a class rather than the `p` prop because a simple style prop is
+ * written inline, and an inline declaration outranks every layer: `p="lg"`
+ * could not be taken back below.
+ */
+.dropzone-pad {
+  padding: var(--mantine-spacing-lg);
+}
+
+/*
+ * Touch: there is nothing to drag with, so the dashed box promises something
+ * the device cannot do. The element stays — the file button lives inside it —
+ * and only its box goes, which leaves the button as the whole of "add files".
+ * The button grows to a thumb target at the same time.
  */
 @media (hover: none) {
   .drag-hint {
     display: none;
   }
+
+  .dropzone-touch-flat {
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+  }
+
+  .add-files-button {
+    min-height: 50px;
+  }
+}
+
+/*
+ * A narrow screen: an action takes the width it can get. Deliberately separate
+ * from the rule above — a narrow window on a desktop still drags files, and a
+ * wide tablet still wants the thumb-sized button.
+ */
+@media (max-width: 640px) {
+  .action-full-width {
+    width: 100%;
+  }
+}
+
+/*
+ * The Tool card's cover frame. Its geometry lives here rather than in the card's
+ * `style` prop: an inline declaration outranks every breakpoint (see section 4),
+ * so the only part of the frame that belongs in the component is the width, which
+ * is the part that responds. The 180px cap is inert on a wide screen, where the
+ * frame is 220x165 anyway.
+ */
+.cover-frame {
+  aspect-ratio: 4 / 3;
+  background-color: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  flex-shrink: 0;
+  max-height: 180px;
+  overflow: hidden;
+  position: relative;
+}
+
+/*
+ * The colour-scheme switch's label: both words are in the markup and the
+ * scheme attribute picks one. Doing it here rather than in React state is what
+ * keeps the server-rendered markup and the first client render identical — the
+ * server cannot know what the operating system prefers (see theme-toggle.tsx).
+ */
+.theme-label-dark {
+  display: none;
+}
+
+[data-mantine-color-scheme="dark"] .theme-label-light {
+  display: none;
+}
+
+[data-mantine-color-scheme="dark"] .theme-label-dark {
+  display: inline;
+}
+
+/*
+ * A link that sits in dimmed text and comes up to full contrast under the
+ * pointer. The card's whole surface answers a hover, and the wordmark is plainly
+ * a wordmark; a lone dimmed word in a page of dimmed text has nothing else to
+ * say that it is a link.
+ */
+.quiet-link {
+  color: var(--mantine-color-dimmed);
+}
+
+.quiet-link:hover {
+  color: var(--mantine-color-text);
 }
 
 @keyframes reveal {

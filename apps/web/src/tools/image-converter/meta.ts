@@ -13,5 +13,5 @@ export const meta: ToolMeta = {
   slug: "image-converter",
   title: "图片格式转换",
   cover: "/tools/image-converter/cover.jpg",
-  description: "在 PNG、JPEG、WebP、AVIF 与 BMP 之间批量互转，全部在浏览器本地完成。",
+  description: "在 PNG、JPEG、WebP、AVIF 与 BMP 之间批量互转。",
 };
