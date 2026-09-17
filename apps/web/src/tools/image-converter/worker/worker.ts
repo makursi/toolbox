@@ -9,8 +9,8 @@ import { defaultOptions as oxipngDefaults } from "@jsquash/oxipng/meta.js";
  * The worker side of a Conversion.
  *
  * Everything expensive happens here so the page stays responsive: decode,
- * rotate, flatten, resize and encode. The protocol is one request in (the
- * file's bytes are *transferred*, not copied) and one response out.
+ * flatten, encode. The protocol is one request in (the file's bytes are
+ * *transferred*, not copied) and one response out.
  *
  * Two codecs are reached through their single-threaded builds on purpose. The
  * multi-threaded libavif encoder and the wasm-bindgen-rayon build of oxipng both
@@ -19,8 +19,7 @@ import { defaultOptions as oxipngDefaults } from "@jsquash/oxipng/meta.js";
  */
 import { encodeBmp } from "../core/bmp";
 import { ConversionFailure, describeFailure, failureCause } from "../core/failures";
-import { formatSpecs } from "../core/formats";
-import { rotateSize, targetSize, type Rotation } from "../core/geometry";
+import { flattenBackground, formatSpecs } from "../core/formats";
 import { checkLimits } from "../core/limits";
 import { resolveEncodeOptions, type EncodeOptions, type TargetSettings } from "../core/options";
 
@@ -28,10 +27,6 @@ export type ConvertRequest = {
   id: number;
   bytes: ArrayBuffer;
   target: TargetSettings;
-  rotate: Rotation;
-  maxEdge: number | null;
-  /** Flattened into the output when the target format has no alpha channel. */
-  background: string;
 };
 
 export type ConvertResponse =
@@ -88,32 +83,21 @@ async function run(request: ConvertRequest) {
       throw new ConversionFailure("too-many-pixels", { sentence: pixels.message });
     }
 
-    const rotated = rotateSize(bitmap.width, bitmap.height, request.rotate);
-    const size = targetSize(bitmap.width, bitmap.height, {
-      maxEdge: request.maxEdge,
-      rotate: request.rotate,
-    });
-
-    // The canvas is the rotated size and the resize is a separate, higher
-    // quality pass through libresize. Flattening happens here too: it has to
-    // happen before the pixels reach a codec with no alpha channel.
-    const canvas = new OffscreenCanvas(rotated.width, rotated.height);
+    // The canvas is the whole conversion now: no rotation, no scaling, so the
+    // output is the source's own pixels. Flattening happens here because it has
+    // to happen before the pixels reach a codec with no alpha channel.
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
     const context2d = canvas.getContext("2d", { alpha: spec.alpha });
     if (!context2d) throw new ConversionFailure("canvas");
 
     if (!spec.alpha) {
-      context2d.fillStyle = request.background;
-      context2d.fillRect(0, 0, rotated.width, rotated.height);
+      context2d.fillStyle = flattenBackground;
+      context2d.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    drawRotated(context2d, bitmap, rotated.width, rotated.height, request.rotate);
+    context2d.drawImage(bitmap, 0, 0);
 
-    const source = context2d.getImageData(0, 0, rotated.width, rotated.height);
-    const image =
-      size.width === source.width && size.height === source.height
-        ? source
-        : await resizeImage(source, size);
-
+    const image = context2d.getImageData(0, 0, bitmap.width, bitmap.height);
     const bytes = await encodeOrFail(image, request.target);
 
     return { bytes, mime: spec.mime, width: image.width, height: image.height };
@@ -153,28 +137,6 @@ async function encodeOrFail(image: ImageData, target: TargetSettings): Promise<A
       ? error
       : new ConversionFailure("encode", { cause: error });
   }
-}
-
-/** Rotate about the canvas centre, which is what makes the size swap work out. */
-function drawRotated(
-  context2d: OffscreenCanvasRenderingContext2D,
-  bitmap: ImageBitmap,
-  canvasWidth: number,
-  canvasHeight: number,
-  rotate: Rotation,
-): void {
-  context2d.translate(canvasWidth / 2, canvasHeight / 2);
-  context2d.rotate((rotate * Math.PI) / 180);
-  context2d.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2, bitmap.width, bitmap.height);
-}
-
-async function resizeImage(
-  source: ImageData,
-  size: { width: number; height: number },
-): Promise<ImageData> {
-  const { default: resize } = await import("@jsquash/resize");
-
-  return resize(source, { width: size.width, height: size.height });
 }
 
 async function encode(image: ImageData, target: TargetSettings): Promise<ArrayBuffer> {

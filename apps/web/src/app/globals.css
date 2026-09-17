@@ -76,24 +76,6 @@
 }
 
 /*
- * Three controls side by side, each with help text of a different length. The
- * grid already stretches every column to the height of the tallest; pinning each
- * control to the bottom of its column is then what keeps the three boxes level
- * whatever the copy does. Fixing the height of the help line instead would only
- * survive the copy it was written for.
- */
-@layer components {
-  .output-settings > * {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .output-settings > * > :last-child {
-    margin-top: auto;
-  }
-}
-
-/*
  * The drop zone wears this site's clothes, not Mantine's stock ones.
  *
  * Mantine's own dropzone stylesheet is written against its default palette:

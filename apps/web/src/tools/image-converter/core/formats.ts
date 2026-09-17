@@ -27,6 +27,17 @@ export type FormatSpec = {
   quality: number;
 };
 
+/**
+ * What transparent pixels become when the target format cannot carry alpha.
+ *
+ * Pure white, and deliberately not the interface's surface token: this is a
+ * pixel in the visitor's own file, not a surface of the site. Flattening onto
+ * the warm bone of the light scheme would read as a tinting bug in the exported
+ * image. There is no control for it any more — see
+ * `docs/adr/0010-no-output-settings.md`.
+ */
+export const flattenBackground = "#ffffff";
+
 export const formatSpecs: Record<ImageFormat, FormatSpec> = {
   png: {
     format: "png",
