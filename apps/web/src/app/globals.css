@@ -169,6 +169,24 @@
   }
 }
 
+/*
+ * The colour-scheme switch's label: both words are in the markup and the
+ * scheme attribute picks one. Doing it here rather than in React state is what
+ * keeps the server-rendered markup and the first client render identical — the
+ * server cannot know what the operating system prefers (see theme-toggle.tsx).
+ */
+.theme-label-dark {
+  display: none;
+}
+
+[data-mantine-color-scheme="dark"] .theme-label-light {
+  display: none;
+}
+
+[data-mantine-color-scheme="dark"] .theme-label-dark {
+  display: inline;
+}
+
 @keyframes reveal {
   from {
     opacity: 0;

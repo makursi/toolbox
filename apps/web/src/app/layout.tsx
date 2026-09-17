@@ -1,4 +1,4 @@
-import { Box, ColorSchemeScript, Container, mantineHtmlProps, Text } from "@mantine/core";
+import { Box, ColorSchemeScript, Container, Flex, mantineHtmlProps, Text } from "@mantine/core";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { siteDescription, siteName, siteUrl, shareMetadata } from "@/lib/site";
 
 import { Providers } from "./providers";
+import { ThemeToggle } from "./theme-toggle";
 
 import "./globals.css";
 
@@ -110,14 +111,19 @@ function SiteHeader() {
       style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}
     >
       <Container py="md" size="md">
-        {/*
-          The wordmark stands in for the logo until there is one. See the Assets
-          section of the README: replacing this with the real mark is meant to be
-          a one-line change, and no stand-in graphic is drawn in the meantime.
-        */}
-        <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>
-          <Text fw={600}>{siteName}</Text>
-        </Link>
+        <Flex align="center" gap="md" justify="space-between">
+          {/*
+            The wordmark stands in for the logo until there is one. See the Assets
+            section of the README: replacing this with the real mark is meant to be
+            a one-line change, and no stand-in graphic is drawn in the meantime.
+          */}
+          <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>
+            <Text fw={600}>{siteName}</Text>
+          </Link>
+          {/* The scheme follows the operating system until this is used; ADR-0008
+              records why a site that refused a toggle now has one. */}
+          <ThemeToggle />
+        </Flex>
       </Container>
     </Box>
   );
