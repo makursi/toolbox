@@ -1,3 +1,5 @@
+import type { Refusal } from "./refusal";
+
 /**
  * How much work one file may cost before the browser falls over.
  *
@@ -18,10 +20,8 @@ export const defaultLimits: Limits = {
   maxPixels: 268_435_456,
 };
 
-export type LimitFailure = {
-  ok: false;
+export type LimitFailure = Refusal & {
   reason: "too-large" | "too-many-pixels";
-  message: string;
 };
 
 export type LimitResult = { ok: true } | LimitFailure;

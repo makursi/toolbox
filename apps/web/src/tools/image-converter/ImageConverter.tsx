@@ -75,7 +75,7 @@ function initialTargets(): Record<ImageFormat, TargetState> {
 }
 
 export function ImageConverter() {
-  const { files, refused, add, removeAt, clear } = useFileQueue();
+  const { files, refused, addFiles, removeAt, clearFiles } = useFileQueue();
   const { running, planned, outcomes, start, cancel } = useConversionBatch();
   const [targets, setTargets] = useState(initialTargets);
 
@@ -133,14 +133,14 @@ export function ImageConverter() {
           mt="sm"
           multiple
           onDrop={(dropped) => {
-            void add(dropped);
+            void addFiles(dropped);
           }}
         >
           <Stack align="center" gap="sm">
             <FileButton
               disabled={running}
               multiple
-              onChange={(picked) => void add(toFiles(picked))}
+              onChange={(picked) => void addFiles(toFiles(picked))}
             >
               {(props) => (
                 <Button
@@ -181,7 +181,7 @@ export function ImageConverter() {
               {!running && (
                 <Button
                   className="touch-target"
-                  onClick={clear}
+                  onClick={clearFiles}
                   size="compact-sm"
                   variant="default"
                 >

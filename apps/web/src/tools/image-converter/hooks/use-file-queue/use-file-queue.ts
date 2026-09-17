@@ -24,7 +24,7 @@ export function useFileQueue() {
   const [files, setFiles] = useState<File[]>([]);
   const [refused, setRefused] = useState<RefusedFile[]>([]);
 
-  const add = useCallback(async (incoming: readonly File[]) => {
+  const addFiles = useCallback(async (incoming: readonly File[]) => {
     if (incoming.length === 0) return;
 
     const accepted: File[] = [];
@@ -55,10 +55,10 @@ export function useFileQueue() {
     setFiles((previous) => previous.filter((_, at) => at !== index));
   }, []);
 
-  const clear = useCallback(() => {
+  const clearFiles = useCallback(() => {
     setFiles([]);
     setRefused([]);
   }, []);
 
-  return { files, refused, add, removeAt, clear };
+  return { files, refused, addFiles, removeAt, clearFiles };
 }
