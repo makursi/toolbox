@@ -22,9 +22,10 @@ worker/              the browser-only half
   converter.ts       the Worker pool and the Batch queue
 ```
 
-A hook that outlives this Tool goes to `src/hooks/` instead (today only
-`useObjectUrl`, which is about blob URLs and knows nothing about images), and UI
-more than one route uses goes to `src/components/`; see the toolbox `AGENTS.md`.
+A hook that knows nothing about this Tool goes to `src/hooks/` instead (today only
+`useObjectUrl`, which is about blob URLs), and UI that no route owns goes to
+`src/components/`. The threshold is ownership, not how many places use it — the
+place that counts consumers is `packages/*`; see the toolbox `AGENTS.md`.
 
 ## How a Conversion runs
 

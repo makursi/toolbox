@@ -102,7 +102,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 - **窄屏上动作占满一行**：`.action-full-width` 在 `max-width: 640px` 生效（Tailwind 的 `sm`），转换与取消都占满，理由文字换行到按钮下方。**与上面那条分开**：窄窗口的桌面仍然能拖文件（见第四节）。
 - **触控目标 ≥44px**：视觉尺寸与可点尺寸不是一回事。`.touch-target` 用一个居中的伪元素把可点区域撑到至少 44×44，不改绘制、不改布局。**它只能挂在「自己处理点击」的元素上**（`<button>`、`<a>`、`<label for>`），挂在只负责包裹的容器上不是把靶子变大，而是把点击吃掉：伪元素收到的点击算在它所属的元素头上，而容器没有处理器，于是鼠标永远点不中、键盘却照常能用。格式行因此不用这个类，改成把它的 `<label>` 撑满整行（`.format-row`）；无损坏开关挂在包住它的那个 `<label>` 上（`classNames={{ body }}`）；高级选项、移除文件、返回首页、配色开关、清空各自就是自己处理点击的元素。主要动作按钮用 `size="md"`（42px）：Mantine 默认的 `sm` 是 36px，在触屏上偏小。
 - **拖拽区（Dropzone）**：`@mantine/dropzone` 自带的样式写在 Mantine 默认调色板上（浅色纯白与 `gray-4`、深色 `dark-6` 与 `dark-4`），两条都不是本站的值，所以它曾经是页面上最显眼的一块"别家的配色"。覆盖写在 `globals.css` 的 `components` 层里（该层排在 `mantine` 之后，同特异性下必赢）。**虚线发丝保留**：全站只有这一个框在邀请你往里丢东西，这个差别应该不靠图标就能读出来。拖拽悬停态用 ink 表达（底色换 `default-hover`、边框换文字色），不用 Mantine 的绿色：本站没有强调色，绿色会是页面上唯一一个不表示错误的颜色。`[data-reject]` **不写规则**：这里没有 `accept` 属性（格式由字节嗅探决定，见第九节），该状态渲染不出来，为一个到不了的状态新增一个颜色，等于新增一个没人量过对比度的值。
-- **页脚**（`apps/web/src/app/layout.tsx`）：发丝上边框加一行小字（`dimmed`、`size="xs"`）。只写站点真正承诺的那句话（文件只在这台设备上处理），**不复述导航**（页头已经有一份），不放第二组链接，不放版权年份。它存在的理由是让每个页面都有结尾；它就只该做这一件事。
+- **页脚**（`src/components/site-footer/site-footer.tsx`）：发丝上边框加一行小字（`dimmed`、`size="xs"`）。只写站点真正承诺的那句话（文件只在这台设备上处理），**不复述导航**（页头已经有一份），不放第二组链接，不放版权年份。它存在的理由是让每个页面都有结尾；它就只该做这一件事。
 
 ---
 
@@ -237,7 +237,7 @@ var(--font-geist-sans), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'N
 - **动效**与三个工具类（`.reveal`、`.lift`、`.icon`）：`apps/web/src/app/globals.css`。
 - **图标**：在用了它的组件里写类名（`icon-[ph--sun-bold]`）；数据源与插件接线在 `globals.css` 顶部的 `@plugin`；能用的名字查 <https://icon-sets.iconify.design/ph/>。
 - **用户能读到的句子**：解释「为什么不行」的那几句在纯函数层，因为文案要能被单测盯住——禁用原因 `core/hints.ts`、转换失败 `core/failures.ts`、大小与像素上限 `core/limits.ts`、加入队列时被拒的 `core/admission.ts`（「无法识别这个文件的格式。」与「暂不支持 HEIC 文件。」以前写在组件里，已经搬完）。**浏览器或编码器自己的报错不进界面，只进 console。**
-- **共用的 UI 与 hook 放哪**：`src/components/<名字>/<名字>.tsx`、`src/hooks/<名字>/<名字>.ts`，目录名与文件名一致、kebab-case、**不写 barrel**（import 写全路径）。只服务于一个 Tool 的 hook 放在那个 Tool 里（`src/tools/<slug>/hooks/`），理由是官方「按功能拆分」那种组织方式，也是本仓对“共用”的一贯门槛：出现第二个消费者才上移。`src/app/` 只留路由与官方约定文件。
+- **共用的 UI 与 hook 放哪**：判据是**谁拥有它**，不是有几个消费者。某个路由段或某个 Tool 私有的，就跟它走（一个 Tool 的整体在 `src/tools/<slug>/`，它的 hook 在 `src/tools/<slug>/hooks/`）；没有单一路由拥有的，进 `src/components/<名字>/<名字>.tsx`、`src/hooks/<名字>/<名字>.ts`，非 UI 的辅助进 `src/lib/`。目录名与文件名一致、kebab-case、**不写 barrel**。`packages/*` 那条门槛不一样，仍然是「出现第二个消费者」，两者不要混。共用件放在 `src/` 下而不是 `app/` 里，是本仓自己的选择（我们本来就用 `src`，官方 `src` 文档也写了用 `src` 就一并搬 `components`/`lib`）；`app/blog/_components/Post.tsx` 那种私有目录写法同样合法，只是不与本仓已经选定的这一种混用。
 - **字号层级、圆角、按钮默认值**：同一个 `createTheme` 调用里。
 - **布局与节奏**：页面组件里；当 Mantine 的属性不接受断点对象时，用 Tailwind 工具类。
 - **改完要更新本文档。** 如果检查清单里的某条或「明确否掉的做法」里的某项不再成立，就改这里——不要让文档和代码互相矛盾。**一份说谎的设计文档比没有更糟。**
