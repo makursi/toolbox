@@ -40,6 +40,29 @@ describe("checkLimits", () => {
     expect(failure(checkLimits({ width: 20000, height: 20000 })).message).toContain("20000");
   });
 
+  it("states the pixel limit in the units the interface uses", () => {
+    // It used to read "上限是 268 megapixels." — an English unit and an ASCII
+    // full stop in a sentence a visitor reads.
+    expect(failure(checkLimits({ width: 20000, height: 20000 })).message).toBe(
+      "这张图有 20000×20000 像素，上限是 2.68 亿像素。",
+    );
+  });
+
+  it("writes a limit below 亿 in 万 instead", () => {
+    const result = checkLimits(
+      { width: 8000, height: 8000 },
+      { maxBytes: 1024, maxPixels: 50_000_000 },
+    );
+
+    expect(failure(result).message).toBe("这张图有 8000×8000 像素，上限是 5000 万像素。");
+  });
+
+  it("writes a limit below 万 in plain pixels, not as 0 万", () => {
+    const result = checkLimits({ width: 100, height: 100 }, { maxBytes: 1024, maxPixels: 5000 });
+
+    expect(failure(result).message).toBe("这张图有 100×100 像素，上限是 5000 像素。");
+  });
+
   it("honours custom limits", () => {
     const result = checkLimits({ bytes: 2048 }, { maxBytes: 1024, maxPixels: 1024 });
 

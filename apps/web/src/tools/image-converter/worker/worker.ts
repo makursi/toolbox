@@ -18,6 +18,7 @@ import { defaultOptions as oxipngDefaults } from "@jsquash/oxipng/meta.js";
  * (`@jsquash/avif/encode`, `@jsquash/oxipng`) are bypassed rather than dropped.
  */
 import { encodeBmp } from "../core/bmp";
+import { ConversionFailure, describeFailure, failureCause } from "../core/failures";
 import { formatSpecs } from "../core/formats";
 import { rotateSize, targetSize, type Rotation } from "../core/geometry";
 import { checkLimits } from "../core/limits";
@@ -64,23 +65,28 @@ async function respond(request: ConvertRequest): Promise<void> {
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage takes a transfer list, not a target origin.
     context.postMessage({ id: request.id, ok: true, ...result }, [result.bytes]);
   } catch (error) {
+    // The visitor gets the sentence; the console gets the thing that actually
+    // threw — for the failures we named that is the browser's or the codec's own
+    // complaint, and for the rest it is the only clue there is.
+    // oxlint-disable-next-line no-console -- a failed Conversion is worth one line, and a Worker has nowhere else to put it.
+    console.error(`Conversion ${request.id} failed:`, failureCause(error));
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage takes a transfer list, not a target origin.
-    context.postMessage({ id: request.id, ok: false, message: describe(error) });
+    context.postMessage({ id: request.id, ok: false, message: describeFailure(error) });
   }
 }
 
 async function run(request: ConvertRequest) {
   const spec = formatSpecs[request.target.format];
-  const bitmap = await createImageBitmap(new Blob([request.bytes]), {
-    imageOrientation: "from-image",
-  });
+  const bitmap = await decode(request.bytes);
 
   try {
     // Browsers disagree about what a canvas does past its area limit — throw,
     // blank, or clamp — so this is the only place the pixel limit can be
     // enforced the same way everywhere. It fails this Conversion alone.
     const pixels = checkLimits({ width: bitmap.width, height: bitmap.height });
-    if (!pixels.ok) throw new Error(pixels.message);
+    if (!pixels.ok) {
+      throw new ConversionFailure("too-many-pixels", { sentence: pixels.message });
+    }
 
     const rotated = rotateSize(bitmap.width, bitmap.height, request.rotate);
     const size = targetSize(bitmap.width, bitmap.height, {
@@ -93,7 +99,7 @@ async function run(request: ConvertRequest) {
     // happen before the pixels reach a codec with no alpha channel.
     const canvas = new OffscreenCanvas(rotated.width, rotated.height);
     const context2d = canvas.getContext("2d", { alpha: spec.alpha });
-    if (!context2d) throw new Error("浏览器没有提供 2D 画布。");
+    if (!context2d) throw new ConversionFailure("canvas");
 
     if (!spec.alpha) {
       context2d.fillStyle = request.background;
@@ -108,11 +114,44 @@ async function run(request: ConvertRequest) {
         ? source
         : await resizeImage(source, size);
 
-    const bytes = await encode(image, request.target);
+    const bytes = await encodeOrFail(image, request.target);
 
     return { bytes, mime: spec.mime, width: image.width, height: image.height };
   } finally {
     bitmap.close();
+  }
+}
+
+/**
+ * A file that will not decode is the failure a visitor is most likely to meet,
+ * and the browser's message for it is written for a developer: "The source
+ * image could not be decoded."
+ */
+async function decode(bytes: ArrayBuffer): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(new Blob([bytes]), { imageOrientation: "from-image" });
+  } catch (error) {
+    throw new ConversionFailure("decode", { cause: error });
+  }
+}
+
+/**
+ * The Worker knows it was in the encode step; it does not know why the codec
+ * refused, so the sentence names the step and offers the two things that might
+ * help rather than guessing at a cause. The codec's own error is kept as the
+ * cause and goes to the console.
+ *
+ * Our own failures pass straight through: `encode` also reaches `encodePng`,
+ * which raises `canvas`, and re-labelling that one as an encode failure would
+ * make the `canvas` sentence unreachable.
+ */
+async function encodeOrFail(image: ImageData, target: TargetSettings): Promise<ArrayBuffer> {
+  try {
+    return await encode(image, target);
+  } catch (error) {
+    throw error instanceof ConversionFailure
+      ? error
+      : new ConversionFailure("encode", { cause: error });
   }
 }
 
@@ -166,7 +205,7 @@ async function encode(image: ImageData, target: TargetSettings): Promise<ArrayBu
 async function encodePng(image: ImageData): Promise<Uint8Array> {
   const canvas = new OffscreenCanvas(image.width, image.height);
   const context2d = canvas.getContext("2d");
-  if (!context2d) throw new Error("浏览器没有提供 2D 画布。");
+  if (!context2d) throw new ConversionFailure("canvas");
 
   context2d.putImageData(image, 0, 0);
   const blob = await canvas.convertToBlob({ type: "image/png" });
@@ -196,7 +235,7 @@ async function encodeAvif(image: ImageData, options: EncodeOptions): Promise<Arr
     image.height,
     codecOptions,
   );
-  if (!output) throw new Error("AVIF 编码失败。");
+  if (!output) throw new ConversionFailure("encode");
 
   return toArrayBuffer(output);
 }
@@ -249,8 +288,4 @@ async function optimisePng(png: Uint8Array, options: EncodeOptions): Promise<Arr
 /** Emscripten hands back a view over its whole heap, so the used range is copied out. */
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer;
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
