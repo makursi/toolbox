@@ -50,11 +50,48 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <Providers>
-          <SiteHeader />
-          {children}
+          {/*
+           * The shell is a column at least as tall as the viewport, so the footer
+           * sits on the bottom edge of a short page (the homepage, a 404) instead
+           * of floating halfway up it. `min-h` rather than a fixed height: the
+           * Tool page is taller than the viewport and has to keep scrolling.
+           */}
+          <Box className="flex min-h-[100dvh] flex-col">
+            <SiteHeader />
+            {/* A `<main>` landmark, so the one thing a screen reader is asked to
+                jump to is the content and not the chrome around it. */}
+            <Box component="main" style={{ flex: 1 }}>
+              {children}
+            </Box>
+            <SiteFooter />
+          </Box>
         </Providers>
       </body>
     </html>
+  );
+}
+
+/**
+ * The last line of every page.
+ *
+ * One sentence, small and dimmed: what the site promises about the files is the
+ * only thing worth repeating down here. A footer is also where a visitor looks
+ * to see whether a page is finished, so it is a hairline and a line of text
+ * rather than nothing at all.
+ */
+function SiteFooter() {
+  return (
+    <Box
+      component="footer"
+      mt="xl"
+      style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}
+    >
+      <Container py="lg" size="md">
+        <Text c="dimmed" size="xs">
+          文件只在这台设备上处理，不上传，也不需要账号。
+        </Text>
+      </Container>
+    </Box>
   );
 }
 
