@@ -23,8 +23,8 @@ export function SiteHeader() {
         <Flex align="center" gap="md" justify="space-between">
           {/*
             The mark and the wordmark are one link home. The mark is the same
-            character the tab shows — its crop and its sizes are in the Assets
-            section of the README — and it is decorative: the name beside it
+            character the tab shows — its crop and its sizes are in section 9 of
+            `docs/design.md` — and it is decorative: the name beside it
             already says what it is, so a screen reader reading both would hear
             the site name twice.
           */}

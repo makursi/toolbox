@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   check:
-    name: format, lint, types, test, build
+    name: format, readme, lint, types, test, build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +33,11 @@ jobs:
       # Whole-repository format check, not a Turborepo task — see ADR 0002.
       - name: Format
         run: pnpm fmt:check
+
+      # One README in two languages, compared structurally — the script explains
+      # what it does read and what it deliberately does not.
+      - name: README
+        run: pnpm check:readme
 
       - name: Lint
         run: pnpm lint
