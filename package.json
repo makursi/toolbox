@@ -13,6 +13,7 @@
     "test": "turbo run test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
+    "check:readme": "node scripts/check-readme-parity.mjs",
     "prepare": "simple-git-hooks"
   },
   "devDependencies": {

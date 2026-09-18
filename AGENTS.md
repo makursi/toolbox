@@ -14,15 +14,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Commands
 
-| Command          | Purpose                           |
-| ---------------- | --------------------------------- |
-| `pnpm dev`       | run the site via `turbo run dev`  |
-| `pnpm build`     | production build                  |
-| `pnpm lint`      | `oxlint --type-aware` per package |
-| `pnpm lint:fix`  | same, with `--fix`                |
-| `pnpm typecheck` | `tsc --noEmit` per package        |
-| `pnpm test`      | run Vitest via `turbo run test`   |
-| `pnpm fmt`       | format the repo with Oxfmt        |
+| Command             | Purpose                                  |
+| ------------------- | ---------------------------------------- |
+| `pnpm dev`          | run the site via `turbo run dev`         |
+| `pnpm start`        | serve the production build               |
+| `pnpm build`        | production build                         |
+| `pnpm lint`         | `oxlint --type-aware` per package        |
+| `pnpm lint:fix`     | same, with `--fix`                       |
+| `pnpm typecheck`    | `tsc --noEmit` per package               |
+| `pnpm test`         | run Vitest via `turbo run test`          |
+| `pnpm fmt`          | format the repo with Oxfmt               |
+| `pnpm check:readme` | check the two READMEs against each other |
 
 One thing that is not a `turbo` task because CI cannot run it: `pnpm --filter @toolbox/web fingerprint capture|compare` (`apps/web/scripts/ui-fingerprint.mjs`) snapshots both pages at five widths in both colour schemes and diffs two snapshots — the check that says a refactor moved code without moving anything on screen. The usage, including the Chrome it needs already running, is in the script's header comment.
 
@@ -37,13 +39,14 @@ One thing that is not a `turbo` task because CI cannot run it: `pnpm --filter @t
 
 ## Conventions
 
-- **Root scripts only delegate.** Root `package.json` runs `turbo run <task>`; the actual task commands live in each package. Never put task logic in the root. The one exception is repo-level tooling that belongs to no package: `fmt` and `fmt:check` run Oxfmt across the whole repository, which has no parallel or caching benefit as a task.
+- **Root scripts only delegate.** Root `package.json` runs `turbo run <task>`; the actual task commands live in each package. Never put task logic in the root. The exception is repo-level tooling that belongs to no package: `fmt` and `fmt:check` run Oxfmt across the whole repository and `check:readme` runs `scripts/check-readme-parity.mjs` across its two READMEs — neither has a package to live in, and neither gains parallelism or caching as a task.
 - **A Tool is not a Package.** No `packages/<tool-name>`. Shared code moves to `packages/*` when a second consumer reuses it, and Tool metadata lives beside its implementation.
 - **Toolchain is Oxlint + Oxfmt.** There is no ESLint, Prettier or Biome anywhere; do not add configuration for them. Lint config is a root baseline (`.oxlintrc.json`) plus small per-package files that `extends` it — only `rules`, `plugins` and `overrides` are inheritable, so `env`, `settings` and `ignorePatterns` stay per package.
 - **Type-aware linting runs from package scripts** (`oxlint --type-aware`), never from `lint-staged`, which runs only `oxfmt` and a non-type-aware `oxlint --fix` on staged files.
 - **Types are checked by `tsc`**, not by Oxlint's `--type-check` (still experimental).
 - **Tests are Vitest unit tests in a `__tests__` directory beside the code they cover, named `*.test.ts`.** They run in a Node environment with no Next or DOM, and `@/*` resolves through `apps/web/vitest.config.ts`; see `docs/adr/0003-vitest-for-unit-tests.md`. `vite` is a required peer of `vitest`, so the two are versioned together in the catalog.
-- **CI is `fmt:check` + `lint` + `typecheck` + `test` + `build`.** `.github/workflows/ci.yml` runs all five on every push to `main` and every pull request, so work is not finished until `pnpm fmt:check` passes too — the pre-push hook only runs `lint` and `typecheck`.
+- **CI is `fmt:check` + `check:readme` + `lint` + `typecheck` + `test` + `build`.** `.github/workflows/ci.yml` runs all six on every push to `main` and every pull request, so work is not finished until `pnpm fmt:check` passes too — the pre-push hook only runs `lint` and `typecheck`.
+- **The README is one document in two languages.** `README.md` is the English original and the one GitHub shows; `README.zh-CN.md` is its Chinese translation. `pnpm check:readme` (`scripts/check-readme-parity.mjs`) compares the heading structure, every language-tagged code block verbatim, and the links and inline code spans — the parts a translation has no licence to change — because a translation that quietly stops tracking the original is invisible in review.
 - **Server-only values** such as `SITE_URL` are read in server components and route metadata, never inlined into client code. `SITE_URL` is declared in the build task's `env` _and_ `.env*` is in its `inputs`, so a changed `.env.local` cannot be served a cached build with a stale origin.
 - **Catalog versions.** The catalog holds versions shared by more than one package plus the repo toolchain; single-consumer dependencies use literal ranges in their own `package.json`. `typescript` and `oxlint-tsgolint` are pinned exactly because tsgolint tracks one TypeScript release.
 - Commits are English, conventional commits.

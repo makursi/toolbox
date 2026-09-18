@@ -34,6 +34,11 @@ jobs:
       - name: Format
         run: pnpm fmt:check
 
+      # One README in two languages, compared structurally — the script explains
+      # what it does read and what it deliberately does not.
+      - name: README
+        run: pnpm check:readme
+
       - name: Lint
         run: pnpm lint
 
