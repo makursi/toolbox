@@ -28,6 +28,14 @@ _Avoid_: tool list, manifest, catalog
 The card that presents one entry of the Tool Registry on the homepage, and the only place a Tool's cover is used. A Tool without a cover is set in type instead.
 _Avoid_: tile, list item, preview
 
+**Site name**:
+马库斯的大书箱 — the name a visitor sees, in the header, the page titles and a shared link's card (`siteName` in `apps/web/src/lib/site.ts`). It is not the Project's name, and the two stopped being the same word on 2026-09-18.
+_Avoid_: brand, product
+
+**Project**:
+toolbox — the repository and the workspace packages (`@toolbox/*`), which is also what these docs are about. Naming a site is not renaming a project, and only the site was renamed.
+_Avoid_: app, repo
+
 **Conversion**:
 One input image together with the target settings it is encoded with. A Batch is many Conversions, and each Conversion yields at most one output file per target format.
 _Avoid_: job, task, transform

@@ -2,6 +2,8 @@
 
 A collection of single-purpose browser tools, each running entirely in your browser. One deployable, many tools.
 
+The site itself is called **马库斯的大书箱** — that is the name in the header, in the page titles and on a shared link's card (`siteName` in `apps/web/src/lib/site.ts`). The project keeps its own name: the repository, the workspace packages (`@toolbox/*`) and this document are all still `toolbox`, and the site's name does not rename any of them.
+
 ## Prerequisites
 
 - Node.js >= 22.12.0
