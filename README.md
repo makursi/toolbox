@@ -4,10 +4,6 @@
 
 A collection of single-purpose browser tools. Every Tool runs entirely in your browser: no account, and the files you give it stay on your device.
 
-Nothing leaves the page after it has loaded either — no analytics, no telemetry, no error reporting and no third-party host. That is a `Content-Security-Policy` header rather than a promise, so it cannot rot; see [docs/adr/0005-no-outbound-requests.md](docs/adr/0005-no-outbound-requests.md).
-
-The site is called **马库斯的大书箱** — the name in the header, in page titles and on a shared link's card — while the repository, the workspace packages (`@toolbox/*`) and these docs stay **toolbox**.
-
 ## Development
 
 Node.js >= 22.12.0 and pnpm — the exact pnpm version is `packageManager` in `package.json`.

@@ -4,10 +4,6 @@
 
 一批单一用途的浏览器小工具。每个工具都完整地跑在你的浏览器里：不需要账号，交给它的文件不会离开你的设备。
 
-页面加载完之后也不会往外发请求——没有统计、没有遥测、没有错误上报、没有第三方主机。而且这是一条 `Content-Security-Policy` 响应头，不是一句承诺，所以它不会随时间腐烂；见 [docs/adr/0005-no-outbound-requests.md](docs/adr/0005-no-outbound-requests.md)。
-
-站点的名字是 **马库斯的大书箱**：页头、页面标题、分享出去的链接卡片用的都是它——而仓库、工作区里的包（`@toolbox/*`）和这些文档仍然是 **toolbox**。
-
 ## 开发
 
 Node.js >= 22.12.0，以及 pnpm——pnpm 的确切版本是 `package.json` 里的 `packageManager`。
