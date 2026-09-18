@@ -7,7 +7,7 @@ The site's mark used to be the wordmark's first letter — a geometric `T` on an
 - Two rules in the design language are departed from knowingly. The mark is **not monochrome**: it keeps the illustration's own colours, which extends the exception the Tool cover already had (`docs/design.md` section 2) from a card's picture to the site's own chrome. And the header's text is no longer the whole logo.
 - The mark is a **bitmap**, because there is no vector original. The tab icon is a crop of the head and shoulders rather than the whole figure: rendered at 16px the figure is a brown vertical smudge, and the crop is the only version that reads in a tab.
 - `apple-icon.png` therefore has a background and no alpha channel. iOS renders transparency as black, and the character's hat is dark grey, so the ink tile the old mark used would swallow the most distinctive part of the drawing; the background is the warm canvas instead.
-- Every served file is an export of one master, and the master is the supplied file itself, byte for byte (`apps/web/assets/brand/marcus.png`, 500×500, 190 KB). The art is **not covered by the repository's licence**, the same way the Tool cover is not — forking the repo does not grant the right to reuse it.
+- Every served file is an export of one master, and the master is the supplied file itself, byte for byte (`apps/web/assets/brand/makursi.png`, 500×500, 190 KB). The art is **not covered by the repository's licence**, the same way the Tool cover is not — forking the repo does not grant the right to reuse it.
 
 ## Considered Options
 

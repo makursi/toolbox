@@ -30,7 +30,7 @@ export function SiteHeader() {
           */}
           <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>
             <Flex align="center" gap={8}>
-              <Image alt="" height={28} src="/brand/marcus.png" width={28} />
+              <Image alt="" height={28} src="/brand/makursi.png" width={28} />
               <Text fw={600}>{siteName}</Text>
             </Flex>
           </Link>
