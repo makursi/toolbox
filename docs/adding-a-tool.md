@@ -1,0 +1,61 @@
+# Adding a Tool
+
+The contract for adding a Tool to this site: what a Tool has to pass, which files it touches, where its code lives, and the order the work happens in. It is written for whoever adds the next one, human or agent, and it assumes `CONTEXT.md` (the vocabulary), `docs/design.md` (the UI) and `docs/adr/` (the decisions) have been read.
+
+A Tool is one user-facing capability at `/tools/<slug>`. It is not a Package — that word is for code under `packages/*` with a second consumer — and it is not an App: an App is a thing that deploys, and ADR-0001 settles that a Tool needing a Web Worker is a route inside `apps/web`, not a second site.
+
+## 1. The gates, before any code
+
+- **It runs entirely in the browser.** Nothing may be requested after the page has loaded. That is enforced by the CSP in `apps/web/next.config.ts`, not by good intentions (ADR-0005): a Tool that needs a server, an account or a third-party API does not get an exception in the header, it reopens the decision.
+- **No third-party assets, ever.** Images and fonts are self-hosted by `next/font`, and icons are Phosphor names compiled into the CSS at build time (ADR-0009) — so a new icon is a literal class name in the source, never a download.
+- **The design language is `docs/design.md`**, and it is not advisory: warm monochrome with no accent colour, hairline cards, 44px targets, Chinese copy with no em dashes. Read it before writing UI, and change it in the same commit if a rule has to change.
+- **Components are Mantine, layout is Tailwind utilities.** There is no second design system and no hand-rolled icon.
+
+## 2. What a Tool touches
+
+| Path                                     |                               | Note                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/tools/<slug>/`                      | required                      | The whole implementation. Nothing about its internal shape is a template to fill in: `core/` for the pure, tested logic, `worker/` for the browser-only half, `hooks/` for the Tool's React state, `<PascalName>.tsx` for the `"use client"` component. `image-converter/` is one Tool's answer, not the required one. |
+| `src/tools/<slug>/meta.ts`               | required                      | The Tool Registry entry. `description` states the **capability** — it is also the line on the homepage card and on a share card — and never repeats the "stays on your device" promise, which is the footer's, once a page.                                                                                            |
+| `src/tools/registry.ts`                  | required                      | One import, one array entry. The registry is the single list the homepage grid and the sitemap read.                                                                                                                                                                                                                   |
+| `src/app/tools/<slug>/page.tsx`          | required                      | `export const metadata = toolMetadata(meta)` and `<ToolPage meta={meta}>…</ToolPage>`. Every Tool has its own explicit, static route, and the registry stays data — no component field, so importing it does not pull a Tool's client code into the module graph (ADR-0001).                                           |
+| `src/tools/<slug>/README.md`             | required                      | What the Tool does, a map of its files, how a run works, and a **manual QA checklist** for everything CI cannot reach: a browser, a pointer, a real file. `image-converter/README.md` is the example; `docs/design.md` §11 is where the evidence of a run is recorded.                                                 |
+| `apps/web/public/tools/<slug>/cover.jpg` | optional                      | A 4:3 frame, 1320×990 or larger, wired up by `meta.cover`. Candidates are dropped in `apps/web/assets/inbox/` and the colour and subject rules are in `docs/design.md` §9. A Tool without one is set in type, and **no placeholder graphic is ever invented** to fill the slot.                                        |
+| `apps/web/scripts/ui-fingerprint.mjs`    | when a page is added          | One more line in `PAGES`. Adding a page invalidates the previous snapshot by design — that is not a failure to fix, it is a new baseline to capture.                                                                                                                                                                   |
+| `docs/design.md`                         | when the UI or a rule changes | In the same commit. A design doc that lies is worse than none.                                                                                                                                                                                                                                                         |
+| `CONTEXT.md`                             | rarely                        | Only for a word the whole site uses. A Tool's own vocabulary belongs with the Tool, not in the site glossary.                                                                                                                                                                                                          |
+| `docs/adr/NNNN-*.md`                     | rarely                        | Only when the decision is hard to reverse, surprising without context, **and** the result of a real trade-off. Two of the three is not enough.                                                                                                                                                                         |
+
+## 3. Where the code goes
+
+The rule is **ownership, not the number of consumers**: code a Tool owns lives in `src/tools/<slug>/`, a Tool's hooks in `src/tools/<slug>/hooks/<name>/<name>.ts`, and anything no single route owns goes to `src/components/<name>/<name>.tsx`, `src/hooks/<name>/<name>.ts`, or `src/lib/` for helpers that are not UI. The shell every Tool page shares is already `src/components/tool-page/tool-page.tsx`. Directory name equals file name, kebab-case, and no barrel files: every import names the file it wants.
+
+`packages/*` is the one place where a consumer count decides: the threshold there is the **second** consumer. The first duplication is a signal, not a mandate — when Tool #2 needs what Tool #1 has (a Worker pool, a file queue, a zip), that is when it becomes a Package, deliberately and in its own pull request (ADR-0001).
+
+## 4. Tests
+
+Vitest in a Node environment with no DOM, in `__tests__/<name>.test.ts` beside the module (ADR-0003). What is testable is what is pure, which is the reason a Tool's logic goes to `core/` rather than into the component.
+
+The sentences a visitor reads when something is refused belong in that pure layer — `core/hints.ts`, `core/failures.ts`, `core/limits.ts`, `core/admission.ts` in the image converter — because that is what lets a test hold the wording. A browser's or a codec's own error message goes to the console, never into the interface.
+
+Do not add a DOM or browser test dependency to cover the rest: what a codec produces, whether a pointer reaches a control, whether the CSP still holds are the README's manual checklist, and that is a deliberate choice (ADR-0003).
+
+## 5. The order of work
+
+1. **Issue first.** Candidates live in one roadmap issue until one is picked; the picked Tool gets its own GitHub issue, and `ready-for-agent` means it is specified enough to build. `docs/agents/issue-tracker.md` has the `gh` commands.
+2. **Branch** `feat/<slug>` off the default branch. Never work on the default branch.
+3. **Implement**, running `pnpm typecheck` and single test files as you go, and the full `pnpm test` at the end.
+4. **Run everything CI runs, locally, before pushing**: `pnpm fmt:check && pnpm check:readme && pnpm lint && pnpm typecheck && pnpm test && pnpm build`. The pre-push hook covers only `lint` and `typecheck`, so "the hook passed" is not "the work is done".
+5. **Prove the claim the change makes.** If it is a move, capture the UI fingerprint before and after and compare (`pnpm --filter @toolbox/web fingerprint capture|compare`). If it is new UI, run the README's manual checklist against the **production build** (`pnpm build && pnpm start`) — `next dev` withholds hydration until its HMR socket connects, so a dev page renders and then ignores every click.
+6. **Update the docs in the same commit** as the change they describe: this file's neighbours in `docs/`, and the Tool's own `README.md`.
+7. **Open the pull request** (`gh pr create --base main`), with what changed, how it was verified and what is still risky. Merging is the owner's call, not CI's.
+
+## 6. Anti-patterns, all of them already rejected here
+
+- Adding fields to `ToolMeta` "for later". A field arrives when a Tool needs it.
+- Scaffolding empty directories for Tools nobody has designed yet.
+- A cell in the homepage grid for a Tool that does not exist. The list stacks full-width rows until the second Tool lands, and the count of cells is the count of Tools.
+- `packages/<tool-name>`. A Tool is not a Package.
+- A placeholder graphic, an invented logo, a fake screenshot.
+- A browser's or a codec's error text in the interface.
+- Putting back a Tool's output settings after the Tool decided against them (ADR-0010).

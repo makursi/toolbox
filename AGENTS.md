@@ -36,6 +36,7 @@ One thing that is not a `turbo` task because CI cannot run it: `pnpm --filter @t
 - **Ownership is the threshold here, not the number of consumers.** The one that counts consumers is `packages/*`, and it is unchanged: a second consumer is when something becomes a Package.
 - `packages/tsconfig` — the only Package: shared TypeScript config, no runtime code.
 - `docs/adr` — decisions worth not re-litigating, and `CONTEXT.md` — the vocabulary.
+- `docs/adding-a-tool.md` — the contract for the thing this repo does most: what a Tool has to pass, which files it touches, where its code lives, and the order the work happens in.
 
 ## Conventions
 
