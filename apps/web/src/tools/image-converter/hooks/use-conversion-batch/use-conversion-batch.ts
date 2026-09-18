@@ -43,6 +43,19 @@ export function useConversionBatch() {
     setRunning(false);
   }, []);
 
+  /**
+   * Empty the results, and nothing else.
+   *
+   * The button that calls this is hidden while a Batch runs (stopping one is
+   * `cancel`), so this never has to touch the pool or the `cancelled` flag: it
+   * exists for the visitor who is done reading the download list and wants it
+   * gone without adding another file first.
+   */
+  const clear = useCallback(() => {
+    setPlanned([]);
+    setOutcomes([]);
+  }, []);
+
   /** Not memoised by its callers: the target formats are read at the click. */
   const start = useCallback(async (files: readonly File[], targets: readonly TargetSettings[]) => {
     const plan = planConversions(
@@ -73,5 +86,5 @@ export function useConversionBatch() {
     }
   }, []);
 
-  return { running, planned, outcomes, start, cancel };
+  return { running, planned, outcomes, start, cancel, clear };
 }

@@ -8,14 +8,16 @@ Nothing is uploaded: the files are read with the File API, decoded and encoded i
 
 ```
 ImageConverter.tsx   the Tool's UI — the form, and nothing that survives a render
+file-row/            one row of the file list: thumbnail, name, format, remove
 meta.ts              the Tool Registry entry
 README.md            this file: how it works, and what to check by hand
 zip.ts               turns the finished outputs into one download
 core/                pure, browser-free logic — the part `pnpm test` covers
-  formats · advanced · options · bmp · limits · naming · plan · sniff · hints · failures · admission
+  formats · advanced · options · bmp · limits · naming · plan · sniff · hints · counts · failures · admission
   __tests__/         the tests for those modules
 hooks/               the Tool's React state; only this Tool uses them
   use-file-queue     the files added, and the ones refused, and why
+  use-file-thumbnail   a small picture of one file, one decode at a time
   use-conversion-batch  one Batch: its plan, its progress, and cancelling it
 worker/              the browser-only half
   worker.ts          decode, flatten, encode — one Conversion
@@ -52,7 +54,10 @@ One conversion each way, using a photo with transparency and a photo without:
 - [ ] A transparent PNG converted to JPEG or BMP shows white, not black, and not a tint.
 - [ ] PNG, WebP and AVIF keep transparency when the source has it.
 - [ ] **Every format row and the 无损 switch toggles under a real mouse press, not only under the keyboard.** The keyboard is what let a dead hit area ship once: the toggle was on a `<label>`, the 44px overlay that was supposed to grow the target sat on the root `<div>` above it, and every pointer click was taken by an element that handles none. Point at the words, the box, and 20px below the words, and watch the state change.
-- [ ] The file list says how many files were added, 清空 empties it (including the rejected list), and one file's cross removes only that file.
+- [ ] The file list says how many files were added, 清空 empties it (including the rejected list), and one file's cross removes only that file — leaving the other rows' pictures on screen rather than blanking and decoding them again.
+- [ ] The count line names both numbers once there are results (`已添加 3 张，已生成 9 个文件`), and one press of 清空 empties the file list, the rejected list **and** the download list.
+- [ ] Every row shows a 40×40 thumbnail of the file's own pixels, its name, and the format its bytes say. A file that will not decode keeps its name and format and leaves an empty box, not an empty frame.
+- [ ] Twenty large photos fill in one thumbnail at a time, in list order, without the page stopping to answer.
 - [ ] When every file in a Batch was refused, the error Alert is still there and 清空 is what dismisses it.
 - [ ] Moving the quality slider changes the file size of a JPEG, WebP and AVIF output.
 - [ ] The lossless switch on WebP and AVIF produces a file at least as large as the lossy one, and the quality slider is disabled while it is on.
@@ -72,3 +77,15 @@ One conversion each way, using a photo with transparency and a photo without:
 **最近一次全量执行**：2026-09-17，全部条目通过（质量与无损、高级面板、命名冲突、超限、单个坏文件、取消、纯键盘、大图长任务、CSP）。执行方法：无头 Chrome 对着 `pnpm build && pnpm start`，用 CDP 的 `DOM.setFileInputFiles` 把文件送进文件选择器（无头浏览器做得到，React 也照常收到 change）。逐条证据记在 `docs/design.md` 第十一节。**像素上限那条是例外**，它由 `core/__tests__/limits.test.ts` 的单测覆盖（造一张超过 268 MP 的真图要差不多 1 GB 内存），下面这条同理。
 
 **同一批代码的第二次执行**（2026-09-17，去掉输出设置、格式行与文件列表改版之后）：22 项全部通过。新增的鼠标一项目的是补上一轮的缺口：格式行整行为靶（296×44，实测可点区域 241×58）、无损坏开关（217×48，`classNames={{ body }}`）、清空（159×52）都用真鼠标事件点过；一次 64×48、左半透明的 PNG → PNG + JPEG，两份都是 64×48（不再有缩放），PNG 保留 `0,0,0,0`，JPEG 的透明半边是纯白、不透光的那半仍是 `255,0,0`；零外发请求、零 console 报错，360 / 390 / 768 / 1024 四个宽度无横向溢出。证据同样在 `docs/design.md` 第十一节。
+
+**缩略图与共享清空这一次**（2026-09-18）：33 项断言全部通过，方法仍是上一段那个：无头 Chrome 加 CDP 对着生产构建，`DOM.setFileInputFiles` 送文件进文件选择器，`Input.dispatchMouseEvent` 打真鼠标。这一轮盯的就是上面清单里的「计数行与两处同清」（第 7 条）、「每行一张缩略图」（第 8 条）和「二十张大图一张一张来」（第 9 条）这三条，所以它们不再是没跑过的条目。
+
+- **20 张 2000×1500 的 PNG**：六次运行里 510–670ms 出齐 20 张缩略图；每 120ms 采样一次，看到它们是 1 → 8 → 14 → 19 张这样补齐的，不是一次性全出来；`longtask` 五次一条都没有，有一次是一条 51ms（阈值是 50ms，所以它刚好算一条）。也就是说二十张大图的代价是几十毫秒的抖动，不是页面卡住；脚本把上限钉在 100ms，实测的这条 51ms 就写在里。缩略图是 80×60 的位图放进 40×40 的框（宽高比是解码缩的，裁的是框）。
+- **删掉一行不会动到其他行**：三张图各自出好缩略图后，用真鼠标点掉第一行的叉，剩下两行的 `blob:` URL 与前一刻**逐字相同**、图片照样显示。这是代码评审提出来的一处缺陷：原来用下标当 key，删一行会让它下面的每一行重新挂载，缩略图被 revoke 后重新解码（看着就是闪一下空框），改成入队时发一个 id、按 id 做 key 之后才真的是「只删那一行」。
+- **解码失败的那一行**：一个前 8 字节是 PNG 签名、后面是垃圾的文件照常入队并显示 `PNG`，框里没有图片也没有边框（`border: 0px`、`background: rgba(0,0,0,0)`、宽 40px），文件名和格式一样都不少。
+- **名字撒谎时标签仍然是真的**：改名成 `.jpg` 的 PNG 显示 `PNG`，改名成 `.png` 的 JPEG 显示 `JPEG`。
+- **清空**：转完之后计数行是「已添加 1 张，已生成 1 个文件」，一次真鼠标按下同时清掉文件行、下载行、ZIP 按钮和计数行本身；把最后一个来源删掉后它退成「已生成 1 个文件」且下载仍在；同一个文件再转一次仍只有 1 个下载（结果属于当前这一批）。
+- **360px 宽**：无横向溢出，长文件名截断而格式标签仍在屏内（右缘 300 < 360），移除叉的靶子声明 44×44、实测可点 43×43（探针按像素中心向外走，正好 44 的量出来就是 43）。
+- 全程零 page error、零 `console.error`。
+
+**顺带量到一件不属于本次改动的事**：Mantine 的 `Button` 自带 `overflow: hidden`，挂在它上面的 `.touch-target` 只是声明了 44×44，实际可点区域还是按钮自己的框——360px 下配色开关 32×26、清空 46×26。`CloseButton` 不裁，所以文件行的移除叉是真的 43×43。已记在 `docs/design.md` 第五节，要修是单独一次决定。
