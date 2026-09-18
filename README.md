@@ -70,9 +70,9 @@ The mark is a supplied illustration of the site's namesake, and the header shows
 
 | Asset            | Path                                                        | Wired up by                                                                                                                                 |
 | ---------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Master           | `apps/web/assets/brand/marcus.png` (500×500, 190 KB)        | nothing: it is the supplied file byte for byte and what every export is made from, kept so a re-export does not need the art supplied again |
+| Master           | `apps/web/assets/brand/makursi.png` (500×500, 190 KB)       | nothing: it is the supplied file byte for byte and what every export is made from, kept so a re-export does not need the art supplied again |
 | Tab icon         | `apps/web/src/app/icon1.png` (32×32), `icon2.png` (128×128) | Next's icon file convention; used by browser tabs, bookmarks and search results                                                             |
-| Header mark      | `apps/web/public/brand/marcus.png` (128×128)                | `SiteHeader`, rendered at 28px                                                                                                              |
+| Header mark      | `apps/web/public/brand/makursi.png` (128×128)               | `SiteHeader`, rendered at 28px                                                                                                              |
 | Home screen icon | `apps/web/src/app/apple-icon.png` (180×180)                 | the same convention; used by iOS "add to home screen"                                                                                       |
 | Tool cover       | `apps/web/public/tools/<slug>/cover.jpg`                    | the Tool's card, via `cover` in that Tool's `meta.ts`                                                                                       |
 
