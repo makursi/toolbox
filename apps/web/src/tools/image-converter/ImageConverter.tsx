@@ -5,7 +5,6 @@ import {
   Anchor,
   Button,
   Checkbox,
-  CloseButton,
   Collapse,
   FileButton,
   Flex,
@@ -26,9 +25,11 @@ import { useCallback, useMemo, useState } from "react";
 import { useObjectUrl } from "@/hooks/use-object-url/use-object-url";
 
 import { advancedFields, type AdvancedField } from "./core/advanced";
+import { addedSummary } from "./core/counts";
 import { formatSpecs, imageFormats, type ImageFormat } from "./core/formats";
 import { convertHint } from "./core/hints";
 import type { TargetSettings } from "./core/options";
+import { FileRow } from "./file-row/file-row";
 import { useConversionBatch } from "./hooks/use-conversion-batch/use-conversion-batch";
 import { useFileQueue } from "./hooks/use-file-queue/use-file-queue";
 import type { Outcome } from "./worker/converter";
@@ -75,8 +76,8 @@ function initialTargets(): Record<ImageFormat, TargetState> {
 }
 
 export function ImageConverter() {
-  const { files, refused, addFiles, removeAt, clearFiles } = useFileQueue();
-  const { running, planned, outcomes, start, cancel } = useConversionBatch();
+  const { entries, refused, addFiles, remove, clearFiles } = useFileQueue();
+  const { running, planned, outcomes, start, cancel, clear: clearResults } = useConversionBatch();
   const [targets, setTargets] = useState(initialTargets);
 
   const enabledTargets = useMemo<TargetSettings[]>(
@@ -93,16 +94,33 @@ export function ImageConverter() {
   );
 
   /** Why the Convert button is greyed out, or null when it is live. */
-  const blocked = running ? null : convertHint(files.length, enabledTargets.length);
+  const blocked = running ? null : convertHint(entries.length, enabledTargets.length);
 
   const updateTarget = useCallback((format: ImageFormat, patch: Partial<TargetState>) => {
     setTargets((previous) => ({ ...previous, [format]: { ...previous[format], ...patch } }));
   }, []);
 
+  /**
+   * The one control that empties both lists.
+   *
+   * It is one act rather than two because it sits in the file list and, from
+   * there, asking the visitor to go and find a second button further down the
+   * page would be asking them to guess. Nothing here reaches into a running
+   * Batch: the button is not rendered while one is running.
+   */
+  const clearAll = useCallback(() => {
+    clearFiles();
+    clearResults();
+  }, [clearFiles, clearResults]);
+
   const succeeded = outcomes.flatMap((outcome) =>
     outcome.ok ? [{ name: outcome.conversion.outputName, bytes: outcome.bytes }] : [],
   );
   const failures = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome]));
+
+  // Both counts, because the 清空 button that sits beside this line empties both
+  // lists — see `core/counts.ts` for why the two are one sentence.
+  const summary = addedSummary(entries.length, succeeded.length);
 
   return (
     <Stack className="mt-10 sm:mt-12" gap="xl">
@@ -169,11 +187,11 @@ export function ImageConverter() {
 
         {/* The row is also there when every file was refused: the rejected list
             is what is left to clear, and it is the only way to clear it. */}
-        {(files.length > 0 || refused.length > 0) && (
+        {(summary !== null || refused.length > 0) && (
           <Stack gap="xs" mt="md">
             <Group justify="space-between" wrap="nowrap">
               <Text c="dimmed" size="sm">
-                {files.length > 0 ? `已添加 ${files.length} 张` : null}
+                {summary}
               </Text>
               {/* Hidden while a Batch runs, the way 取消 only appears while one
                   does — a greyed control would owe the visitor a reason, and
@@ -181,7 +199,7 @@ export function ImageConverter() {
               {!running && (
                 <Button
                   className="touch-target"
-                  onClick={clearFiles}
+                  onClick={clearAll}
                   size="compact-sm"
                   variant="default"
                 >
@@ -191,23 +209,13 @@ export function ImageConverter() {
             </Group>
 
             <Stack gap={0}>
-              {files.map((file, index) => (
-                <Group
-                  className="file-row"
-                  key={`${file.name}-${index}`}
-                  justify="space-between"
-                  wrap="nowrap"
-                >
-                  <Text size="sm" truncate>
-                    {file.name}
-                  </Text>
-                  <CloseButton
-                    aria-label={`移除 ${file.name}`}
-                    className="touch-target"
-                    disabled={running}
-                    onClick={() => removeAt(index)}
-                  />
-                </Group>
+              {entries.map((entry) => (
+                <FileRow
+                  disabled={running}
+                  entry={entry}
+                  key={entry.id}
+                  onRemove={() => remove(entry.id)}
+                />
               ))}
             </Stack>
           </Stack>
@@ -319,11 +327,16 @@ export function ImageConverter() {
       >
         <Button
           className="action-full-width"
-          disabled={running || files.length === 0 || enabledTargets.length === 0}
-          onClick={() => void start(files, enabledTargets)}
+          disabled={running || entries.length === 0 || enabledTargets.length === 0}
+          onClick={() =>
+            void start(
+              entries.map((entry) => entry.file),
+              enabledTargets,
+            )
+          }
           size="md"
         >
-          {files.length > 0 ? `转换 ${files.length} 个文件` : "转换"}
+          {entries.length > 0 ? `转换 ${entries.length} 个文件` : "转换"}
         </Button>
         {running && (
           <Button className="action-full-width" onClick={cancel} size="md" variant="default">

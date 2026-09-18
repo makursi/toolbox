@@ -151,11 +151,36 @@
  * because it is the same area of the page; each row's rule is what separates it
  * from the row above, and the first row's own rule is what separates the list
  * from the count and the clear button.
+ *
+ * The picture at the head of the row is the visitor's own image and keeps its
+ * own colours, the way the Tool's cover does (section 2): it is not a surface of
+ * the interface, it is the file. The box is always there and always the same
+ * size, so the name cannot jump sideways when a thumbnail arrives; it paints
+ * nothing until there is an image to paint, so a file the browser will not
+ * decode leaves an empty box rather than an empty frame that reads as a broken
+ * picture. The hairline is the row's own token: without it a pale photo has no
+ * edge against the canvas.
  */
 @layer components {
   .file-row {
     border-top: 1px solid var(--mantine-color-default-border);
     padding-block: var(--mantine-spacing-xs);
+  }
+
+  .file-preview {
+    display: block;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+  }
+
+  .file-preview-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border: 1px solid var(--mantine-color-default-border);
+    border-radius: var(--mantine-radius-sm);
   }
 }
 

@@ -1,11 +1,28 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { admitFormat } from "@/tools/image-converter/core/admission";
+import type { ImageFormat } from "@/tools/image-converter/core/formats";
 import { checkLimits } from "@/tools/image-converter/core/limits";
 import { sniffByteLength, sniffFormat } from "@/tools/image-converter/core/sniff";
 
 /** A file that was refused before it could join the queue, and the reason. */
 export type RefusedFile = { name: string; message: string };
+
+/**
+ * A file that joined the queue, what its own bytes say it is, and the place it
+ * holds in the list.
+ *
+ * The format is kept rather than sniffed again when the list renders: admission
+ * has already read the bytes, and the list shows the format the Tool actually
+ * read rather than the one the file's name claims.
+ *
+ * The id exists so a row can be keyed by the file it is showing rather than by
+ * where it happens to sit. With a positional key, removing one row remounts
+ * every row below it, and a remount throws away that row's thumbnail and decodes
+ * it a second time — a blank row and a wasted decode, for a file nothing
+ * happened to.
+ */
+export type QueuedFile = { id: number; file: File; format: ImageFormat };
 
 /**
  * The files a visit is working on, and the ones that never made it in.
@@ -21,13 +38,16 @@ export type RefusedFile = { name: string; message: string };
  * act: a refusal left behind under an empty list describes nothing.
  */
 export function useFileQueue() {
-  const [files, setFiles] = useState<File[]>([]);
+  const [entries, setEntries] = useState<QueuedFile[]>([]);
   const [refused, setRefused] = useState<RefusedFile[]>([]);
+  // Read only inside `addFiles`, which awaits between files: a counter that
+  // moves synchronously is what keeps two adds from handing out the same id.
+  const nextId = useRef(0);
 
   const addFiles = useCallback(async (incoming: readonly File[]) => {
     if (incoming.length === 0) return;
 
-    const accepted: File[] = [];
+    const accepted: QueuedFile[] = [];
     const rejections: RefusedFile[] = [];
 
     for (const file of incoming) {
@@ -43,22 +63,22 @@ export function useFileQueue() {
       const head = new Uint8Array(await file.slice(0, sniffByteLength).arrayBuffer());
       const admission = admitFormat(sniffFormat(head));
 
-      if (admission.ok) accepted.push(file);
+      if (admission.ok) accepted.push({ id: nextId.current++, file, format: admission.format });
       else rejections.push({ name: file.name, message: admission.message });
     }
 
-    setFiles((previous) => [...previous, ...accepted]);
+    setEntries((previous) => [...previous, ...accepted]);
     setRefused((previous) => [...previous, ...rejections]);
   }, []);
 
-  const removeAt = useCallback((index: number) => {
-    setFiles((previous) => previous.filter((_, at) => at !== index));
+  const remove = useCallback((id: number) => {
+    setEntries((previous) => previous.filter((entry) => entry.id !== id));
   }, []);
 
   const clearFiles = useCallback(() => {
-    setFiles([]);
+    setEntries([]);
     setRefused([]);
   }, []);
 
-  return { files, refused, addFiles, removeAt, clearFiles };
+  return { entries, refused, addFiles, remove, clearFiles };
 }
