@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   check:
-    name: format, lint, types, test, build
+    name: format, readme, lint, types, test, build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
