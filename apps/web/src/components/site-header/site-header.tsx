@@ -1,4 +1,5 @@
 import { Box, Container, Flex, Text } from "@mantine/core";
+import Image from "next/image";
 import Link from "next/link";
 
 import { ThemeToggle } from "@/components/theme-toggle/theme-toggle";
@@ -21,12 +22,17 @@ export function SiteHeader() {
       <Container py="md" size="md">
         <Flex align="center" gap="md" justify="space-between">
           {/*
-            The wordmark stands in for the logo until there is one. See the Assets
-            section of the README: replacing this with the real mark is meant to be
-            a one-line change, and no stand-in graphic is drawn in the meantime.
+            The mark and the wordmark are one link home. The mark is the same
+            character the tab shows — its crop and its sizes are in the Assets
+            section of the README — and it is decorative: the name beside it
+            already says what it is, so a screen reader reading both would hear
+            the site name twice.
           */}
           <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>
-            <Text fw={600}>{siteName}</Text>
+            <Flex align="center" gap={8}>
+              <Image alt="" height={28} src="/brand/marcus.png" width={28} />
+              <Text fw={600}>{siteName}</Text>
+            </Flex>
           </Link>
           {/* The scheme follows the operating system until this is used; ADR-0008
               records why a site that refused a toggle now has one. */}
