@@ -10,13 +10,13 @@ import type { ToolMeta } from "@/tools/types";
  * The shell every Tool page shares: the way back, the title, the one-line
  * description, and the page's metadata.
  *
- * A component rather than a route layout: `metadata` belongs to a page, and a
- * layout has no slug to look a Tool up by, so `app/tools/<slug>/layout.tsx`
- * cannot produce per-Tool metadata. Each Tool keeps its own explicit route
- * instead, and what that route would otherwise repeat lives here once.
- *
- * The registry stays data — `ToolMeta` has no component field — so importing it
- * does not pull a Tool's client code into the module graph; see ADR-0001.
+ * A component rather than a route layout — not because a layout could not do the
+ * job (`metadata` may live in a layout, and a dynamic one receives the slug
+ * through `params`), but because that route shape renders a Tool by looking an
+ * implementation up by slug. Each Tool keeps `app/tools/<slug>/page.tsx` of its
+ * own instead, and the Tool Registry stays data: `ToolMeta` grows no component
+ * field, so importing the registry cannot pull a Tool's client code into the
+ * module graph (ADR-0001).
  */
 
 /**
