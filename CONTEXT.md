@@ -37,9 +37,9 @@ toolbox — the repository and the workspace packages (`@toolbox/*`), which is a
 _Avoid_: app, repo
 
 **Conversion**:
-One input image together with the target settings it is encoded with. A Batch is many Conversions, and each Conversion yields at most one output file per target format.
+One input image together with the target format it is encoded with. A Batch is many Conversions: one source going to three formats is three of them, and each one either yields one output file or fails.
 _Avoid_: job, task, transform
 
 **Lossless**:
-An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF are lossless only when asked, and JPEG cannot be lossless at all, because the format has no such mode. This is a property of the format, not of a Batch.
+An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF never are here, and JPEG cannot be at all, because the format has no such mode. Nothing in the interface asks for it: this is a property of the target format, not a setting.
 _Avoid_: maximum quality, no compression

@@ -114,7 +114,7 @@ export class ConversionPool {
         const response = await this.#send(worker, {
           id: conversion.id,
           bytes,
-          target: conversion.target,
+          format: conversion.format,
         });
 
         onOutcome(

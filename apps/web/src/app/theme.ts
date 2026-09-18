@@ -46,7 +46,7 @@ const sansStack = [
 
 export const theme = createTheme({
   colors: {
-    // Used for primary buttons, checked controls and the slider. Shade 9 is the
+    // Used for primary buttons and checked controls. Shade 9 is the
     // ink of the light scheme and shade 0 the paper of the dark one.
     ink: [
       "#f6f5f3",

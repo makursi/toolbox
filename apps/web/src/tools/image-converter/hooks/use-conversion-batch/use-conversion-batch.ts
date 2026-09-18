@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { TargetSettings } from "@/tools/image-converter/core/options";
+import type { ImageFormat } from "@/tools/image-converter/core/formats";
 import { planConversions, type PlannedConversion } from "@/tools/image-converter/core/plan";
 import { ConversionPool, type Outcome } from "@/tools/image-converter/worker/converter";
 
@@ -57,10 +57,10 @@ export function useConversionBatch() {
   }, []);
 
   /** Not memoised by its callers: the target formats are read at the click. */
-  const start = useCallback(async (files: readonly File[], targets: readonly TargetSettings[]) => {
+  const start = useCallback(async (files: readonly File[], formats: readonly ImageFormat[]) => {
     const plan = planConversions(
       files.map((file) => file.name),
-      targets,
+      formats,
     );
     if (plan.length === 0) return;
 

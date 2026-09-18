@@ -5,30 +5,23 @@ import {
   Anchor,
   Button,
   Checkbox,
-  Collapse,
   FileButton,
   Flex,
   Group,
-  NumberInput,
   Paper,
   Progress,
-  Slider,
   Stack,
-  Switch,
   Text,
   Title,
-  UnstyledButton,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
 import { useCallback, useMemo, useState } from "react";
 
 import { useObjectUrl } from "@/hooks/use-object-url/use-object-url";
 
-import { advancedFields, type AdvancedField } from "./core/advanced";
 import { addedSummary } from "./core/counts";
 import { formatSpecs, imageFormats, type ImageFormat } from "./core/formats";
 import { convertHint } from "./core/hints";
-import type { TargetSettings } from "./core/options";
 import { FileRow } from "./file-row/file-row";
 import { useConversionBatch } from "./hooks/use-conversion-batch/use-conversion-batch";
 import { useFileQueue } from "./hooks/use-file-queue/use-file-queue";
@@ -41,20 +34,15 @@ import { zipConversions } from "./zip";
  *
  * Two things this file is not: it does not hold the visitor's files (that is
  * `useFileQueue`) and it does not run a Batch (that is `useConversionBatch`).
- * What is left is the form — which formats are on, what each one is set to, and
- * the words around it.
+ * What is left is the form — which target formats are on, and the words around
+ * it — because a Conversion has no settings beyond the format it is encoded to
+ * (see `docs/adr/0010-no-output-settings.md`).
  *
  * The controls are Mantine components, so labels, roles and keyboard behaviour
  * come from the library rather than being re-derived here — which is also why
  * the file input is a `Dropzone`: it is clickable, droppable and reachable from
  * the keyboard (Space/Enter) in one element.
  */
-type TargetState = {
-  enabled: boolean;
-  quality: number;
-  lossless: boolean;
-  advanced: Record<string, number | boolean>;
-};
 
 /**
  * Every format starts disabled except WebP, which is what most conversions want.
@@ -63,41 +51,22 @@ type TargetState = {
  * the table without deciding how it starts here is a type error, not a silent
  * default.
  */
-function initialTargets(): Record<ImageFormat, TargetState> {
-  const off = { enabled: false, lossless: false, advanced: {} };
-
-  return {
-    png: { ...off, quality: formatSpecs.png.quality },
-    jpeg: { ...off, quality: formatSpecs.jpeg.quality },
-    webp: { ...off, enabled: true, quality: formatSpecs.webp.quality },
-    avif: { ...off, quality: formatSpecs.avif.quality },
-    bmp: { ...off, quality: formatSpecs.bmp.quality },
-  };
+function initialEnabled(): Record<ImageFormat, boolean> {
+  return { png: false, jpeg: false, webp: true, avif: false, bmp: false };
 }
 
 export function ImageConverter() {
   const { entries, refused, addFiles, remove, clearFiles } = useFileQueue();
   const { running, planned, outcomes, start, cancel, clear: clearResults } = useConversionBatch();
-  const [targets, setTargets] = useState(initialTargets);
+  const [enabled, setEnabled] = useState(initialEnabled);
 
-  const enabledTargets = useMemo<TargetSettings[]>(
-    () =>
-      imageFormats
-        .filter((format) => targets[format].enabled)
-        .map((format) => ({
-          format,
-          quality: targets[format].quality,
-          lossless: targets[format].lossless,
-          advanced: targets[format].advanced,
-        })),
-    [targets],
-  );
+  const enabledFormats = useMemo(() => imageFormats.filter((format) => enabled[format]), [enabled]);
 
   /** Why the Convert button is greyed out, or null when it is live. */
-  const blocked = running ? null : convertHint(entries.length, enabledTargets.length);
+  const blocked = running ? null : convertHint(entries.length, enabledFormats.length);
 
-  const updateTarget = useCallback((format: ImageFormat, patch: Partial<TargetState>) => {
-    setTargets((previous) => ({ ...previous, [format]: { ...previous[format], ...patch } }));
+  const setFormatEnabled = useCallback((format: ImageFormat, on: boolean) => {
+    setEnabled((previous) => ({ ...previous, [format]: on }));
   }, []);
 
   /**
@@ -242,76 +211,29 @@ export function ImageConverter() {
           2. 转换为
         </Title>
 
+        <Text c="dimmed" mt="xs" size="xs">
+          每个格式按调好的默认质量编码；PNG 与 BMP 无损。
+        </Text>
+
         <Stack gap="md" mt="sm">
           {imageFormats.map((format) => {
             const spec = formatSpecs[format];
-            const state = targets[format];
 
             return (
               <Paper
                 className="format-card"
-                data-checked={state.enabled || undefined}
+                data-checked={enabled[format] || undefined}
                 key={format}
                 p="lg"
                 withBorder
               >
                 <Checkbox
-                  checked={state.enabled}
+                  checked={enabled[format]}
                   className="format-row"
                   disabled={running}
                   label={`${spec.label} (.${spec.extension})`}
-                  onChange={(event) =>
-                    updateTarget(format, { enabled: event.currentTarget.checked })
-                  }
+                  onChange={(event) => setFormatEnabled(format, event.currentTarget.checked)}
                 />
-
-                <Collapse expanded={state.enabled} keepMounted={false}>
-                  <Stack gap="sm" mt="md" pl="lg">
-                    {spec.lossless === "optional" && (
-                      <Switch
-                        checked={state.lossless}
-                        /* `body` is the `<label>` that owns the toggle; the
-                           root `<div>` above it would swallow the click. */
-                        classNames={{ body: "touch-target" }}
-                        disabled={running}
-                        label="无损"
-                        onChange={(event) =>
-                          updateTarget(format, { lossless: event.currentTarget.checked })
-                        }
-                        /* `fit-content`: a Stack stretches its children, which
-                           made the whole row a switch that could be flipped by
-                           clicking well to the right of it. */
-                        w="fit-content"
-                      />
-                    )}
-
-                    {spec.lossless !== "always" && (
-                      <div>
-                        <Text fw={500} size="sm">
-                          质量：{state.quality}
-                        </Text>
-                        <Slider
-                          disabled={running || state.lossless}
-                          max={100}
-                          min={1}
-                          mt="xs"
-                          onChange={(value) => updateTarget(format, { quality: value })}
-                          thumbLabel={`${spec.label} 质量`}
-                          value={state.quality}
-                        />
-                      </div>
-                    )}
-
-                    <AdvancedPanel
-                      fields={advancedFields[format] ?? []}
-                      onChange={(key, value) =>
-                        updateTarget(format, { advanced: { ...state.advanced, [key]: value } })
-                      }
-                      running={running}
-                      values={state.advanced}
-                    />
-                  </Stack>
-                </Collapse>
               </Paper>
             );
           })}
@@ -327,11 +249,11 @@ export function ImageConverter() {
       >
         <Button
           className="action-full-width"
-          disabled={running || entries.length === 0 || enabledTargets.length === 0}
+          disabled={running || entries.length === 0 || enabledFormats.length === 0}
           onClick={() =>
             void start(
               entries.map((entry) => entry.file),
-              enabledTargets,
+              enabledFormats,
             )
           }
           size="md"
@@ -415,85 +337,6 @@ export function ImageConverter() {
         )}
       </section>
     </Stack>
-  );
-}
-
-function AdvancedPanel({
-  fields,
-  onChange,
-  running,
-  values,
-}: {
-  fields: AdvancedField[];
-  onChange: (key: string, value: number | boolean) => void;
-  running: boolean;
-  values: Record<string, number | boolean>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (fields.length === 0) return null;
-
-  return (
-    <div>
-      {/*
-        The disclosure's mark is an icon rather than the `+` / `-` glyphs it used
-        to be. The glyphs were not wrong, but they came from whichever CJK font
-        the operating system fell back to, so their width and weight differed per
-        machine; a Phosphor icon is the same drawing everywhere and is the same
-        family as the arrows and the scheme switch. Still hidden from assistive
-        tech, because `aria-expanded` already carries the state.
-
-        The two names are written out rather than assembled from a variable:
-        Tailwind reads class names out of the source, so a name built at runtime
-        would never be compiled. `icons.test.ts` fails on that mistake.
-      */}
-      <UnstyledButton
-        aria-expanded={expanded}
-        className="touch-target"
-        onClick={() => setExpanded((open) => !open)}
-        style={{ borderRadius: "var(--mantine-radius-sm)", padding: "2px 6px" }}
-      >
-        <Text fw={500} size="sm">
-          {expanded ? (
-            <span aria-hidden className="icon mr-1 icon-[ph--minus-bold]" />
-          ) : (
-            <span aria-hidden className="icon mr-1 icon-[ph--plus-bold]" />
-          )}
-          高级选项
-        </Text>
-      </UnstyledButton>
-
-      <Collapse expanded={expanded} keepMounted={false}>
-        <Stack gap="sm" mt="sm">
-          {fields.map((field) => {
-            const value = values[field.key] ?? field.initial;
-
-            return field.kind === "boolean" ? (
-              <Checkbox
-                checked={value === true}
-                disabled={running}
-                key={field.key}
-                label={field.label}
-                onChange={(event) => onChange(field.key, event.currentTarget.checked)}
-              />
-            ) : (
-              <NumberInput
-                disabled={running}
-                key={field.key}
-                label={field.label}
-                max={field.max}
-                min={field.min}
-                onChange={(next) =>
-                  onChange(field.key, typeof next === "number" ? next : Number(next))
-                }
-                step={field.step}
-                value={Number(value)}
-              />
-            );
-          })}
-        </Stack>
-      </Collapse>
-    </div>
   );
 }
 

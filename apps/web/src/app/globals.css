@@ -196,11 +196,10 @@
  * `<label for>` — and never on a wrapper that merely renders one. A
  * pseudo-element's clicks target the element it is generated on, and a wrapper
  * has no handler, so there the overlay does not grow the hit area: it covers it.
- * That is what happened to the format checkbox and the lossless switch, whose
- * class sat on Mantine's root `<div>`: a full-width 44px overlay took every
- * pointer click and dropped it, while the keyboard still worked, because a key
- * never hits a pseudo-element. The format row no longer needs this class at all
- * (see `.format-row`); the switch puts it on its `<label>` body.
+ * That is what happened to the format checkbox, whose class sat on Mantine's
+ * root `<div>`: a full-width 44px overlay took every pointer click and dropped
+ * it, while the keyboard still worked, because a key never hits a pseudo-element.
+ * The format row no longer needs this class at all (see `.format-row`).
  */
 .touch-target {
   position: relative;
