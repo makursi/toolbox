@@ -6,9 +6,6 @@
  */
 export type ImageFormat = "png" | "jpeg" | "webp" | "avif" | "bmp";
 
-/** `always` formats ignore the quality setting; `never` ones have no lossless mode. */
-export type LosslessMode = "always" | "optional" | "never";
-
 export type FormatSpec = {
   format: ImageFormat;
   label: string;
@@ -16,13 +13,15 @@ export type FormatSpec = {
   extension: string;
   /** Whether the format can carry an alpha channel. */
   alpha: boolean;
-  lossless: LosslessMode;
   /**
-   * The quality to start the slider at.
+   * The quality this format is encoded at.
    *
+   * There is no quality control to start anywhere (see
+   * `docs/adr/0010-no-output-settings.md`), so these numbers *are* the setting.
    * Not the same number for every codec on purpose: libavif's 50 is roughly
-   * libwebp's and MozJPEG's 75, so one shared default would make AVIF output
-   * look worse than the others for no reason the user chose.
+   * libwebp's and MozJPEG's 75, so one shared number would make AVIF output
+   * look worse than the others for no reason the visitor chose. PNG and BMP
+   * ignore it, because both are encoded without a codec that takes one.
    */
   quality: number;
 };
@@ -45,7 +44,6 @@ export const formatSpecs: Record<ImageFormat, FormatSpec> = {
     mime: "image/png",
     extension: "png",
     alpha: true,
-    lossless: "always",
     quality: 75,
   },
   jpeg: {
@@ -54,7 +52,6 @@ export const formatSpecs: Record<ImageFormat, FormatSpec> = {
     mime: "image/jpeg",
     extension: "jpg",
     alpha: false,
-    lossless: "never",
     quality: 75,
   },
   webp: {
@@ -63,7 +60,6 @@ export const formatSpecs: Record<ImageFormat, FormatSpec> = {
     mime: "image/webp",
     extension: "webp",
     alpha: true,
-    lossless: "optional",
     quality: 75,
   },
   avif: {
@@ -72,7 +68,6 @@ export const formatSpecs: Record<ImageFormat, FormatSpec> = {
     mime: "image/avif",
     extension: "avif",
     alpha: true,
-    lossless: "optional",
     quality: 50,
   },
   bmp: {
@@ -81,7 +76,6 @@ export const formatSpecs: Record<ImageFormat, FormatSpec> = {
     mime: "image/bmp",
     extension: "bmp",
     alpha: false,
-    lossless: "always",
     quality: 75,
   },
 };

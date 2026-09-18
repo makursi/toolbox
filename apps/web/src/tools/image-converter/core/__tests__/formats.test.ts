@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatSpecs, imageFormats } from "@/tools/image-converter/core/formats";
-import { resolveEncodeOptions } from "@/tools/image-converter/core/options";
+import { formatSpecs, imageFormats, type ImageFormat } from "@/tools/image-converter/core/formats";
 
 describe("the format table", () => {
   it("lists every format exactly once", () => {
@@ -25,92 +24,21 @@ describe("the format table", () => {
     expect(formatSpecs.avif.alpha).toBe(true);
   });
 
-  it("marks which formats can go lossless", () => {
-    expect(formatSpecs.png.lossless).toBe("always");
-    expect(formatSpecs.bmp.lossless).toBe("always");
-    expect(formatSpecs.webp.lossless).toBe("optional");
-    expect(formatSpecs.avif.lossless).toBe("optional");
-    expect(formatSpecs.jpeg.lossless).toBe("never");
-  });
-});
+  it("gives every format a quality the codecs accept", () => {
+    // Only these three read `quality` — the switch in the Worker's `encode` is
+    // what decides that, and PNG and BMP are encoded without a codec that takes
+    // one (PNG's own knob, the oxipng level, is a constant in that same file).
+    // The table is the only place this number is set now that the Tool has no
+    // output settings (ADR-0010), so a value outside the 1-100 the encoders
+    // take is not a poor default: it is an encode that fails the first time a
+    // visitor runs one.
+    const lossy: ImageFormat[] = ["jpeg", "webp", "avif"];
 
-describe("resolveEncodeOptions", () => {
-  it("passes quality through to JPEG", () => {
-    expect(resolveEncodeOptions({ format: "jpeg", quality: 62, lossless: false })).toEqual({
-      quality: 62,
-    });
-  });
-
-  it("switches libwebp to its lossless mode", () => {
-    expect(resolveEncodeOptions({ format: "webp", quality: 62, lossless: true })).toEqual({
-      lossless: 1,
-    });
-  });
-
-  it("ignores lossless for JPEG", () => {
-    expect(resolveEncodeOptions({ format: "jpeg", quality: 62, lossless: true })).toEqual({
-      quality: 62,
-    });
-  });
-
-  it("normalises the AVIF lossless triple", () => {
-    // jSquash warns unless quality/qualityAlpha/subsample are forced together.
-    expect(resolveEncodeOptions({ format: "avif", quality: 40, lossless: true })).toEqual({
-      lossless: true,
-      quality: 100,
-      qualityAlpha: -1,
-      subsample: 3,
-    });
-  });
-
-  it("passes quality through to AVIF when lossy", () => {
-    expect(resolveEncodeOptions({ format: "avif", quality: 40, lossless: false })).toEqual({
-      quality: 40,
-    });
-  });
-
-  it("has no options for the formats it encodes itself", () => {
-    expect(resolveEncodeOptions({ format: "png", quality: 40, lossless: true })).toEqual({});
-    expect(resolveEncodeOptions({ format: "bmp", quality: 40, lossless: false })).toEqual({});
-  });
-
-  it("lets advanced options override the defaults", () => {
-    expect(
-      resolveEncodeOptions({
-        format: "avif",
-        quality: 40,
-        lossless: false,
-        advanced: { speed: 2, subsample: 3 },
-      }),
-    ).toEqual({ quality: 40, speed: 2, subsample: 3 });
-  });
-
-  it("keeps the AVIF lossless values together even when advanced disagrees", () => {
-    // libavif writes a lossy file, and warns, unless these three match.
-    expect(
-      resolveEncodeOptions({
-        format: "avif",
-        quality: 40,
-        lossless: true,
-        advanced: { subsample: 1, speed: 2 },
-      }),
-    ).toEqual({
-      subsample: 3,
-      speed: 2,
-      lossless: true,
-      quality: 100,
-      qualityAlpha: -1,
-    });
-  });
-
-  it("keeps WebP in its lossless mode even when advanced asks for a quality", () => {
-    expect(
-      resolveEncodeOptions({
-        format: "webp",
-        quality: 40,
-        lossless: true,
-        advanced: { quality: 40, method: 2 },
-      }),
-    ).toEqual({ lossless: 1, method: 2, quality: 40 });
+    for (const format of lossy) {
+      const { quality } = formatSpecs[format];
+      expect(Number.isInteger(quality), format).toBe(true);
+      expect(quality, format).toBeGreaterThanOrEqual(1);
+      expect(quality, format).toBeLessThanOrEqual(100);
+    }
   });
 });

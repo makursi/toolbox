@@ -1,13 +1,13 @@
-import { formatSpecs } from "./formats";
+import { formatSpecs, type ImageFormat } from "./formats";
 import { outputFileName } from "./naming";
-import type { TargetSettings } from "./options";
 
 /** One file going to one target format. A source with two targets plans twice. */
 export type PlannedConversion = {
   id: number;
   sourceIndex: number;
   sourceName: string;
-  target: TargetSettings;
+  /** The format this Conversion is encoded to; there is nothing else to set. */
+  format: ImageFormat;
   outputName: string;
 };
 
@@ -20,16 +20,16 @@ export type PlannedConversion = {
  */
 export function planConversions(
   sourceNames: readonly string[],
-  targets: readonly TargetSettings[],
+  formats: readonly ImageFormat[],
 ): PlannedConversion[] {
   const taken = new Set<string>();
   const planned: PlannedConversion[] = [];
 
   sourceNames.forEach((sourceName, sourceIndex) => {
-    for (const target of targets) {
-      const outputName = outputFileName(sourceName, formatSpecs[target.format].extension, taken);
+    for (const format of formats) {
+      const outputName = outputFileName(sourceName, formatSpecs[format].extension, taken);
       taken.add(outputName.toLowerCase());
-      planned.push({ id: planned.length, sourceIndex, sourceName, target, outputName });
+      planned.push({ id: planned.length, sourceIndex, sourceName, format, outputName });
     }
   });
 

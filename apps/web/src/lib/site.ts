@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 
 const fallbackUrl = "http://localhost:3000";
 
-export const siteName = "Toolbox";
+export const siteName = "马库斯的大书箱";
 
 export const siteDescription = "一批单一用途的浏览器小工具。不需要账号，文件不会离开你的设备。";
 

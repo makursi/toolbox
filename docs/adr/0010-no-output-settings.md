@@ -1,5 +1,7 @@
 # The Image Converter has no output settings
 
+> **Updated 2026-09-18**: the quality slider, the 无损 switch and the Advanced panel went too, which makes this title literally true — the only thing a Conversion sets is the format it is encoded to, and the section is five checkboxes. Quality now comes from `formatSpecs.quality` for the three codecs that take one (`core/formats.ts`; one number per codec as before, AVIF 50 and the rest 75) and PNG's oxipng level is a constant beside the PNG encoder in `worker/worker.ts` (`pngOptimisationLevel`, 2) — BMP takes neither. WebP and AVIF are always lossy, and `core/options.ts`, `core/advanced.ts` and the `LosslessMode` type went with the controls. The reasoning is the one below, applied to the controls that were still left.
+
 Resizing, rotating and choosing the colour that transparent pixels fall back to
 are things a phone's own photo editor does better, and on a 390px screen they
 were three controls with three help lines standing between the format list and

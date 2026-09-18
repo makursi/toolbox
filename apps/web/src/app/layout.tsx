@@ -36,10 +36,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     /*
      * The app icons are files rather than code, and Next wires them into the
-     * head from the file convention: `icon.svg` is the mark a tab shows, and
-     * `apple-icon.png` is the one iOS uses when the site is added to a home
-     * screen. Both are the same drawing — see the comment in `icon.svg` for the
-     * geometry and for the two values that are literal there.
+     * head from the file convention: `icon1.png` and `icon2.png` are the mark a
+     * tab shows, at two sizes, and `apple-icon.png` is the one iOS uses when the
+     * site is added to a home screen. All three are exports of one supplied
+     * illustration — the crop, the sizes and the master are in the Assets
+     * section of the README.
      */
     <html
       className={`${geistSans.variable} ${geistMono.variable}`}

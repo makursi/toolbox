@@ -19,14 +19,14 @@ import { defaultOptions as oxipngDefaults } from "@jsquash/oxipng/meta.js";
  */
 import { encodeBmp } from "../core/bmp";
 import { ConversionFailure, describeFailure, failureCause } from "../core/failures";
-import { flattenBackground, formatSpecs } from "../core/formats";
+import { flattenBackground, formatSpecs, type ImageFormat } from "../core/formats";
 import { checkLimits } from "../core/limits";
-import { resolveEncodeOptions, type EncodeOptions, type TargetSettings } from "../core/options";
 
 export type ConvertRequest = {
   id: number;
   bytes: ArrayBuffer;
-  target: TargetSettings;
+  /** The only setting a Conversion has: what to encode the file to. */
+  format: ImageFormat;
 };
 
 export type ConvertResponse =
@@ -71,7 +71,7 @@ async function respond(request: ConvertRequest): Promise<void> {
 }
 
 async function run(request: ConvertRequest) {
-  const spec = formatSpecs[request.target.format];
+  const spec = formatSpecs[request.format];
   const bitmap = await decode(request.bytes);
 
   try {
@@ -98,7 +98,7 @@ async function run(request: ConvertRequest) {
     context2d.drawImage(bitmap, 0, 0);
 
     const image = context2d.getImageData(0, 0, bitmap.width, bitmap.height);
-    const bytes = await encodeOrFail(image, request.target);
+    const bytes = await encodeOrFail(image, request.format);
 
     return { bytes, mime: spec.mime, width: image.width, height: image.height };
   } finally {
@@ -129,9 +129,9 @@ async function decode(bytes: ArrayBuffer): Promise<ImageBitmap> {
  * which raises `canvas`, and re-labelling that one as an encode failure would
  * make the `canvas` sentence unreachable.
  */
-async function encodeOrFail(image: ImageData, target: TargetSettings): Promise<ArrayBuffer> {
+async function encodeOrFail(image: ImageData, format: ImageFormat): Promise<ArrayBuffer> {
   try {
-    return await encode(image, target);
+    return await encode(image, format);
   } catch (error) {
     throw error instanceof ConversionFailure
       ? error
@@ -139,28 +139,28 @@ async function encodeOrFail(image: ImageData, target: TargetSettings): Promise<A
   }
 }
 
-async function encode(image: ImageData, target: TargetSettings): Promise<ArrayBuffer> {
-  const options = resolveEncodeOptions(target);
+async function encode(image: ImageData, format: ImageFormat): Promise<ArrayBuffer> {
+  const { quality } = formatSpecs[format];
 
-  switch (target.format) {
+  switch (format) {
     case "jpeg": {
       const { default: encodeJpeg } = await import("@jsquash/jpeg/encode");
 
-      return encodeJpeg(image, options);
+      return encodeJpeg(image, { quality });
     }
     case "webp": {
       const { default: encodeWebp } = await import("@jsquash/webp/encode");
 
-      return encodeWebp(image, options);
+      return encodeWebp(image, { quality });
     }
     case "avif":
-      return encodeAvif(image, options);
+      return encodeAvif(image, quality);
     case "png":
-      return optimisePng(await encodePng(image), options);
+      return optimisePng(await encodePng(image));
     case "bmp":
       return toArrayBuffer(encodeBmp(image));
     default:
-      throw new Error(`不支持的目标格式：${String(target.format)}`);
+      throw new Error(`不支持的目标格式：${String(format)}`);
   }
 }
 
@@ -184,13 +184,13 @@ async function encodePng(image: ImageData): Promise<Uint8Array> {
  */
 let avifModule: Promise<AVIFModule> | undefined;
 
-async function encodeAvif(image: ImageData, options: EncodeOptions): Promise<ArrayBuffer> {
+async function encodeAvif(image: ImageData, quality: number): Promise<ArrayBuffer> {
   const { default: createModule } = await import("@jsquash/avif/codec/enc/avif_enc.js");
   const codec = await loadAvifModule(createModule);
 
   // The codec's marshaller throws on any field it does not receive, so the
   // defaults are spread in here — that is the job the wrapper normally does.
-  const codecOptions: AvifEncodeOptions = { ...avifDefaults, ...options };
+  const codecOptions: AvifEncodeOptions = { ...avifDefaults, quality };
   const output = codec.encode(
     new Uint8Array(image.data.buffer),
     image.width,
@@ -222,12 +222,19 @@ async function loadAvifModule(
   return avifModule;
 }
 
+/**
+ * oxipng's optimisation level.
+ *
+ * 2 is oxipng's own default and the level the Tool used to start its slider at.
+ * With no control left, nothing can ask for another, so it is a constant here
+ * rather than a field somebody has to open a panel to understand.
+ */
+const pngOptimisationLevel = 2;
+
 /** oxipng's single-threaded build, used as a lossless second pass over the PNG. */
 let oxipngModule: Promise<typeof import("@jsquash/oxipng/codec/pkg/squoosh_oxipng.js")> | undefined;
 
-async function optimisePng(png: Uint8Array, options: EncodeOptions): Promise<ArrayBuffer> {
-  const level = typeof options.level === "number" ? options.level : 2;
-
+async function optimisePng(png: Uint8Array): Promise<ArrayBuffer> {
   try {
     oxipngModule ??= import("@jsquash/oxipng/codec/pkg/squoosh_oxipng.js").then(async (module) => {
       await module.default();
@@ -238,7 +245,7 @@ async function optimisePng(png: Uint8Array, options: EncodeOptions): Promise<Arr
     const { optimise } = await oxipngModule;
 
     return toArrayBuffer(
-      optimise(png, level, oxipngDefaults.interlace, oxipngDefaults.optimiseAlpha),
+      optimise(png, pngOptimisationLevel, oxipngDefaults.interlace, oxipngDefaults.optimiseAlpha),
     );
   } catch {
     // Optimisation is a second pass, not the Conversion: a larger PNG is a

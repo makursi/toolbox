@@ -28,10 +28,18 @@ _Avoid_: tool list, manifest, catalog
 The card that presents one entry of the Tool Registry on the homepage, and the only place a Tool's cover is used. A Tool without a cover is set in type instead.
 _Avoid_: tile, list item, preview
 
+**Site name**:
+马库斯的大书箱 — the name a visitor sees, in the header, the page titles and a shared link's card (`siteName` in `apps/web/src/lib/site.ts`). It is not the Project's name, and the two stopped being the same word on 2026-09-18.
+_Avoid_: brand, product
+
+**Project**:
+toolbox — the repository and the workspace packages (`@toolbox/*`), which is also what these docs are about. Naming a site is not renaming a project, and only the site was renamed.
+_Avoid_: app, repo
+
 **Conversion**:
-One input image together with the target settings it is encoded with. A Batch is many Conversions, and each Conversion yields at most one output file per target format.
+One input image together with the target format it is encoded with. A Batch is many Conversions: one source going to three formats is three of them, and each one either yields one output file or fails.
 _Avoid_: job, task, transform
 
 **Lossless**:
-An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF are lossless only when asked, and JPEG cannot be lossless at all, because the format has no such mode. This is a property of the format, not of a Batch.
+An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF never are here, and JPEG cannot be at all, because the format has no such mode. Nothing in the interface asks for it: this is a property of the target format, not a setting.
 _Avoid_: maximum quality, no compression
