@@ -6,7 +6,7 @@ The site had no design language of its own. Mantine's defaults sat on top of the
 
 Two skill protocols were consulted and one was chosen as the language: **`minimalist-ui`** supplies the palette, the typographic hierarchy, the whitespace and the component specifications, while **`design-taste-frontend`** (the default skill of the `taste-skill` family) supplies the gates — its §6 accessibility and performance rules, its §9 list of AI tells, its §11 redesign protocol and the §14 pre-flight check that has to pass before the work counts as done.
 
-**`docs/design.md` is the living version of this decision**: the tokens as they stand, the rules for new work, the checklist to run before merging, and what is still unfinished. This ADR records why the language exists; that file records what it currently is, and the two are meant to be read together.
+**`apps/web/docs/design.md` is the living version of this decision**: the tokens as they stand, the rules for new work, the checklist to run before merging, and what is still unfinished. This ADR records why the language exists; that file records what it currently is, and the two are meant to be read together.
 
 ## The tokens
 

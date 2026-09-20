@@ -42,15 +42,21 @@ pnpm start
 ## 目录结构
 
 ```
-apps/web/        唯一的可部署物：Next.js App Router、Mantine、Tailwind CSS v4
-packages/        工作区各包之间共享的代码
-docs/adr/        不轻易推翻的决定
-docs/design.md   界面：token、规则，以及还没做完的事
-CONTEXT.md       词表：Tool、Package、App、Tool Registry
+apps/web/     唯一的可部署物：Next.js App Router、Mantine、Tailwind CSS v4
+  src/        这个 App 本身：路由在 src/app，Tool 在 src/tools
+  e2e/        门禁：站点「做什么」，Playwright，每个 PR 都跑
+  scripts/    仪器：它「画成什么样」，以及真实可点区域有多大
+  docs/       这个 App 自己的文档：design.md、adding-a-tool.md
+packages/     工作区各包之间共享的代码（目前只有 tsconfig）
+docs/adr/     不轻易推翻的决定
+docs/agents/  agent 怎么提 issue、怎么读这些文档
+CONTEXT.md    词表：Tool、Package、App、Tool Registry
 ```
+
+**仪器**（instrument）只测量，**门禁**（gate）才断言；两者的界线在 `docs/adr/0012-playwright-for-the-browser-gate.md`，两个词的定义在 `CONTEXT.md`。
 
 ## 许可
 
 仓库没有 `LICENSE` 文件，所以代码默认保留所有权利。
 
-外部素材完全不在这份许可的范围内：fork 这个仓库不会连带得到站点标记（`apps/web/assets/brand/makursi.png` 与它的三份导出）和工具封面的使用权。见 [`docs/design.md` 第九节](docs/design.md)。
+外部素材完全不在这份许可的范围内：fork 这个仓库不会连带得到站点标记（`apps/web/assets/brand/makursi.png` 与它的三份导出）和工具封面的使用权。见 [`apps/web/docs/design.md` 第九节](apps/web/docs/design.md)。

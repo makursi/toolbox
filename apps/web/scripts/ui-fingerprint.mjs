@@ -16,7 +16,7 @@
  * through a real Worker), console errors, and anything a keyboard or a pointer
  * does. `touch-targets.mjs` is the sibling that does measure one pointer
  * property — the hit area of every `.touch-target` control; the rest were
- * separate one-off scripts, and `docs/design.md` section 11 records what they
+ * separate one-off scripts, and `apps/web/docs/design.md` section 11 records what they
  * found.
  *
  * Usage — the Chrome has to be running already, because launching it is the part

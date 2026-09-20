@@ -7,8 +7,8 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists: it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
-- **`docs/design.md`**: read it when the work is visual. It carries the tokens, the layout and copy rules, the pre-flight checklist, and the list of directions already rejected.
-- **`docs/adding-a-tool.md`**: read it when the work is adding or changing a Tool. It carries the gates a Tool has to pass, the files it touches, where its code lives, and the order the work happens in.
+- **`apps/web/docs/design.md`**: read it when the work is visual. It carries the tokens, the layout and copy rules, the pre-flight checklist, and the list of directions already rejected.
+- **`apps/web/docs/adding-a-tool.md`**: read it when the work is adding or changing a Tool. It carries the gates a Tool has to pass, the files it touches, where its code lives, and the order the work happens in.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
@@ -20,12 +20,12 @@ Single-context repo (most repos):
 /
 ├── CONTEXT.md
 ├── docs/
-│   ├── adr/
-│   │   ├── 0001-monorepo-single-site.md
-│   │   └── 0002-oxlint-oxfmt-over-eslint-prettier.md
-│   └── design.md
+│   └── adr/
+│       ├── 0001-monorepo-single-site.md
+│       └── 0002-oxlint-oxfmt-over-eslint-prettier.md
 └── apps/
     └── web/
+        ├── docs/                    ← the App's own docs: design.md, adding-a-tool.md
         └── src/
 ```
 

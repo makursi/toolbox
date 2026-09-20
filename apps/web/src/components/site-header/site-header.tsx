@@ -24,7 +24,7 @@ export function SiteHeader() {
           {/*
             The mark and the wordmark are one link home. The mark is the same
             character the tab shows — its crop and its sizes are in section 9 of
-            `docs/design.md` — and it is decorative: the name beside it
+            `apps/web/docs/design.md` — and it is decorative: the name beside it
             already says what it is, so a screen reader reading both would hear
             the site name twice.
           */}
