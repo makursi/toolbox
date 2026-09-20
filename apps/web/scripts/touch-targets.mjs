@@ -3,7 +3,7 @@
  * The touch-target probe: the hit area of every `.touch-target` control, measured
  * in a real browser.
  *
- * `apps/web/docs/design.md` section 5 wants a 44px touch target, and the pre-flight
+ * `apps/web/docs/design/components.md` wants a 44px touch target, and the pre-flight
  * checklist claims no clickable control is under it at 360 / 390 / 768 / 1024.
  * That is a claim about the *rendered* page, so nothing short of a browser can
  * make it: `.touch-target` declares 44x44 on a pseudo-element, and a declaration
@@ -22,7 +22,7 @@
  * keyboard, focus order, the drawing. Those keep the one-off scripts and
  * `ui-fingerprint.mjs` (which answers "did anything move", not "is this big
  * enough"). The two controls the checklist needs a file for (清空 and a row's
- * remove cross) get one through CDP, the technique `apps/web/docs/design.md` section 11
+ * remove cross) get one through CDP, the technique `apps/web/docs/design/log.md`
  * already records.
  *
  * Usage — Chrome has to be running already, because launching it is the part that
@@ -135,8 +135,7 @@ async function navigate(client, url) {
 
 /**
  * Put a file into the page's file input. React does receive this: the input keeps
- * its own change event and CDP sets the files on it. See `apps/web/docs/design.md` item 2
- * in section 11 — headless Chrome can do this, and the claim that it could not was
+ * its own change event and CDP sets the files on it. See item 2 of `apps/web/docs/design/log.md` — headless Chrome can do this, and the claim that it could not was
  * a limitation of an older tool, not of the browser.
  */
 async function addFile(client) {

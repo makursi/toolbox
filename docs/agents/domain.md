@@ -7,7 +7,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists: it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
-- **`apps/web/docs/design.md`**: read it when the work is visual. It carries the tokens, the layout and copy rules, the pre-flight checklist, and the list of directions already rejected.
+- **`apps/web/docs/design.md`**: read the entry first when the work is visual. It carries the invariants that must never be missed, the directions already rejected, and the routing table from "what you are touching" to the file that owns the rule. The modules are one file per area under `apps/web/docs/design/`: `colour.md` (values and light/dark), `typography.md`, `layout.md`, `components.md` (a component's look, its hit area, its icon), `motion.md`, `copy.md` (a sentence a visitor reads), `assets.md` (an image, a font, an icon), `checklist.md` (before merging), `log.md` (what is unfinished, and the evidence of a past run).
 - **`apps/web/docs/adding-a-tool.md`**: read it when the work is adding or changing a Tool. It carries the gates a Tool has to pass, the files it touches, where its code lives, and the order the work happens in.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
@@ -25,7 +25,7 @@ Single-context repo (most repos):
 │       └── 0002-oxlint-oxfmt-over-eslint-prettier.md
 └── apps/
     └── web/
-        ├── docs/                    ← the App's own docs: design.md, adding-a-tool.md
+        ├── docs/                    ← the App's own docs: design.md (the entry) + design/ (the modules), adding-a-tool.md
         └── src/
 ```
 

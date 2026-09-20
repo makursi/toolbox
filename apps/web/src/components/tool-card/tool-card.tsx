@@ -10,7 +10,7 @@ import type { ToolMeta } from "@/tools/types";
  * of description, and the whole card as one link.
  *
  * The card is the only place a Tool's cover is used, and the rules for its shape
- * are the design guide's, not this file's — the 4:3 frame, the cover moving under
+ * are the design doc set's, not this file's — the 4:3 frame, the cover moving under
  * the text on a narrow screen, the hairline border, and the hover shadow that is
  * a deliberate part of the design rather than a missing style. What lives here is
  * the markup those rules describe.
@@ -55,7 +55,7 @@ export function ToolCard({ tool }: { tool: ToolMeta }) {
           <Flex direction={{ base: "column-reverse", sm: "row" }} gap="lg">
             {/* Width comes from the responsive prop alone; the rest of the
                 frame is `.cover-frame` in globals.css, so no inline declaration
-                can outrank a breakpoint (see section 4 of the design guide). */}
+                can outrank a breakpoint (see apps/web/docs/design/layout.md). */}
             <Box className="cover-frame" w={{ base: "100%", sm: 220 }}>
               {/* Decorative: the card's text already names the Tool. */}
               <Image

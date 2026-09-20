@@ -25,7 +25,7 @@ describe("describeFailure", () => {
   });
 
   it("says it in the language of the interface", () => {
-    // Deliberately stricter than section 8 of apps/web/docs/design.md, which lets
+    // Deliberately stricter than apps/web/docs/design/copy.md, which lets
     // abbreviations like PNG or WebP through: none of these sentences needs one,
     // and the point is to catch a browser string arriving. No ASCII space either,
     // which is its own tell in a Chinese sentence. If one ever does need either,

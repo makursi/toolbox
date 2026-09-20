@@ -51,3 +51,7 @@ _Avoid_: probe, checker, browser test, snapshot test
 **Gate**:
 A check that asserts what the site does and whose failure blocks a pull request. It runs unattended, on every change, against the build that ships. A finding that is only written down in prose — however many times it has been reproduced by hand — is not one yet.
 _Avoid_: test, CI check, regression suite
+
+**Design doc set**:
+The App's design documentation, in two layers: `apps/web/docs/design.md` is the **entry** — the invariants that must never be missed, the directions already rejected, and the routing table from "what you are touching" to the file that owns the rule — and `apps/web/docs/design/` holds the **modules**, one per area, each owning its rules and their reasoning.
+_Avoid_: style guide, design guidelines, design system

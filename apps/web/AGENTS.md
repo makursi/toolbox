@@ -19,7 +19,7 @@ apps/web/
 ├── src/                    the App: routes in src/app, Tools in src/tools
 ├── e2e/                    the gate: what the site does, with Playwright
 ├── scripts/                the instruments: what it draws, how big a hit area is (node + CDP)
-├── docs/                   design.md, adding-a-tool.md
+├── docs/                   design.md (the entry) + design/ (one file per area), adding-a-tool.md
 ├── public/                 served as-is; Next.js requires it at the package root
 ├── assets/                 not served: the brand exports, and inbox/ for cover candidates
 ├── next.config.ts          the App's config
