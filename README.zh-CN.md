@@ -22,17 +22,18 @@ pnpm start
 
 ## 常用命令
 
-| 命令                | 用途                         |
-| ------------------- | ---------------------------- |
-| `pnpm dev`          | 起站点                       |
-| `pnpm build`        | 生产构建                     |
-| `pnpm start`        | 跑生产构建                   |
-| `pnpm lint`         | Oxlint，带类型信息           |
-| `pnpm typecheck`    | `tsc --noEmit`               |
-| `pnpm test`         | Vitest 单元测试              |
-| `pnpm fmt`          | 用 Oxfmt 格式化整个仓库      |
-| `pnpm fmt:check`    | 校验格式                     |
-| `pnpm check:readme` | 校验两份 README 是否还对得上 |
+| 命令                | 用途                              |
+| ------------------- | --------------------------------- |
+| `pnpm dev`          | 起站点                            |
+| `pnpm build`        | 生产构建                          |
+| `pnpm start`        | 跑生产构建                        |
+| `pnpm lint`         | Oxlint，带类型信息                |
+| `pnpm typecheck`    | `tsc --noEmit`                    |
+| `pnpm test`         | Vitest 单元测试                   |
+| `pnpm e2e`          | 浏览器门禁：Playwright 对生产构建 |
+| `pnpm fmt`          | 用 Oxfmt 格式化整个仓库           |
+| `pnpm fmt:check`    | 校验格式                          |
+| `pnpm check:readme` | 校验两份 README 是否还对得上      |
 
 ## 配置
 

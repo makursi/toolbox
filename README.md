@@ -22,17 +22,18 @@ pnpm start
 
 ## Commands
 
-| Command             | Purpose                                |
-| ------------------- | -------------------------------------- |
-| `pnpm dev`          | run the site                           |
-| `pnpm build`        | production build                       |
-| `pnpm start`        | serve the production build             |
-| `pnpm lint`         | Oxlint, type-aware                     |
-| `pnpm typecheck`    | `tsc --noEmit`                         |
-| `pnpm test`         | Vitest unit tests                      |
-| `pnpm fmt`          | format the repository with Oxfmt       |
-| `pnpm fmt:check`    | verify formatting                      |
-| `pnpm check:readme` | check that the two READMEs still match |
+| Command             | Purpose                                    |
+| ------------------- | ------------------------------------------ |
+| `pnpm dev`          | run the site                               |
+| `pnpm build`        | production build                           |
+| `pnpm start`        | serve the production build                 |
+| `pnpm lint`         | Oxlint, type-aware                         |
+| `pnpm typecheck`    | `tsc --noEmit`                             |
+| `pnpm test`         | Vitest unit tests                          |
+| `pnpm e2e`          | browser gate: Playwright, production build |
+| `pnpm fmt`          | format the repository with Oxfmt           |
+| `pnpm fmt:check`    | verify formatting                          |
+| `pnpm check:readme` | check that the two READMEs still match     |
 
 ## Configuration
 

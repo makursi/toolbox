@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   check:
-    name: format, readme, lint, types, test, build
+    name: format, readme, lint, types, test, build, e2e
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -50,3 +50,21 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # The browser the gate drives is a per-machine download; `pnpm install`
+      # deliberately does not fetch it. Keyed on the lockfile, which is where the
+      # Playwright version lives — a key that did not track it would serve
+      # binaries the library no longer matches, which is worse than no cache.
+      - name: Cache the gate's browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install the gate's browser
+        run: pnpm --filter @toolbox/web exec playwright install --with-deps chromium
+
+      # Against the build above: the `e2e` task depends on `build`, so Turborepo
+      # serves it from its own cache instead of building a second time.
+      - name: Browser gate
+        run: pnpm e2e

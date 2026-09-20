@@ -11,8 +11,11 @@
  * worth a module that would have to be named after nothing in particular.
  *
  * Deliberately no dependency: `WebSocket` and `fetch` are Node builtins from Node
- * 22 on, and a `node:`-only script is the point (see `docs/design.md` section 11,
- * item 3: no Playwright while CDP can do the job).
+ * 22 on, and a `node:`-only script is the point. This is an instrument — it
+ * measures and prints, it does not assert — and the rule that an instrument
+ * earns no dependency while plain CDP will do is `docs/design.md` section 11
+ * item 3. The half that does assert runs on a test runner, in `apps/web/e2e/`
+ * (`docs/adr/0012-playwright-for-the-browser-gate.md`).
  */
 export async function connect(port) {
   if (typeof WebSocket === "undefined") {

@@ -43,3 +43,11 @@ _Avoid_: job, task, transform
 **Lossless**:
 An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF never are here, and JPEG cannot be at all, because the format has no such mode. Nothing in the interface asks for it: this is a property of the target format, not a setting.
 _Avoid_: maximum quality, no compression
+
+**Instrument**:
+Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. It measures the same page twice on one machine, prints both readings, and does not pass or fail on its own.
+_Avoid_: probe, checker, browser test, snapshot test
+
+**Gate**:
+A check that asserts what the site does and whose failure blocks a pull request. It runs unattended, on every change, against the build that ships. A finding that is only written down in prose — however many times it has been reproduced by hand — is not one yet.
+_Avoid_: test, CI check, regression suite
