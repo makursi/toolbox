@@ -7,13 +7,13 @@ A Tool is one user-facing capability at `/tools/<slug>`. It is not a Package —
 ## 1. The gates, before any code
 
 - **It runs entirely in the browser.** Nothing may be requested after the page has loaded. That is enforced by the CSP in `apps/web/next.config.ts`, not by good intentions (ADR-0005): a Tool that needs a server, an account or a third-party API does not get an exception in the header, it reopens the decision.
-- **No third-party assets, ever.** Images and fonts are self-hosted by `next/font`, and icons are Phosphor names compiled into the CSS at build time (ADR-0009) — so a new icon is a literal class name in the source, never a download.
+- **No third-party assets, ever.** Images live in this repository (`public/`, or the icon files in `src/app`), the Latin font is self-hosted at build time by `next/font`, CJK deliberately falls back to the system's own fonts rather than downloading any (`docs/design.md` §3), and icons are Phosphor names compiled into the CSS at build time (ADR-0009) — so a new icon is a literal class name in the source, never a download.
 - **The design language is `docs/design.md`**, and it is not advisory: warm monochrome with no accent colour, hairline cards, 44px targets, Chinese copy with no em dashes. Read it before writing UI, and change it in the same commit if a rule has to change.
 - **Components are Mantine, layout is Tailwind utilities.** There is no second design system and no hand-rolled icon.
 
 ## 2. What a Tool touches
 
-| Path                                     |                               | Note                                                                                                                                                                                                                                                                                                                   |
+| Path                                     | When                          | Note                                                                                                                                                                                                                                                                                                                   |
 | ---------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/tools/<slug>/`                      | required                      | The whole implementation. Nothing about its internal shape is a template to fill in: `core/` for the pure, tested logic, `worker/` for the browser-only half, `hooks/` for the Tool's React state, `<PascalName>.tsx` for the `"use client"` component. `image-converter/` is one Tool's answer, not the required one. |
 | `src/tools/<slug>/meta.ts`               | required                      | The Tool Registry entry. `description` states the **capability** — it is also the line on the homepage card and on a share card — and never repeats the "stays on your device" promise, which is the footer's, once a page.                                                                                            |
@@ -42,7 +42,7 @@ Do not add a DOM or browser test dependency to cover the rest: what a codec prod
 
 ## 5. The order of work
 
-1. **Issue first.** Candidates live in one roadmap issue until one is picked; the picked Tool gets its own GitHub issue, and `ready-for-agent` means it is specified enough to build. `docs/agents/issue-tracker.md` has the `gh` commands.
+1. **Issue first.** When a candidate list exists, the candidates live in one roadmap issue until one is picked; the picked Tool gets its own GitHub issue, and `ready-for-agent` means it is specified enough to build. `docs/agents/issue-tracker.md` has the `gh` commands.
 2. **Branch** `feat/<slug>` off the default branch. Never work on the default branch.
 3. **Implement**, running `pnpm typecheck` and single test files as you go, and the full `pnpm test` at the end.
 4. **Run everything CI runs, locally, before pushing**: `pnpm fmt:check && pnpm check:readme && pnpm lint && pnpm typecheck && pnpm test && pnpm build`. The pre-push hook covers only `lint` and `typecheck`, so "the hook passed" is not "the work is done".
@@ -54,7 +54,7 @@ Do not add a DOM or browser test dependency to cover the rest: what a codec prod
 
 - Adding fields to `ToolMeta` "for later". A field arrives when a Tool needs it.
 - Scaffolding empty directories for Tools nobody has designed yet.
-- A cell in the homepage grid for a Tool that does not exist. The list stacks full-width rows until the second Tool lands, and the count of cells is the count of Tools.
+- A cell in the homepage grid for a Tool that does not exist. Rows stack full-width and become a grid when the list looks cramped (`docs/design.md` §4), which the second Tool is expected to be the moment for (§11.5), and the count of cells is then the count of Tools.
 - `packages/<tool-name>`. A Tool is not a Package.
 - A placeholder graphic, an invented logo, a fake screenshot.
 - A browser's or a codec's error text in the interface.
