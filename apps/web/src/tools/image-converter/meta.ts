@@ -8,7 +8,7 @@ import type { ToolMeta } from "@/tools/types";
  * This one is a frame the owner supplied, captured with their own tooling.
  * Nothing is re-licensed by it being here, so it is not offered for reuse the way
  * the code is. The design deliberately keeps the frame's own colours rather than
- * a monochrome treatment — see section 9 of `apps/web/docs/design.md`.
+ * a monochrome treatment — see `apps/web/docs/design/assets.md`.
  */
 export const meta: ToolMeta = {
   slug: "image-converter",

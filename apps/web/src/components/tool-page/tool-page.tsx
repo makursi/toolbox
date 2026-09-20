@@ -50,7 +50,7 @@ export function ToolPage({ meta, children }: { meta: ToolMeta; children: ReactNo
             hidden from screen readers, as the card hides its own.
             `.touch-target` sits on the anchor and not on the `<p>` inside it: an
             overlay's clicks belong to the element it is generated on, and the rule
-            (section 5 of `apps/web/docs/design.md`) is that this is the element which owns
+            (`apps/web/docs/design/components.md`) is that this is the element which owns
             the click. On a descendant it works only for as long as the click
             happens to bubble to an ancestor that handles it. The box is the same
             either way, because the anchor is a flex item sized by its content. */}

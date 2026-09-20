@@ -61,7 +61,7 @@
  *
  * Only the transition is gated by reduced motion, not the state: a visitor who
  * asked for less motion still gets the shadow, it simply arrives at once.
- * Section 6 of `apps/web/docs/design.md` asks for everything above the gate to degrade
+ * `apps/web/docs/design/motion.md` asks for everything above the gate to degrade
  * to stillness, which 200ms of moving shadow is not — this transition used to
  * sit outside the gate while the entrance animation sat inside it.
  */
@@ -81,7 +81,7 @@
  * Mantine's own dropzone stylesheet is written against its default palette:
  * `--mantine-color-white` and `gray-4` in light, `dark-6` and `dark-4` in dark.
  * Neither is this site's palette — the surface token is the warm one, and pure
- * white is banned outright (section 7 of apps/web/docs/design.md) — so that box read as
+ * white is banned outright (apps/web/docs/design/colour.md) — so that box read as
  * a piece of another product sitting in the middle of the page.
  *
  * The `components` layer is declared after `mantine` at the top of this file, so
@@ -153,7 +153,7 @@
  * from the count and the clear button.
  *
  * The picture at the head of the row is the visitor's own image and keeps its
- * own colours, the way the Tool's cover does (section 2): it is not a surface of
+ * own colours, the way the Tool's cover does (apps/web/docs/design/colour.md): it is not a surface of
  * the interface, it is the file. The box is always there and always the same
  * size, so the name cannot jump sideways when a thumbnail arrives; it paints
  * nothing until there is an image to paint, so a file the browser will not
@@ -296,7 +296,7 @@
 
 /*
  * The Tool card's cover frame. Its geometry lives here rather than in the card's
- * `style` prop: an inline declaration outranks every breakpoint (see section 4),
+ * `style` prop: an inline declaration outranks every breakpoint (see apps/web/docs/design/layout.md),
  * so the only part of the frame that belongs in the component is the width, which
  * is the part that responds. The 180px cap is inert on a wide screen, where the
  * frame is 220x165 anyway.

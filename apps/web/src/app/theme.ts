@@ -32,7 +32,7 @@ const darkHairline = "#313030";
  * system already has, so the Chinese text renders in PingFang on macOS, YaHei on
  * Windows and Noto on Linux. Self-hosting a CJK font would make the two machines
  * agree, at the cost of megabytes, so it stays a documented option rather than a
- * default (see `apps/web/docs/design.md`).
+ * default (see `apps/web/docs/design/typography.md`).
  */
 const sansStack = [
   "var(--font-geist-sans)",

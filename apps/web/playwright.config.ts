@@ -53,8 +53,8 @@ export default defineConfig({
   /*
    * The production build, never `next dev`: the dev server holds hydration back
    * until its HMR origin is accepted, so the page renders and then ignores every
-   * click. A green run against it would mean nothing — see `apps/web/docs/design.md`
-   * section 11 and the Gotchas in `AGENTS.md`.
+   * click. A green run against it would mean nothing — see `apps/web/docs/design/log.md`
+   * and the Gotchas in `AGENTS.md`.
    *
    * `pnpm e2e` gets its build from Turborepo (`dependsOn: ["build"]`); running
    * `playwright test` directly needs `.next` to be there already.

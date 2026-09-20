@@ -18,7 +18,7 @@ screen to make sense of its own form is the shape this one is getting away from.
 - Transparent pixels still have to land somewhere in JPEG and BMP, so the Worker
   flattens onto **pure white** — `flattenBackground` in `core/formats.ts`. That
   is a pixel in the visitor's own file rather than a surface of the interface,
-  which is why the ban on pure white in section 7 of `apps/web/docs/design.md` does not
+  which is why the ban on pure white in `apps/web/docs/design/colour.md` does not
   reach it; the comment there in `formats.ts` says so where the next reader will
   be standing.
 - Nothing is kept behind the interface for later. The history is in git, and a
