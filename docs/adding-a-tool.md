@@ -54,7 +54,7 @@ Do not add a DOM or browser test dependency to cover the rest: what a codec prod
 
 - Adding fields to `ToolMeta` "for later". A field arrives when a Tool needs it.
 - Scaffolding empty directories for Tools nobody has designed yet.
-- A cell in the homepage grid for a Tool that does not exist. Rows stack full-width and become a grid when the list looks cramped (`docs/design.md` §4), which the second Tool is expected to be the moment for (§11.5), and the count of cells is then the count of Tools.
+- A cell in the homepage grid for a Tool that does not exist. Rows stack full-width and become a grid when the second Tool lands (`docs/design.md` §4), so the count of cells is the count of Tools.
 - `packages/<tool-name>`. A Tool is not a Package.
 - A placeholder graphic, an invented logo, a fake screenshot.
 - A browser's or a codec's error text in the interface.
