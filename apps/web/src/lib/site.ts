@@ -33,7 +33,7 @@ export const siteUrl = resolveSiteUrl();
  * wanted to change its own title. One helper is that rule in one place.
  *
  * No `images`: there is no share image, and no placeholder graphic is invented
- * to stand in for one (see section 9 of `docs/design.md`), so the card is
+ * to stand in for one (see section 9 of `apps/web/docs/design.md`), so the card is
  * meant to be text-only.
  */
 export function shareMetadata(

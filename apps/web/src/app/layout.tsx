@@ -40,7 +40,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
      * tab shows, at two sizes, and `apple-icon.png` is the one iOS uses when the
      * site is added to a home screen. All three are exports of one supplied
      * illustration — the crop, the sizes and the master are in section 9 of
-     * `docs/design.md`.
+     * `apps/web/docs/design.md`.
      */
     <html
       className={`${geistSans.variable} ${geistMono.variable}`}

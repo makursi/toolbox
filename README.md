@@ -42,15 +42,21 @@ pnpm start
 ## Structure
 
 ```
-apps/web/        the only deployable: Next.js App Router, Mantine, Tailwind CSS v4
-packages/        code shared between workspace packages
-docs/adr/        decisions that are hard to reverse
-docs/design.md   the UI: tokens, rules, and what is still unfinished
-CONTEXT.md       the vocabulary: Tool, Package, App, Tool Registry
+apps/web/      the only deployable: Next.js App Router, Mantine, Tailwind CSS v4
+  src/         the App itself: routes in src/app, Tools in src/tools
+  e2e/         the gate: what the site does, with Playwright, on every pull request
+  scripts/     the instruments: what it draws, and how big a hit area really is
+  docs/        the App's own docs: design.md, adding-a-tool.md
+packages/      code shared between workspace packages (today: tsconfig only)
+docs/adr/      decisions that are hard to reverse
+docs/agents/   how agents file issues and read these docs
+CONTEXT.md     the vocabulary: Tool, Package, App, Tool Registry
 ```
+
+An instrument measures and a gate asserts; `docs/adr/0012-playwright-for-the-browser-gate.md` draws the line between the two, and `CONTEXT.md` defines both words.
 
 ## Licence
 
 There is no `LICENSE` file, so the code is all rights reserved by default.
 
-The supplied art is not covered by the repository's licence at all: forking this repo does not grant the right to reuse the site mark (`apps/web/assets/brand/makursi.png` and its three exports) or the Tool cover. See [section 9 of `docs/design.md`](docs/design.md).
+The supplied art is not covered by the repository's licence at all: forking this repo does not grant the right to reuse the site mark (`apps/web/assets/brand/makursi.png` and its three exports) or the Tool cover. See [section 9 of `apps/web/docs/design.md`](apps/web/docs/design.md).

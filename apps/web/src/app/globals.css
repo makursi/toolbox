@@ -61,7 +61,7 @@
  *
  * Only the transition is gated by reduced motion, not the state: a visitor who
  * asked for less motion still gets the shadow, it simply arrives at once.
- * Section 6 of `docs/design.md` asks for everything above the gate to degrade
+ * Section 6 of `apps/web/docs/design.md` asks for everything above the gate to degrade
  * to stillness, which 200ms of moving shadow is not — this transition used to
  * sit outside the gate while the entrance animation sat inside it.
  */
@@ -81,7 +81,7 @@
  * Mantine's own dropzone stylesheet is written against its default palette:
  * `--mantine-color-white` and `gray-4` in light, `dark-6` and `dark-4` in dark.
  * Neither is this site's palette — the surface token is the warm one, and pure
- * white is banned outright (section 7 of docs/design.md) — so that box read as
+ * white is banned outright (section 7 of apps/web/docs/design.md) — so that box read as
  * a piece of another product sitting in the middle of the page.
  *
  * The `components` layer is declared after `mantine` at the top of this file, so
