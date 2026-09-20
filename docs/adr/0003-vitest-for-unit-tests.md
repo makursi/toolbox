@@ -14,5 +14,5 @@ The price is weight: Vitest brings Vite (and with it Rolldown's native binaries)
 ## Considered Options
 
 - **Node's built-in `node:test`**: rejected — zero dependencies, but Node does not read `tsconfig.json`, so the `@/*` imports used throughout the app would need a custom loader, and the suite would diverge from the transform the app is built with.
-- **Playwright / a browser runner**: rejected — the wrong layer for pure Tool logic, and it would not make `pnpm test` a fast local loop.
+- **Playwright / a browser runner**: rejected — the wrong layer for pure Tool logic, and it would not make `pnpm test` a fast local loop. The browser layer did get a runner later, as a separate task with its own budget (`pnpm e2e`, ADR 0012); this decision is about `pnpm test` and still stands.
 - **No test runner until a Tool needs one**: rejected — this was the state before, and `pnpm test` silently succeeding while running nothing is worse than either choice.

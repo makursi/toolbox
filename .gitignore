@@ -10,6 +10,11 @@ build/
 # turborepo
 .turbo/
 
+# playwright: a failure's trace belongs on the machine that failed, not in git
+test-results/
+playwright-report/
+blob-report/
+
 # vercel
 .vercel/
 

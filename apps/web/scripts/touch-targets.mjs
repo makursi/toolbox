@@ -28,7 +28,7 @@
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
  *
- *   pnpm build && pnpm --filter @toolbox/web start -- -p 3111
+ *   pnpm build && pnpm --filter @toolbox/web start -p 3111
  *   chrome --headless=new --remote-debugging-port=9333 --user-data-dir=<tmp dir>
  *   pnpm --filter @toolbox/web touch-targets [baseUrl]
  *
