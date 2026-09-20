@@ -189,8 +189,10 @@
  * draws the control and the box that answers a thumb do not have to be the same
  * size. This pseudo-element is centred on the control and given at least 44px on
  * both axes, which grows the hit area without touching the layout or the
- * drawing. Every control it is used on sits in card padding wide enough that the
- * expanded areas cannot overlap each other.
+ * drawing. Whether the expanded areas stay out of each other's way is not assumed
+ * from the padding around them: `touch-targets.mjs` walks out from each control's
+ * centre and stops when *either* side stops answering, so a target that grew into
+ * its neighbour reads small and fails the check.
  *
  * It goes on the element that *owns the click* — a `<button>`, an `<a>`, a
  * `<label for>` — and never on a wrapper that merely renders one. A
@@ -213,6 +215,39 @@
   width: max(100%, 44px);
   height: max(100%, 44px);
   transform: translate(-50%, -50%);
+}
+
+/*
+ * A Mantine `Button` clips its own overlay, so on one the class above declares a
+ * 44px hit area that does not exist: the root carries `overflow: hidden`, which
+ * cuts the pseudo-element down to the button's own box. Two of this site's
+ * controls are `Button`s and both were under the minimum because of it (issue
+ * #29): the header's colour-scheme switch drew 32x26 and 清空 drew 46x26, the
+ * probe read hit areas of 31x25 and 45x27 on them, and their `::after` computed
+ * to 44x44 all along.
+ *
+ * `:not([data-loading])` is what makes the override safe rather than a fight with
+ * the library. Mantine needs that clip for exactly one state: a loading button
+ * slides its label out downwards (`translateY(100%)`) and sweeps a blurred
+ * highlight across itself, and both would be visible outside the button without
+ * it. Loading also sets `disabled` (Mantine's `Button` passes
+ * `disabled: disabled || loading`), so the state that keeps the clip is a state
+ * that cannot be clicked — the clip comes back where the library needs it, and
+ * the overlay escapes where it does not.
+ *
+ * `components` is declared after `mantine` at the top of this file, so this wins
+ * on layer order and needs no specificity contest — the same mechanism the
+ * Dropzone overrides above use, and one that still leaves Tailwind's utilities
+ * able to override it.
+ *
+ * It is written for `Button` rather than for every Mantine root that clips,
+ * because `Button` is the set we have measured. `touch-targets.mjs` is what said
+ * so, and it is also what would notice the next component that turns out to clip.
+ */
+@layer components {
+  .touch-target.mantine-Button-root:not([data-loading]) {
+    overflow: visible;
+  }
 }
 
 /*
