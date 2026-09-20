@@ -26,7 +26,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `pnpm fmt`          | format the repo with Oxfmt               |
 | `pnpm check:readme` | check the two READMEs against each other |
 
-One thing that is not a `turbo` task because CI cannot run it: `pnpm --filter @toolbox/web fingerprint capture|compare` (`apps/web/scripts/ui-fingerprint.mjs`) snapshots both pages at five widths in both colour schemes and diffs two snapshots — the check that says a refactor moved code without moving anything on screen. The usage, including the Chrome it needs already running, is in the script's header comment.
+One thing that is not a `turbo` task because CI cannot run it: `pnpm --filter @toolbox/web fingerprint capture|compare` (`apps/web/scripts/ui-fingerprint.mjs`) snapshots both pages at five widths in both colour schemes and diffs two snapshots — the check that says a refactor moved code without moving anything on screen. Its sibling `pnpm --filter @toolbox/web touch-targets` (`apps/web/scripts/touch-targets.mjs`) is the other browser-only check: it measures every `.touch-target` control's hit area at four widths in both colour schemes and fails under 43 as it measures — 44 within the probe's resolution, since a 44px span holds 43 interior sample points — which is the claim in section 5 of `docs/design.md`. The usage of both, including the Chrome they need already running, is in each script's header comment.
 
 ## Layout
 

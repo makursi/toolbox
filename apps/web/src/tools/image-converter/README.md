@@ -85,6 +85,6 @@ One conversion each way, using a photo with transparency and a photo without:
 - **360px 宽**：无横向溢出，长文件名截断而格式标签仍在屏内（右缘 300 < 360），移除叉的靶子声明 44×44、实测可点 43×43（探针按像素中心向外走，正好 44 的量出来就是 43）。
 - 全程零 page error、零 `console.error`。
 
-**顺带量到一件不属于本次改动的事**：Mantine 的 `Button` 自带 `overflow: hidden`，挂在它上面的 `.touch-target` 只是声明了 44×44，实际可点区域还是按钮自己的框——360px 下配色开关 32×26、清空 46×26。`CloseButton` 不裁，所以文件行的移除叉是真的 43×43。已记在 `docs/design.md` 第五节，要修是单独一次决定。
+**顺带量到的那件事已经修掉（#29，2026-09-20）**：Mantine 的 `Button` 把 `.touch-target` 的伪元素裁成按钮自己的框，所以「清空」绘制 46×26、声明 44×44，而实际可点只有 45×27。现在由 `globals.css` 里一条带 `:not([data-loading])` 守卫的 `overflow: visible` 覆盖解决（放在 `components` 层里，靠层序赢过 Mantine），理由写在 `docs/design.md` 第五节。四个宽度 × 两套配色重量的结果：清空 45×45、移除叉 43×45、配色开关 43×43、返回首页 73×45，四处绘制尺寸一个都没变；`pnpm --filter @toolbox/web touch-targets` 可以重跑。
 
 **格式行只剩勾选框这一次**（2026-09-18）：上面清单里关于质量滑杆、无损开关与高级面板的三条随控件一起删掉了——它们已经没有可跑的控件——其余条目对着 `pnpm build` + `next start` 的生产构建重跑，54 项断言全过：五份输出（PNG / JPEG / WebP / AVIF / BMP）尺寸都是 64×48，有透明通道的来源在 PNG/WebP/AVIF 里仍是 `0,0,0,0`、在 JPEG/BMP 里落到纯白，格式行用真鼠标点得上（可点区域 886×44），页面上不再有任何滑杆、Switch 或 `高级选项`，零外发请求、零 console 报错与 CSP 违规。脚本仍是一次性的（没进仓），结论记在 `docs/design.md` 第十一节。

@@ -47,9 +47,19 @@ export function ToolPage({ meta, children }: { meta: ToolMeta; children: ReactNo
             so without it the anchor's hit box is the whole 960px row and a click
             far to the right of the words would navigate home. The arrow is
             decoration — the word 返回 already carries the meaning — so it is
-            hidden from screen readers, as the card hides its own. */}
-        <Link href="/" style={{ alignSelf: "flex-start", textDecoration: "none" }}>
-          <Text className="quiet-link touch-target" size="sm">
+            hidden from screen readers, as the card hides its own.
+            `.touch-target` sits on the anchor and not on the `<p>` inside it: an
+            overlay's clicks belong to the element it is generated on, and the rule
+            (section 5 of `docs/design.md`) is that this is the element which owns
+            the click. On a descendant it works only for as long as the click
+            happens to bubble to an ancestor that handles it. The box is the same
+            either way, because the anchor is a flex item sized by its content. */}
+        <Link
+          className="touch-target"
+          href="/"
+          style={{ alignSelf: "flex-start", textDecoration: "none" }}
+        >
+          <Text className="quiet-link" size="sm">
             <span aria-hidden className="icon mr-1 icon-[ph--arrow-left-bold]" />
             返回首页
           </Text>

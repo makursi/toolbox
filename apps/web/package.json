@@ -8,6 +8,7 @@
     "dev": "next dev",
     "fingerprint": "node scripts/ui-fingerprint.mjs",
     "start": "next start",
+    "touch-targets": "node scripts/touch-targets.mjs",
     "lint": "oxlint --type-aware",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

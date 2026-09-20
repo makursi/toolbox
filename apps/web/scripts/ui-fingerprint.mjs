@@ -14,8 +14,10 @@
  *
  * What it deliberately does not cover: end-to-end behaviour (a real file going
  * through a real Worker), console errors, and anything a keyboard or a pointer
- * does. Those were separate one-off scripts, and `docs/design.md` section 11
- * records what they found.
+ * does. `touch-targets.mjs` is the sibling that does measure one pointer
+ * property — the hit area of every `.touch-target` control; the rest were
+ * separate one-off scripts, and `docs/design.md` section 11 records what they
+ * found.
  *
  * Usage — the Chrome has to be running already, because launching it is the part
  * that differs per machine:
@@ -29,6 +31,8 @@
  * finds a difference, so it can gate a shell chain.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+
+import { connect } from "./cdp.mjs";
 
 /** The pages the fingerprint covers. A second Tool is one more line here. */
 const PAGES = [
@@ -107,58 +111,6 @@ const STYLES = `(() => {
     html: pick('html', ['font-family']),
   });
 })()`;
-
-async function connect(port) {
-  if (typeof WebSocket === "undefined") {
-    throw new Error("This check needs Node 22+ (global WebSocket). `node --version` first.");
-  }
-
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-  const page = targets.find((target) => target.type === "page");
-  if (!page)
-    throw new Error(
-      `No page target on port ${port}: start Chrome with --remote-debugging-port=${port}`,
-    );
-
-  const socket = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener("open", resolve, { once: true });
-    socket.addEventListener("error", reject, { once: true });
-  });
-
-  let id = 0;
-  const pending = new Map();
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
-    if (message.id && pending.has(message.id)) {
-      pending.get(message.id)(message);
-      pending.delete(message.id);
-    }
-  });
-
-  const send = (method, params = {}) =>
-    new Promise((resolve) => {
-      const next = ++id;
-      pending.set(next, resolve);
-      socket.send(JSON.stringify({ id: next, method, params }));
-    });
-
-  const evaluate = async (expression) => {
-    const response = await send("Runtime.evaluate", {
-      expression,
-      returnByValue: true,
-      awaitPromise: true,
-    });
-    if (response.result?.exceptionDetails) {
-      throw new Error(response.result.exceptionDetails.exception?.description ?? "evaluate failed");
-    }
-    return response.result?.result?.value;
-  };
-
-  await send("Page.enable");
-  await send("Runtime.enable");
-  return { send, evaluate, close: () => socket.close() };
-}
 
 async function capture(baseUrl, outFile) {
   const port = Number(process.env.CDP_PORT ?? 9333);
