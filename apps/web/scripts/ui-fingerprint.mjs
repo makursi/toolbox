@@ -22,7 +22,7 @@
  * Usage — the Chrome has to be running already, because launching it is the part
  * that differs per machine:
  *
- *   pnpm build && pnpm --filter @toolbox/web start -- -p 3111
+ *   pnpm build && pnpm --filter @toolbox/web start -p 3111
  *   chrome --headless=new --remote-debugging-port=9333 --user-data-dir=<tmp dir>
  *   node scripts/ui-fingerprint.mjs capture http://127.0.0.1:3111 before.json
  *   node scripts/ui-fingerprint.mjs compare before.json after.json
