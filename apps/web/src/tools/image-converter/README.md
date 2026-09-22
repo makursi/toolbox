@@ -10,7 +10,7 @@ Nothing is uploaded: the files are read with the File API, decoded and encoded i
 ImageConverter.tsx   the Tool's UI — the form, and nothing that survives a render
 file-row/            one row of the file list: thumbnail, name, format, remove
 meta.ts              the Tool Registry entry
-design.md            this Tool's own design rules — page structure, components, vocabulary, the output surface (ADR-0014)
+rules.md            this Tool's own rules — page structure, components, vocabulary, the output surface (ADR-0014)
 README.md            this file: how it works, and what to check by hand
 zip.ts               turns the finished outputs into one download
 core/                pure, browser-free logic — the part `pnpm test` covers
