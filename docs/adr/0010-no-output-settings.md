@@ -1,5 +1,10 @@
 # The Image Converter has no output settings
 
+> **Scope**: this decision binds the Image Converter and no other Tool. A new
+> Tool's export surface — format, ratio, quality, filename — is its own product
+> decision; nothing here is inherited. See
+> `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`.
+
 > **Updated 2026-09-18**: the quality slider, the 无损 switch and the Advanced panel went too, which makes this title literally true — the only thing a Conversion sets is the format it is encoded to, and the section is five checkboxes. Quality now comes from `formatSpecs.quality` for the three codecs that take one (`core/formats.ts`; one number per codec as before, AVIF 50 and the rest 75) and PNG's oxipng level is a constant beside the PNG encoder in `worker/worker.ts` (`pngOptimisationLevel`, 2) — BMP takes neither. WebP and AVIF are always lossy, and `core/options.ts`, `core/advanced.ts` and the `LosslessMode` type went with the controls. The reasoning is the one below, applied to the controls that were still left.
 
 Resizing, rotating and choosing the colour that transparent pixels fall back to
