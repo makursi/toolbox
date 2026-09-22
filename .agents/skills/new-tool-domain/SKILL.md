@@ -19,8 +19,8 @@ User-invoked: run it when the user starts a new project — usually a new Tool i
 3. **Create the domain and the skeleton.** Take the matching template from `templates.md` (same directory as this skill):
    - Tool mode: write `src/tools/<slug>/rules.md` from template A; if `src/tools/<slug>/README.md` exists, add one line to its layout tree pointing at `rules.md` — do not create a README for a tool that does not exist yet.
    - Project mode: write `docs/projects/<slug>/rules.md` from template B (`adr/` only when a decision needs one).
-   Fill the scope block with the real name and slug; leave the vocabulary section empty, keeping its "add when there is one" note; list only pointers that are real paths.
-   _Done when_: the file matches its template, contains no placeholder content, and every pointer is a real path.
+     Fill the scope block with the real name and slug; leave the vocabulary section empty, keeping its "add when there is one" note; list only pointers that are real paths.
+     _Done when_: the file matches its template, contains no placeholder content, and every pointer is a real path.
 
 4. **Run the ADR-0014 guard.** Scan the site docs (`apps/web/docs/design.md` routing table and rejected list, the `apps/web/docs/design/` modules, `CONTEXT.md`) for this project's name or a rule that belongs to it. Found any: list them, cite `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`, and do not edit. Found none: say so plainly.
    _Done when_: a verdict is reported — "clean" or a list of violations.
