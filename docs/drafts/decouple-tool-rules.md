@@ -34,33 +34,33 @@
 ### C. 公共部分的总结（判据 A 的落点）
 
 - **站点级规则（留在设计文档集 / repo 级 ADR）**：站点外壳（页头/页脚/404/卡片/注册表/路由/配色/字体/图标/动效/触控目标）+ 横切纪律（CSP、设计语言、承诺一页一次、纯函数文案层**模式**、文案禁词与标点）+ 工程分层（gate/instrument、单测、文档纪律、CI、Tool 契约）。
-- **工具级规则（搬到 `src/tools/<slug>/design.md`）**：每个工具自己的产品形态——页面结构、输入模型、导出面（输出设置/命名/格式/质量）、领域词汇、数字与限值、文案原文。
+- **工具级规则（搬到 `src/tools/<slug>/rules.md`）**：每个工具自己的产品形态——页面结构、输入模型、导出面（输出设置/命名/格式/质量）、领域词汇、数字与限值、文案原文。
 - 工具之间的共享照旧走 `packages/*` 的「第二消费者」门槛；**第一个工具的私有决定不是公共规则的原料**。
 
 ---
 
 ## 2. 逐条处置表（Q6 已确认，整表执行）
 
-| #   | 位置                             | 处置                                                                                                                                                                                                                                                          |
-| --- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A1  | `design.md:60`                   | **拆行**：删「工具页的输出设置（缩放、旋转、背景色，以及质量、无损与高级选项，同上 ADR）」整条全站禁令；同行「纯黑与纯白（导出的图片像素不算：JPEG 的压平底色就是纯白）」是通用豁免，**保留**并去掉对 ADR-0010 的引用（豁免理由在 ADR-0010 的作用域段里写明） |
-| A2  | `docs/adr/0010`                  | 文件开头加一段**作用域声明**（正向措辞，见第 4.4 节模板）：「本 ADR 记的是 image-converter 的决定，只绑定它；每个新 Tool 的导出面是自己的产品决定，不继承本条。」标题与论证不动                                                                               |
-| A3  | `components.md`                  | 相应段落整段移去 `image-converter/design.md`；`components.md` 只留通用骨架：「禁用的控件必须说明原因」（删转换按钮两态例子）、「窄屏上动作占满一行」（例子泛化）、触控目标通用规则（保留，删重复的测量数字）、`layout.md:17` 的「触屏≠窄屏」原则（例子泛化）  |
-| A4  | `log.md:49`                      | 改写为通用：「ToolPage 外壳是公共的（`components/tool-page`）；**页面结构是每个工具自己的决定**，image-converter 的三步骤见其 `design.md`」                                                                                                                   |
-| A5  | `design.md:30`                   | 代码列改为「工具自己的纯文案层（先例：image-converter 的 `core/hints.ts` 等）」，文件名降格为示例；「浏览器或编码器」同步泛化为「浏览器或底层库」                                                                                                             |
-| A6  | `checklist.md:19`                | 机制保留（行为归 e2e gate），例子改通用并指向「每个工具的 QA 清单在它自己的 README」                                                                                                                                                                          |
-| A7  | `CONTEXT.md`                     | 删 Conversion / Lossless 词条，进 `image-converter/design.md` 的词汇节（引用它们的 ADR/README 保持原词——那本是工具域文档）                                                                                                                                    |
-| A8  | `copy.md:10`、`components.md:14` | 前者「编码器」→「底层库」；后者改写为「折叠控件目前没有在用；要不要折叠是每个工具自己的决定（先例：image-converter 已删，见其 `design.md`）」                                                                                                                 |
-| +1  | `colour.md:9`                    | 「文件行里那张 40×40 的缩略图」→「工具自己渲染的资源预览（先例：image-converter 文件行的缩略图）」                                                                                                                                                            |
-| +2  | `components.md:22-23`            | 删与工具 README 重复的测量数字（清空 45×45 等），留一句指向                                                                                                                                                                                                   |
-| +3  | `assets.md:21`                   | 不动（已是作用域正确的形状）                                                                                                                                                                                                                                  |
-| +4  | `docs/drafts/cover-generator.md` | C3（188–191 行）与待决表第 5 行的过期引用，机械更新为「全站禁令已被解耦移除（ADR-0014 / ADR-0010 作用域段）；导出面是封面生成器自己的产品决定」，其余不动（产品决定留在它的 issue 流程）                                                                      |
+| #   | 位置                                                               | 处置                                                                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1  | `design.md:60`                                                     | **拆行**：删「工具页的输出设置（缩放、旋转、背景色，以及质量、无损与高级选项，同上 ADR）」整条全站禁令；同行「纯黑与纯白（导出的图片像素不算：JPEG 的压平底色就是纯白）」是通用豁免，**保留**并去掉对 ADR-0010 的引用（豁免理由在 ADR-0010 的作用域段里写明） |
+| A2  | `docs/adr/0010`                                                    | 文件开头加一段**作用域声明**（正向措辞，见第 4.4 节模板）：「本 ADR 记的是 image-converter 的决定，只绑定它；每个新 Tool 的导出面是自己的产品决定，不继承本条。」标题与论证不动                                                                               |
+| A3  | `components.md`                                                    | 相应段落整段移去 `image-converter/rules.md`；`components.md` 只留通用骨架：「禁用的控件必须说明原因」（删转换按钮两态例子）、「窄屏上动作占满一行」（例子泛化）、触控目标通用规则（保留，删重复的测量数字）、`layout.md:17` 的「触屏≠窄屏」原则（例子泛化）   |
+| A4  | `log.md:49`                                                        | 改写为通用：「ToolPage 外壳是公共的（`components/tool-page`）；**页面结构是每个工具自己的决定**，image-converter 的三步骤见其 `rules.md`」                                                                                                                    |
+| A5  | `design.md:30`                                                     | 代码列改为「工具自己的纯文案层（先例：image-converter 的 `core/hints.ts` 等）」，文件名降格为示例；「浏览器或编码器」同步泛化为「浏览器或底层库」                                                                                                             |
+| A6  | `checklist.md:19`                                                  | 机制保留（行为归 e2e gate），例子改通用并指向「每个工具的 QA 清单在它自己的 README」                                                                                                                                                                          |
+| A7  | `CONTEXT.md`                                                       | 删 Conversion / Lossless 词条，进 `image-converter/rules.md` 的词汇节（引用它们的 ADR/README 保持原词——那本是工具域文档）                                                                                                                                     |
+| A8  | `components.md:14`；「编码器」措辞实际在 `design.md:30`（并入 A5） | 折叠控件改写为「目前没有在用；要不要折叠是每个工具自己的决定（先例：image-converter 已删，见其 `rules.md`）」                                                                                                                                                 |
+| +1  | `colour.md:9`                                                      | 「文件行里那张 40×40 的缩略图」→「工具自己渲染的资源预览（先例：image-converter 文件行的缩略图）」                                                                                                                                                            |
+| +2  | `components.md:22-23`                                              | 删与工具 README 重复的测量数字（清空 45×45 等），留一句指向                                                                                                                                                                                                   |
+| +3  | `assets.md:21`                                                     | 不动（已是作用域正确的形状）                                                                                                                                                                                                                                  |
+| +4  | `docs/drafts/cover-generator.md`                                   | C3（188–191 行）与待决表第 5 行的过期引用，机械更新为「全站禁令已被解耦移除（ADR-0014 / ADR-0010 作用域段）；导出面是封面生成器自己的产品决定」，其余不动（产品决定留在它的 issue 流程）                                                                      |
 
 ---
 
 ## 3. 结构改动（Q5 / Q7 / Q9 已定）
 
-### 3.1 新文件 `apps/web/src/tools/image-converter/design.md`（Q5:(a)）
+### 3.1 新文件 `apps/web/src/tools/image-converter/rules.md`（Q5:(a)）
 
 职权：image-converter 自己的设计规则与词汇，只约束它。大纲（内容均从现有文档迁移，不新造规则）：
 
@@ -96,7 +96,7 @@ _Avoid_: common rule, shared rule, public rule
 **Tool-scoped rule**:
 A rule that records one Tool's own product decision — its page structure, its
 input model, its export surface, its numbers and wording, its vocabulary. It
-lives with the Tool (`src/tools/<slug>/design.md`) or in an ADR whose first
+lives with the Tool (`src/tools/<slug>/rules.md`) or in an ADR whose first
 line states the scope; no other Tool inherits it.
 _Avoid_: site rule, universal rule — and never call a Tool's own rule a
 "site-level" one just because it was written down first.
@@ -108,15 +108,15 @@ _Avoid_: site rule, universal rule — and never call a Tool's own rule a
 - **Problem**: The first Tool (Image Converter) left its product decisions — page structure, the "no output settings" ban, component patterns, its vocabulary — written as site-wide rules in the design doc set, `CONTEXT.md` and an ADR titled for the site. The second Tool collides with rules that were never the toolbox's.
 - **Decision**:
   1. The design doc set holds site-level rules only: a rule binds a Tool because it is about the site itself.
-  2. A Tool's product decisions live in `src/tools/<slug>/design.md`, created when the first tool-scoped rule needs a home; the Tool's README links it.
+  2. A Tool's product decisions live in `src/tools/<slug>/rules.md`, created when the first tool-scoped rule needs a home; the Tool's README links it.
   3. A repo-level ADR may record a tool-scoped decision, but its first line states the scope — ADR-0010 is done this way.
   4. A site-level exemption born inside a tool decision (exported pixels are not interface surfaces) is re-stated where it binds the whole site's reading of a rule, with the tool decision cited.
-- **Consequences**（执行面清单，见第 5 节）＋ **Considered Options**（保留在文档集加作用域标注——被否：文档继续膨胀、读者要跳过别人的规则；每个新工具逐个谈判例外——被否：同一场架重打，例外开花；规则进工具 README——被否：README 是行为与 QA 的职责，设计规则另立 `design.md`）。
+- **Consequences**（执行面清单，见第 5 节）＋ **Considered Options**（保留在文档集加作用域标注——被否：文档继续膨胀、读者要跳过别人的规则；每个新工具逐个谈判例外——被否：同一场架重打，例外开花；规则进工具 README——被否：README 是行为与 QA 的职责，设计规则另立 `rules.md`）。
 
 ### 3.5 `adding-a-tool.md` / `docs/agents/domain.md` 改动点（防回潮指针）
 
-- `adding-a-tool.md` §2 表加可选行：「`src/tools/<slug>/design.md` — when a Tool has rules that only it obeys（页面结构/组件/词汇/导出面）——站点文档只装站点级规则（ADR-0014）」；§6 反模式加一条：「把工具私有规则写成站点规则」。
-- `docs/agents/domain.md` 探索清单加一行：「动某个 Tool 时，若 `src/tools/<slug>/design.md` 存在，先读它——它是这个工具的规则，不是站点的」。
+- `adding-a-tool.md` §2 表加可选行：「`src/tools/<slug>/rules.md` — when a Tool has rules that only it obeys（页面结构/组件/词汇/导出面）——站点文档只装站点级规则（ADR-0014）」；§6 反模式加一条：「把工具私有规则写成站点规则」。
+- `docs/agents/domain.md` 探索清单加一行：「动某个 Tool 时，若 `src/tools/<slug>/rules.md` 存在，先读它——它是这个工具的规则，不是站点的」。
 
 ---
 
@@ -124,7 +124,7 @@ _Avoid_: site rule, universal rule — and never call a Tool's own rule a
 
 | 文件                                                    | 动作                                                                       |
 | ------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `apps/web/src/tools/image-converter/design.md`          | **新建**（3.1）                                                            |
+| `apps/web/src/tools/image-converter/rules.md`           | **新建**（3.1）                                                            |
 | `apps/web/src/tools/image-converter/README.md`          | 加一行链接                                                                 |
 | `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md` | **新建**（3.4）                                                            |
 | `docs/adr/0010-no-output-settings.md`                   | 开头加作用域声明                                                           |
@@ -139,7 +139,7 @@ _Avoid_: site rule, universal rule — and never call a Tool's own rule a
 
 ## 5. 执行顺序与验收
 
-1. 先建接收端（`image-converter/design.md`）→ 2. ADR-0014 + ADR-0010 作用域 → 3. 站点文档（design/components/colour/checklist/log）→ 4. CONTEXT.md → 5. adding-a-tool.md + domain.md → 6. cover-generator 引用 → 7. `pnpm fmt` / `lint` / `typecheck` / `test`（纯文档改动，UI 与门禁不应受影响；`check:readme` 未触及 README 双语一致性）→ 8. 本文件随第三个 PR 存档（R2，状态改「已确认并存档」）。
+1. 先建接收端（`image-converter/rules.md`）→ 2. ADR-0014 + ADR-0010 作用域 → 3. 站点文档（design/components/colour/checklist/log）→ 4. CONTEXT.md → 5. adding-a-tool.md + domain.md → 6. cover-generator 引用 → 7. `pnpm fmt` / `lint` / `typecheck` / `test`（纯文档改动，UI 与门禁不应受影响；`check:readme` 未触及 README 双语一致性）→ 8. 本文件随第三个 PR 存档（R2，状态改「已确认并存档」）。
 
 ## 6. 仍需确认的三件事（其余全部已定）
 

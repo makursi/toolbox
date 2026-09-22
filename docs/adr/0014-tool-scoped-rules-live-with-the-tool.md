@@ -5,16 +5,16 @@ The design doc set (`apps/web/docs/design.md` and its modules) is the site's sin
 ## Decision
 
 1. **The design doc set holds site-level rules only.** A rule binds a Tool because it is about the site itself: the shell (header, footer, cards, registry, routes), the design language, the CSP, the gate and instrument tiers, the Tool contract, the copy discipline.
-2. **A Tool's product decisions live with the Tool.** The first tool-scoped rule creates `src/tools/<slug>/design.md`; the Tool's README links it. Its page structure, input model, export surface, numbers, wording and vocabulary are its own, and the next Tool does not inherit them.
+2. **A Tool's product decisions live with the Tool.** The first tool-scoped rule creates `src/tools/<slug>/rules.md`; the Tool's README links it. Its page structure, input model, export surface, numbers, wording and vocabulary are its own, and the next Tool does not inherit them.
 3. **A repo-level ADR may record a tool-scoped decision, but its first line states the scope.** `docs/adr/0010-no-output-settings.md` is the model: a scope note at the top, the reasoning below.
 4. **A site-level exemption born inside a tool decision is restated where it binds the whole site's reading of a rule.** The ban on pure white does not reach exported file pixels (a JPEG's flattened background is pure white); that exemption lives in the design doc set even though ADR-0010 is where the flattening is decided.
 
 ## Consequences
 
-- `apps/web/src/tools/image-converter/design.md` now owns the converter's rules; the site docs keep only the site's.
+- `apps/web/src/tools/image-converter/rules.md` now owns the converter's rules; the site docs keep only the site's.
 - `CONTEXT.md` defines site vocabulary only; `Conversion` and `Lossless` moved to the Tool's own doc (its ADRs and README keep using the words).
 - `docs/adr/0010-no-output-settings.md` gained the scope note called for in decision 3.
-- `apps/web/docs/adding-a-tool.md` and `docs/agents/domain.md` point new Tools and agents at the Tool's own design doc before the site's.
+- `apps/web/docs/adding-a-tool.md` and `docs/agents/domain.md` point new Tools and agents at the Tool's own rules doc before the site's.
 - The `cover-generator` draft's C3 stops citing a site-wide ban that no longer exists; its export surface is its own product decision, settled in its own issue.
 
 ## Considered Options
