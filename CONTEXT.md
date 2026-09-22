@@ -53,5 +53,5 @@ A rule that binds every Tool because it is about the site itself: the shell (hea
 _Avoid_: common rule, shared rule, public rule
 
 **Tool-scoped rule**:
-A rule that records one Tool's own product decision — its page structure, its input model, its export surface, its numbers and wording, its vocabulary. It lives with the Tool (`src/tools/<slug>/design.md`) or in an ADR whose first line states the scope; no other Tool inherits it.
+A rule that records one Tool's own product decision — its page structure, its input model, its export surface, its numbers and wording, its vocabulary. It lives with the Tool (`src/tools/<slug>/rules.md`) or in an ADR whose first line states the scope; no other Tool inherits it.
 _Avoid_: site rule, universal rule; and never call a Tool's own rule a "site-level" one just because it was written first.
