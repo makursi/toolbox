@@ -36,14 +36,6 @@ _Avoid_: brand, product
 toolbox — the repository and the workspace packages (`@toolbox/*`), which is also what these docs are about. Naming a site is not renaming a project, and only the site was renamed.
 _Avoid_: app, repo
 
-**Conversion**:
-One input image together with the target format it is encoded with. A Batch is many Conversions: one source going to three formats is three of them, and each one either yields one output file or fails.
-_Avoid_: job, task, transform
-
-**Lossless**:
-An output that carries the source's pixels without any further lossy compression. PNG and BMP are always lossless, WebP and AVIF never are here, and JPEG cannot be at all, because the format has no such mode. Nothing in the interface asks for it: this is a property of the target format, not a setting.
-_Avoid_: maximum quality, no compression
-
 **Instrument**:
 Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. It measures the same page twice on one machine, prints both readings, and does not pass or fail on its own.
 _Avoid_: probe, checker, browser test, snapshot test
@@ -55,3 +47,11 @@ _Avoid_: test, CI check, regression suite
 **Design doc set**:
 The App's design documentation, in two layers: `apps/web/docs/design.md` is the **entry** — the invariants that must never be missed, the directions already rejected, and the routing table from "what you are touching" to the file that owns the rule — and `apps/web/docs/design/` holds the **modules**, one per area, each owning its rules and their reasoning.
 _Avoid_: style guide, design guidelines, design system
+
+**Site-level rule**:
+A rule that binds every Tool because it is about the site itself: the shell (header, footer, cards, registry, routes), the design language, the CSP, the gate and instrument tiers, the Tool contract, the copy discipline. It lives in the design doc set or a repo-level ADR, and a Tool that breaks it reopens that decision.
+_Avoid_: common rule, shared rule, public rule
+
+**Tool-scoped rule**:
+A rule that records one Tool's own product decision — its page structure, its input model, its export surface, its numbers and wording, its vocabulary. It lives with the Tool (`src/tools/<slug>/design.md`) or in an ADR whose first line states the scope; no other Tool inherits it.
+_Avoid_: site rule, universal rule; and never call a Tool's own rule a "site-level" one just because it was written first.
