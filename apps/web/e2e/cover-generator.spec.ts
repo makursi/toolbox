@@ -1,5 +1,6 @@
-import { expect, test, type BrowserContext } from "@playwright/test";
 import type { Readable } from "node:stream";
+
+import { expect, test, type BrowserContext } from "@playwright/test";
 
 import { open } from "./tool-page";
 
@@ -97,7 +98,9 @@ async function readPngHeader(stream: Readable) {
     stream.on("end", () => resolve(Buffer.concat(parts).subarray(0, 32)));
     stream.on("error", reject);
   });
-  const signature = bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const signature = bytes
+    .subarray(0, 8)
+    .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   return {
     signature,
     width: bytes.length >= 24 ? bytes.readUInt32BE(16) : 0,

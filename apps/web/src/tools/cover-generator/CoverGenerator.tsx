@@ -46,6 +46,29 @@ function observeFit(el: HTMLElement, ratioWidth: number, onFit: (fit: number) =>
   return () => observer.disconnect();
 }
 
+/**
+ * Read a visitor's file as a `data:` URL. `data:` needs no fetch and is
+ * allowed by `img-src`, so SnapDOM can inline it under this site's CSP; a
+ * `blob:` URL would be fetched and blocked by `connect-src 'self'` (the #61
+ * finding in the README).
+ */
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener(
+      "load",
+      () => {
+        const result = reader.result;
+        if (typeof result === "string") resolve(result);
+        else reject(new Error("expected a data: URL"));
+      },
+      { once: true },
+    );
+    reader.addEventListener("error", () => reject(reader.error), { once: true });
+    reader.readAsDataURL(file);
+  });
+}
+
 /** The one field of a Local Font Access read that this Tool uses. */
 type LocalFontRead = { family: string };
 
@@ -217,6 +240,10 @@ export function CoverGenerator() {
         height: ratio.height,
         format: "png",
         backgroundColor: composition.transparent ? null : undefined,
+        // SnapDOM warns when inline/table-cell text may re-wrap under font
+        // fallback; reconcile pins exact layout (see the #61 finding in the
+        // README).
+        reconcile: true,
       });
       const blob = await result.toBlob({ format: "png" });
       const url = URL.createObjectURL(blob);
@@ -235,29 +262,25 @@ export function CoverGenerator() {
   }
 
   function pickIcon(icon: CompositionIcon) {
-    if (composition.icon?.source === "upload" && icon.source !== "upload") {
-      URL.revokeObjectURL(composition.icon.url);
-    }
     set({ icon });
   }
 
-  function uploadIcon(file: File | null) {
+  async function uploadIcon(file: File | null) {
     if (file === null) return;
-    if (composition.icon?.source === "upload") URL.revokeObjectURL(composition.icon.url);
-    const url = URL.createObjectURL(file);
+    const url = await readAsDataUrl(file);
     set({ icon: { source: "upload", url } });
     setIconQuery("");
   }
 
-  function uploadBackground(file: File | null) {
+  async function uploadBackground(file: File | null) {
     if (file === null) return;
     if (backgroundTooBig(file.size)) {
       setBgRefusal(refuseBackgroundImage(file.size));
       return;
     }
-    if (composition.backgroundImage !== null) URL.revokeObjectURL(composition.backgroundImage);
+    const url = await readAsDataUrl(file);
     setBgRefusal(null);
-    set({ backgroundImage: URL.createObjectURL(file) });
+    set({ backgroundImage: url });
   }
 
   /** Upload a font: bytes → FontFace → document fonts (experiment #57 verified
