@@ -34,6 +34,15 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] The page makes no outbound request and prints nothing to the console (the gate's converter spec stays green).
 - [ ] `touch-targets` measures 返回首页 and the header's colour-scheme switch at ≥44px at four widths in both schemes.
 
-The compose → export flow's checklist items arrive with the slices that build them (#52 to #60), and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+### Compose and export (#52, the composition tracer)
+
+- [ ] Editing either text, the weight slider or the ratio updates the preview immediately.
+- [ ] The badge shows the current ratio and its pixel size (e.g. `16:9 · 1280×720`).
+- [ ] 「下载 16:9」 produces a PNG at the chosen ratio's pixel size (e.g. 1280×720), named by the rule (`16-9-示例文本.png`), and it opens in an image viewer.
+- [ ] The preview and the export show the same composition (the export captures the same DOM at full size, off screen).
+- [ ] The preview scales down without horizontal overflow at 360 / 390 / 768 / 1024.
+- [ ] The flow leaves the page reachable by keyboard: the text inputs and the ratio control are focusable, and the download button is a real button.
+
+The leftover flow items (transparency, filename input, pixel cap, styles, icons, backgrounds, fonts) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
 
 **引擎实验（#55 / #57，待执行）**：SnapDOM 的 `blob:` 背景图抓取、以及 `FontFace(ArrayBuffer)` 注册的字体进 SVG-as-image 序列化后在 `font-src 'self'` 下的行为——两条都要对着 `pnpm build && pnpm start` 的生产构建跑，结论与证据记在这里和 `apps/web/docs/design/log.md`。

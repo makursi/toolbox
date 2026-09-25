@@ -60,14 +60,15 @@ const MIN = 43;
  * a probe that silently measured nothing would pass, which is the one way this
  * check can lie. The header's colour-scheme switch is on every page, because the
  * header is; the tool pages add 返回首页 (and the cover generator's counter of
- * controls grows with its slices). Fixed numbers rather than comfortable floors:
+ * controls grows with its slices: 2 in the spine slice, 3 once the download
+ * button lands in #52). Fixed numbers rather than comfortable floors:
  * a regression that drops a control has to fail here rather than slip under the
  * bar.
  */
 const PAGES = [
   { minControls: 1, name: "home", path: "/" },
   { minControls: 4, name: "tool", path: "/tools/image-converter" },
-  { minControls: 2, name: "cover", path: "/tools/cover-generator" },
+  { minControls: 3, name: "cover", path: "/tools/cover-generator" },
 ];
 
 /**
