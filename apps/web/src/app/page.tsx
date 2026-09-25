@@ -22,16 +22,16 @@ export default function HomePage() {
             </Text>
           ) : (
             /*
-             * One full-width card per Tool, stacked rather than gridded. A grid
-             * would leave an empty cell with a single Tool in it, which reads as
-             * a layout mistake; this shape stays honest as Tools are added and
-             * becomes a grid the day it looks cramped.
+             * The homepage grows into a grid the day the second Tool lands
+             * (`apps/web/docs/design/layout.md`): one Tool stays a full-width
+             * row, two Tools become two columns from `sm` up. The count of
+             * cells is the count of Tools; never pad a row with an empty cell.
              */
-            <Stack gap="md">
+            <div className="grid gap-4 sm:grid-cols-2">
               {tools.map((tool) => (
                 <ToolCard key={tool.slug} tool={tool} />
               ))}
-            </Stack>
+            </div>
           )}
         </section>
       </Stack>
