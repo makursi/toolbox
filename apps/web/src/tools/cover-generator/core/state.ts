@@ -18,6 +18,7 @@ export type Composition = {
   iconBackground: boolean;
   backgroundImage: string | null;
   backgroundOpacity: number;
+  fontFamily: string | null;
 };
 
 /** The sample layout a visitor starts from — real copy, not invented content. */
@@ -32,6 +33,7 @@ export function createDefaultComposition(): Composition {
     iconBackground: false,
     backgroundImage: null,
     backgroundOpacity: 1,
+    fontFamily: null,
   };
 }
 

@@ -64,6 +64,15 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] 背景不透明度 0–100%（样式节）只作用于背景层，并随导出生效。
 - [ ] 超过 10 MB 的背景图被拒，给出「这个背景图有 N MB，上限是 10 MB。」（copy 有单测）。
 
-The leftover flow items (transparency, filename input, pixel cap, styles, fonts) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+### Fonts (#58)
 
-**引擎实验 #55（2026-09-22，通过）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。结论：背景上传（#56）与上传图标直接走 `blob:` 路径即可，不需要 `data:` 转换。#57（数据字体在 SVG-as-image 下的 CSP 行为）仍待执行。
+- [ ] 上传字体 renders in preview and export (per experiment #57).
+- [ ] A font over 20 MB is refused with its size named; an unreadable font shows 「这个字体文件无法载入。」.
+- [ ] 获取系统字体: where Local Font Access exists, picking a family applies it; elsewhere it shows 「此浏览器不支持读取系统字体。」 — a hint, not a dead control.
+- [ ] The typography promise in the README and `rules.md` matches behaviour: the exported glyphs depend on the machine that drew them.
+
+The leftover flow items (transparency, filename input, pixel cap, styles) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+
+**引擎实验 #55（2026-09-22，通过）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。结论：背景上传（#56）与上传图标直接走 `blob:` 路径即可，不需要 `data:` 转换。
+
+**引擎实验 #57（2026-09-22，通过）**：`FontFace(ArrayBuffer)` 注册的字体在 SnapDOM 的 SVG-as-image 序列化下正常光栅化。方法：无头 Chrome 对着 `next start` 的**生产构建**（CSP `font-src 'self'` 生效），字节来自同源 `fetch()` 的页内字体，注册后画「字形甲乙」再导出 PNG：采样最暗像素 17（字形已绘制）、`warnings: []`、零 console 噪音（CSP 没拦）。结论：字体上传走 `File.arrayBuffer() → new FontFace → document.fonts.add` 即可，SnapDOM 的 `embedFonts` 会把它内联进文件。两条引擎实验（#55、#57）均已闭合。

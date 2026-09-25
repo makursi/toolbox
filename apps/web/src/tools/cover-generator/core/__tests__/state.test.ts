@@ -20,6 +20,7 @@ describe("composition state", () => {
       iconBackground: false,
       backgroundImage: null,
       backgroundOpacity: 1,
+      fontFamily: null,
     });
   });
 

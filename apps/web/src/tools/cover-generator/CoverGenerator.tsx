@@ -18,10 +18,10 @@ import { Dropzone } from "@mantine/dropzone";
 import { snapdom } from "@zumer/snapdom";
 import { useEffect, useRef, useState } from "react";
 
-import { refuseBackgroundImage } from "./core/failures";
+import { fontUnreadable, refuseBackgroundImage, refuseFontFile } from "./core/failures";
 import { resolveLucideIcon, searchLucide, type LucideSet } from "./core/icons";
-import { backgroundTooBig } from "./core/limits";
-import { defaultCoverName, uniqueCoverName } from "./core/naming";
+import { backgroundTooBig, fontTooBig } from "./core/limits";
+import { defaultCoverName, sanitizeFileName, uniqueCoverName } from "./core/naming";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
 import {
   createDefaultComposition,
@@ -43,6 +43,9 @@ function observeFit(el: HTMLElement, ratioWidth: number, onFit: (fit: number) =>
   return () => observer.disconnect();
 }
 
+/** The one field of a Local Font Access read that this Tool uses. */
+type LocalFontRead = { family: string };
+
 /**
  * Ticket #54 — the icon system. The lucide set arrives as a same-origin chunk
  * (`@iconify-json/lucide/icons.json`, ~0.6 MB / 1853 icons) loaded once by
@@ -57,6 +60,9 @@ export function CoverGenerator() {
   const [iconSet, setIconSet] = useState<LucideSet | null>(null);
   const [iconQuery, setIconQuery] = useState("");
   const [bgRefusal, setBgRefusal] = useState<string | null>(null);
+  const [fontRefusal, setFontRefusal] = useState<string | null>(null);
+  const [sysFonts, setSysFonts] = useState<string[]>([]);
+  const [sysHint, setSysHint] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const exportRef = useRef<HTMLDivElement | null>(null);
   const [fit, setFit] = useState(1);
@@ -133,7 +139,15 @@ export function CoverGenerator() {
         />
       )}
       <Flex align="center" gap={20} justify="center" style={{ inset: 0, position: "absolute" }}>
-        <span style={{ fontSize: 64, fontWeight: composition.weight }}>{composition.leftText}</span>
+        <span
+          style={{
+            fontFamily: composition.fontFamily ?? undefined,
+            fontSize: 64,
+            fontWeight: composition.weight,
+          }}
+        >
+          {composition.leftText}
+        </span>
         {composition.iconVisible &&
           composition.icon !== null &&
           (composition.iconBackground ? (
@@ -149,7 +163,13 @@ export function CoverGenerator() {
           ) : (
             renderIcon(64)
           ))}
-        <span style={{ fontSize: 64, fontWeight: composition.weight }}>
+        <span
+          style={{
+            fontFamily: composition.fontFamily ?? undefined,
+            fontSize: 64,
+            fontWeight: composition.weight,
+          }}
+        >
           {composition.rightText}
         </span>
       </Flex>
@@ -207,6 +227,49 @@ export function CoverGenerator() {
     if (composition.backgroundImage !== null) URL.revokeObjectURL(composition.backgroundImage);
     setBgRefusal(null);
     set({ backgroundImage: URL.createObjectURL(file) });
+  }
+
+  /** Upload a font: bytes → FontFace → document fonts (experiment #57 verified
+      the capture path; the browser's parse errors stay in the console). */
+  async function uploadFont(file: File | null) {
+    if (file === null) return;
+    if (fontTooBig(file.size)) {
+      setFontRefusal(refuseFontFile(file.size));
+      return;
+    }
+    setFontRefusal(null);
+    try {
+      const bytes = await file.arrayBuffer();
+      const family = sanitizeFileName(file.name.replace(/\.[^.]+$/, "")) || "访客字体";
+      const face = new FontFace(family, bytes);
+      await face.load();
+      document.fonts.add(face);
+      set({ fontFamily: family });
+    } catch {
+      setFontRefusal(fontUnreadable());
+    }
+  }
+
+  /** Local Font Access, graceful where the API does not exist (Chromium only). */
+  async function fetchSystemFonts() {
+    const query = (window as Window & { queryLocalFonts?: () => Promise<LocalFontRead[]> })
+      .queryLocalFonts;
+    if (typeof query !== "function") {
+      setSysHint("此浏览器不支持读取系统字体。");
+      return;
+    }
+    try {
+      const fonts = await query();
+      const families = [...new Set(fonts.map((font) => font.family))];
+      // The tsconfig target (ES2022) has no Array#toSorted; the array is a
+      // fresh spread, so sorting it mutates nothing shared.
+      // oxlint-disable-next-line unicorn/no-array-sort -- see above
+      families.sort((a, b) => a.localeCompare(b));
+      setSysFonts(families);
+      setSysHint(null);
+    } catch {
+      setSysHint("读取系统字体被拒绝。");
+    }
   }
 
   const iconResults = iconSet === null ? [] : searchLucide(iconSet, iconQuery);
@@ -322,6 +385,49 @@ export function CoverGenerator() {
                   <Text c="red" size="sm">
                     {bgRefusal}
                   </Text>
+                )}
+
+                <Divider />
+                <FileInput
+                  accept=".woff2,.woff,.ttf,.otf"
+                  label="上传字体"
+                  onChange={uploadFont}
+                  placeholder="选择字体文件"
+                />
+                {fontRefusal !== null && (
+                  <Text c="red" size="sm">
+                    {fontRefusal}
+                  </Text>
+                )}
+                <Button
+                  className="touch-target"
+                  color="gray"
+                  justify="flex-start"
+                  onClick={fetchSystemFonts}
+                  variant="subtle"
+                >
+                  获取系统字体
+                </Button>
+                {sysHint !== null && (
+                  <Text c="dimmed" size="sm">
+                    {sysHint}
+                  </Text>
+                )}
+                {sysFonts.length > 0 && (
+                  <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
+                    {sysFonts.map((family) => (
+                      <Button
+                        className="touch-target"
+                        color="gray"
+                        justify="flex-start"
+                        key={family}
+                        onClick={() => set({ fontFamily: family })}
+                        variant={composition.fontFamily === family ? "light" : "subtle"}
+                      >
+                        {family}
+                      </Button>
+                    ))}
+                  </Stack>
                 )}
               </Stack>
             </Accordion.Panel>
