@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createDefaultComposition, updateComposition } from "@/tools/cover-generator/core/state";
+import {
+  createDefaultComposition,
+  proportionalSizes,
+  updateComposition,
+} from "@/tools/cover-generator/core/state";
 
 /**
  * The composition is the Tool's pure state model: two texts, one weight, one
@@ -21,6 +25,19 @@ describe("composition state", () => {
       backgroundImage: null,
       backgroundOpacity: 1,
       fontFamily: null,
+      fontSize: 64,
+      iconSize: 64,
+      iconRadius: 0,
+      spacing: 20,
+      proportional: false,
+      colorSync: true,
+      textColor: "#000000",
+      iconColor: "#000000",
+      bgColor: "#ffffff",
+      shadowScope: "none",
+      shadowColor: "#000000",
+      filename: "",
+      transparent: false,
     });
   });
 
@@ -34,5 +51,10 @@ describe("composition state", () => {
   it("returns the same object when nothing changes", () => {
     const before = createDefaultComposition();
     expect(updateComposition(before, {})).toBe(before);
+  });
+
+  it("scales the sibling sizes with the font under 等比缩放", () => {
+    expect(proportionalSizes(64)).toEqual({ iconSize: 64, spacing: 20 });
+    expect(proportionalSizes(128)).toEqual({ iconSize: 128, spacing: 40 });
   });
 });

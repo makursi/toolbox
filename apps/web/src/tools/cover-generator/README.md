@@ -71,7 +71,18 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] 获取系统字体: where Local Font Access exists, picking a family applies it; elsewhere it shows 「此浏览器不支持读取系统字体。」 — a hint, not a dead control.
 - [ ] The typography promise in the README and `rules.md` matches behaviour: the exported glyphs depend on the machine that drew them.
 
-The leftover flow items (transparency, filename input, pixel cap, styles) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+### Styles (#59)
+
+- [ ] 字体大小 / 图标大小 / 图标圆角 / 间距 sliders change the preview and the export identically; 等比缩放 links them (pure `proportionalSizes`, unit-tested).
+- [ ] 颜色同步 plus 文字 / 图标 / 背景 colours: with sync on the library icon follows the text colour; a colour the visitor picks lands in the exported pixels.
+- [ ] 阴影 scope (全部 / 文字 / 图标 / 无) and colour render in both preview and export.
+
+### Export finish (#60)
+
+- [ ] 文件名 is pre-filled by the rule and editable, sanitized for the filesystem; 背景透明 exports alpha for PNG (and only PNG — the option says so).
+- [ ] The largest export (21:9 → 2560×1080) matches the pixel cap constant (unit-tested); v1 has no scale multiplier.
+
+The leftover flow items (gate coverage) arrive with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
 
 **引擎实验 #55（2026-09-22，通过）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。结论：背景上传（#56）与上传图标直接走 `blob:` 路径即可，不需要 `data:` 转换。
 

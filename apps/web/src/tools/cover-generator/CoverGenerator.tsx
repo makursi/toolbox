@@ -4,6 +4,7 @@ import {
   Accordion,
   Box,
   Button,
+  ColorInput,
   Divider,
   FileInput,
   Flex,
@@ -25,9 +26,11 @@ import { defaultCoverName, sanitizeFileName, uniqueCoverName } from "./core/nami
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
 import {
   createDefaultComposition,
+  proportionalSizes,
   updateComposition,
   type Composition,
   type CompositionIcon,
+  type ShadowScope,
 } from "./core/state";
 
 /**
@@ -122,9 +125,24 @@ export function CoverGenerator() {
   }
 
   /** The composition itself — rendered in both the preview and the export. */
+  const textShadow =
+    composition.shadowScope === "all" || composition.shadowScope === "text"
+      ? `${composition.shadowColor} 0 2px 8px`
+      : undefined;
+  const iconShadow =
+    composition.shadowScope === "all" || composition.shadowScope === "icon"
+      ? `drop-shadow(0 2px 8px ${composition.shadowColor})`
+      : undefined;
+  const iconColor = composition.colorSync ? composition.textColor : composition.iconColor;
+
   const compositionMarkup = (
     <Box
-      style={{ background: "#ffffff", height: "100%", overflow: "hidden", position: "relative" }}
+      style={{
+        background: composition.transparent ? "transparent" : composition.bgColor,
+        height: "100%",
+        overflow: "hidden",
+        position: "relative",
+      }}
     >
       {composition.backgroundImage !== null && (
         <div
@@ -138,12 +156,19 @@ export function CoverGenerator() {
           }}
         />
       )}
-      <Flex align="center" gap={20} justify="center" style={{ inset: 0, position: "absolute" }}>
+      <Flex
+        align="center"
+        gap={composition.spacing}
+        justify="center"
+        style={{ inset: 0, position: "absolute" }}
+      >
         <span
           style={{
+            color: composition.textColor,
             fontFamily: composition.fontFamily ?? undefined,
-            fontSize: 64,
+            fontSize: composition.fontSize,
             fontWeight: composition.weight,
+            textShadow,
           }}
         >
           {composition.leftText}
@@ -154,20 +179,26 @@ export function CoverGenerator() {
             <Box
               style={{
                 background: "var(--mantine-color-default-border)",
-                borderRadius: 24,
+                borderRadius: `${composition.iconRadius}%`,
                 padding: 16,
               }}
             >
-              {renderIcon(64)}
+              <span style={{ color: iconColor, filter: iconShadow }}>
+                {renderIcon(composition.iconSize)}
+              </span>
             </Box>
           ) : (
-            renderIcon(64)
+            <span style={{ color: iconColor, filter: iconShadow }}>
+              {renderIcon(composition.iconSize)}
+            </span>
           ))}
         <span
           style={{
+            color: composition.textColor,
             fontFamily: composition.fontFamily ?? undefined,
-            fontSize: 64,
+            fontSize: composition.fontSize,
             fontWeight: composition.weight,
+            textShadow,
           }}
         >
           {composition.rightText}
@@ -185,15 +216,15 @@ export function CoverGenerator() {
         width: ratio.width,
         height: ratio.height,
         format: "png",
+        backgroundColor: composition.transparent ? null : undefined,
       });
       const blob = await result.toBlob({ format: "png" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
-      const base = defaultCoverName(
-        composition.ratioId,
-        composition.leftText,
-        composition.rightText,
-      );
+      const base =
+        composition.filename.trim() === ""
+          ? defaultCoverName(composition.ratioId, composition.leftText, composition.rightText)
+          : sanitizeFileName(composition.filename);
       anchor.href = url;
       anchor.download = `${uniqueCoverName(base, new Set())}.png`;
       anchor.click();
@@ -436,13 +467,99 @@ export function CoverGenerator() {
           <Accordion.Item value="style">
             <Accordion.Control>样式</Accordion.Control>
             <Accordion.Panel>
-              <Slider
-                label="背景不透明度"
-                max={100}
-                min={0}
-                onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
-                value={Math.round(composition.backgroundOpacity * 100)}
-              />
+              <Stack gap="md">
+                <Slider
+                  label="字体大小"
+                  max={256}
+                  min={16}
+                  onChange={(fontSize) =>
+                    set(
+                      composition.proportional
+                        ? { fontSize, ...proportionalSizes(fontSize) }
+                        : { fontSize },
+                    )
+                  }
+                  value={composition.fontSize}
+                />
+                <Slider
+                  label="图标大小"
+                  max={256}
+                  min={16}
+                  onChange={(iconSize) => set({ iconSize })}
+                  value={composition.iconSize}
+                />
+                <Slider
+                  label="图标圆角"
+                  max={50}
+                  min={0}
+                  onChange={(iconRadius) => set({ iconRadius })}
+                  value={composition.iconRadius}
+                />
+                <Slider
+                  label="间距"
+                  max={120}
+                  min={0}
+                  onChange={(spacing) => set({ spacing })}
+                  value={composition.spacing}
+                />
+                <Switch
+                  checked={composition.proportional}
+                  label="等比缩放"
+                  onChange={(event) => set({ proportional: event.currentTarget.checked })}
+                />
+
+                <Divider />
+                <Slider
+                  label="背景不透明度"
+                  max={100}
+                  min={0}
+                  onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
+                  value={Math.round(composition.backgroundOpacity * 100)}
+                />
+                <Switch
+                  checked={composition.colorSync}
+                  label="颜色同步"
+                  onChange={(event) => set({ colorSync: event.currentTarget.checked })}
+                />
+                <ColorInput
+                  format="hex"
+                  label="文字颜色"
+                  onChange={(textColor) => set({ textColor })}
+                  value={composition.textColor}
+                />
+                <ColorInput
+                  disabled={composition.colorSync}
+                  format="hex"
+                  label="图标颜色"
+                  onChange={(value) => set({ iconColor: value })}
+                  value={composition.iconColor}
+                />
+                <ColorInput
+                  format="hex"
+                  label="背景颜色"
+                  onChange={(bgColor) => set({ bgColor })}
+                  value={composition.bgColor}
+                />
+
+                <Divider />
+                <SegmentedControl
+                  data={SHADOW_SCOPES.map((scope) => ({
+                    label: SHADOW_LABELS[scope],
+                    value: scope,
+                  }))}
+                  onChange={(value) => {
+                    const scope = SHADOW_SCOPES.find((one) => one === value);
+                    if (scope !== undefined) set({ shadowScope: scope });
+                  }}
+                  value={composition.shadowScope}
+                />
+                <ColorInput
+                  format="hex"
+                  label="阴影颜色"
+                  onChange={(shadowColor) => set({ shadowColor })}
+                  value={composition.shadowColor}
+                />
+              </Stack>
             </Accordion.Panel>
           </Accordion.Item>
 
@@ -450,6 +567,17 @@ export function CoverGenerator() {
             <Accordion.Control>导出</Accordion.Control>
             <Accordion.Panel>
               <Flex gap="md" direction="column" align="stretch">
+                <TextInput
+                  label="文件名"
+                  onChange={(event) => set({ filename: event.currentTarget.value })}
+                  placeholder="默认按比例与文字生成"
+                  value={composition.filename}
+                />
+                <Switch
+                  checked={composition.transparent}
+                  label="背景透明（仅 PNG）"
+                  onChange={(event) => set({ transparent: event.currentTarget.checked })}
+                />
                 <SegmentedControl
                   data={ratios.map((r) => ({ label: r.key, value: r.key }))}
                   value={composition.ratioId}
@@ -539,3 +667,12 @@ function IconGlyph({
     />
   );
 }
+
+/** The shadow scopes, in the order the control shows them. */
+const SHADOW_SCOPES: ShadowScope[] = ["all", "text", "icon", "none"];
+const SHADOW_LABELS: Record<ShadowScope, string> = {
+  all: "全部",
+  text: "文字",
+  icon: "图标",
+  none: "无",
+};
