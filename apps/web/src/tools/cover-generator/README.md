@@ -84,6 +84,8 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 
 The leftover flow items (gate coverage) arrive with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
 
-**引擎实验 #55（2026-09-22，通过）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。结论：背景上传（#56）与上传图标直接走 `blob:` 路径即可，不需要 `data:` 转换。
+**引擎实验 #55（2026-09-22，通过，随后被 #61 门禁修正）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。
+
+**⚠️ 修正（#61 门禁首跑，2026-09-22）**：上面的实验跑在**无 CSP 的 about:blank** 上。在真实站点的 CSP（`connect-src 'self'`）下，SnapDOM 内联 `blob:` 图片时会对 blob: URL 发起 `fetch()`，被 CSP 拦下（console 连报 connect-src 违规，本工具门禁的"零 console 噪音"断言因此红了）。**结论反转**：站内 blob 背景图 / 上传图标要进导出，必须改走 `data:` URL（读文件用 `FileReader.readAsDataURL`），或给 SnapDOM 提供同源路径。另外 SnapDOM 对 inline/table-cell 文字发出一条 `reconcile` 警告（意思是布局可能按回退字形重排）——导出选项需加 `reconcile: true`。这两条是 #61 的剩余项。
 
 **引擎实验 #57（2026-09-22，通过）**：`FontFace(ArrayBuffer)` 注册的字体在 SnapDOM 的 SVG-as-image 序列化下正常光栅化。方法：无头 Chrome 对着 `next start` 的**生产构建**（CSP `font-src 'self'` 生效），字节来自同源 `fetch()` 的页内字体，注册后画「字形甲乙」再导出 PNG：采样最暗像素 17（字形已绘制）、`warnings: []`、零 console 噪音（CSP 没拦）。结论：字体上传走 `File.arrayBuffer() → new FontFace → document.fonts.add` 即可，SnapDOM 的 `embedFonts` 会把它内联进文件。两条引擎实验（#55、#57）均已闭合。
