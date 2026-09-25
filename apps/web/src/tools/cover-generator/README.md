@@ -43,6 +43,14 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] The preview scales down without horizontal overflow at 360 / 390 / 768 / 1024.
 - [ ] The flow leaves the page reachable by keyboard: the text inputs and the ratio control are focusable, and the download button is a real button.
 
+### Editor layout (#53)
+
+- [ ] Wide screens show the configuration column (内容 / 导出) beside the canvas.
+- [ ] On a 390px screen the canvas pins to the top and the configuration column follows beneath it — one component tree with the order swapped, not a second layout.
+- [ ] The accordion sections expand and collapse identically at every width; the 样式 section arrives with #59.
+- [ ] The download button, 返回首页 and the header's colour-scheme switch all keep ≥44px hit areas.
+- [ ] Tab and Enter reach the text inputs, the accordion controls, the ratio control and the download button.
+
 The leftover flow items (transparency, filename input, pixel cap, styles, icons, backgrounds, fonts) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
 
 **引擎实验（#55 / #57，待执行）**：SnapDOM 的 `blob:` 背景图抓取、以及 `FontFace(ArrayBuffer)` 注册的字体进 SVG-as-image 序列化后在 `font-src 'self'` 下的行为——两条都要对着 `pnpm build && pnpm start` 的生产构建跑，结论与证据记在这里和 `apps/web/docs/design/log.md`。

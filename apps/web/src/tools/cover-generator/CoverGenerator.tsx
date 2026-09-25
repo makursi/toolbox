@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Button, Flex, SegmentedControl, Slider, Stack, Text, TextInput } from "@mantine/core";
+import { Accordion, Box, Button, Flex, SegmentedControl, Slider, TextInput } from "@mantine/core";
 import { snapdom } from "@zumer/snapdom";
 import { useEffect, useRef, useState } from "react";
 
@@ -22,14 +22,16 @@ function observeFit(el: HTMLElement, ratioWidth: number, onFit: (fit: number) =>
 }
 
 /**
- * Ticket #52 — the composition tracer: the state model, the live preview, and
- * the PNG export, end to end. The editor chrome is deliberately plain here —
- * the ThisCover-style layout (left column + canvas) is ticket #53.
+ * Ticket #53 — the editor layout: a ThisCover-style configuration column
+ * (content / export sections; style joins in #59) beside the canvas, as one
+ * layout that reflows with width. On a narrow screen the canvas pins to the top
+ * and the configuration column follows below it; the column is an accordion at
+ * every width, so folding is one behaviour, not a second layout (see ADR-0010's
+ * "hidden below md" lesson in `apps/web/docs/design/layout.md`).
  *
  * Preview = export by construction: one element shows the composition scaled to
  * fit the pane, a second, offscreen element renders the same composition at the
- * ratio's full pixel size, and the export captures that second instance. What
- * the visitor sees and what the file contains are the same DOM.
+ * ratio's full pixel size, and the export captures that second instance.
  */
 export function CoverGenerator() {
   const [composition, setComposition] = useState<Composition>(createDefaultComposition);
@@ -86,61 +88,90 @@ export function CoverGenerator() {
   }
 
   return (
-    <Stack className="mt-10 sm:mt-12" gap="md">
-      <Stack gap="xs">
-        <Text fw={500} size="sm">
-          内容
-        </Text>
-        <Flex
-          gap="md"
-          direction={{ base: "column", sm: "row" }}
-          align={{ base: "stretch", sm: "center" }}
-        >
-          <TextInput
-            label="左侧文字"
-            value={composition.leftText}
-            onChange={(event) => set({ leftText: event.currentTarget.value })}
-          />
-          <TextInput
-            label="右侧文字"
-            value={composition.rightText}
-            onChange={(event) => set({ rightText: event.currentTarget.value })}
-          />
-        </Flex>
-        <Slider
-          label="字重"
-          min={100}
-          max={900}
-          step={100}
-          value={composition.weight}
-          onChange={(weight) => set({ weight })}
-          w={{ base: "100%", sm: 220 }}
-        />
-      </Stack>
+    <Flex className="mt-10 items-start sm:mt-12" direction={{ base: "column", md: "row" }} gap="lg">
+      {/* The configuration column. `order` swaps it under the canvas on a narrow
+          screen without a second tree; the accordion is the same component at
+          every width. The 样式 section arrives with ticket #59. */}
+      <Box className="order-2 w-full md:order-1 md:w-80">
+        <Accordion multiple defaultValue={["content", "export"]}>
+          <Accordion.Item value="content">
+            <Accordion.Control>内容</Accordion.Control>
+            <Accordion.Panel>
+              <Flex
+                gap="md"
+                direction={{ base: "column", md: "row" }}
+                align={{ base: "stretch", md: "center" }}
+              >
+                <TextInput
+                  label="左侧文字"
+                  value={composition.leftText}
+                  onChange={(event) => set({ leftText: event.currentTarget.value })}
+                />
+                <TextInput
+                  label="右侧文字"
+                  value={composition.rightText}
+                  onChange={(event) => set({ rightText: event.currentTarget.value })}
+                />
+              </Flex>
+              <Slider
+                label="字重"
+                min={100}
+                max={900}
+                step={100}
+                value={composition.weight}
+                onChange={(weight) => set({ weight })}
+                mt="md"
+              />
+            </Accordion.Panel>
+          </Accordion.Item>
 
-      {/* The preview: the full-size composition, scaled to fit the pane. The
-          badge and the pixel caption sit on the wrapper, not in the export. */}
-      <Box
-        ref={wrapperRef}
-        className="relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
-        style={{ aspectRatio: `${ratio.width} / ${ratio.height}` }}
-      >
-        <div
-          style={{
-            width: ratio.width,
-            height: ratio.height,
-            transform: `scale(${fit})`,
-            transformOrigin: "top left",
-          }}
-        >
-          {compositionMarkup}
+          <Accordion.Item value="export">
+            <Accordion.Control>导出</Accordion.Control>
+            <Accordion.Panel>
+              <Flex gap="md" direction="column" align="stretch">
+                <SegmentedControl
+                  data={ratios.map((r) => ({ label: r.key, value: r.key }))}
+                  value={composition.ratioId}
+                  onChange={(ratioId) => set({ ratioId })}
+                />
+                <Button className="touch-target" loading={exporting} onClick={exportCover}>
+                  下载 {composition.ratioId}
+                </Button>
+              </Flex>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+      </Box>
+
+      {/* The canvas column: pinned on a narrow screen so the composition stays
+          in view while the configuration column scrolls beneath it. */}
+      <Box className="order-1 min-w-0 flex-1 md:order-2">
+        <div className="sticky top-4">
+          {/* The preview: the full-size composition, scaled to fit the pane. The
+              badge and the pixel caption sit here, not in the export. */}
+          <Box
+            ref={wrapperRef}
+            className="relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
+            style={{ aspectRatio: `${ratio.width} / ${ratio.height}` }}
+          >
+            <div
+              style={{
+                width: ratio.width,
+                height: ratio.height,
+                transform: `scale(${fit})`,
+                transformOrigin: "top left",
+              }}
+            >
+              {compositionMarkup}
+            </div>
+            <span
+              className="absolute top-2 left-2 text-sm text-[var(--mantine-color-dimmed)]"
+              aria-hidden
+            >
+              {composition.ratioId} · {pixelCaption(composition.ratioId)}
+            </span>
+          </Box>
         </div>
-        <span
-          className="absolute top-2 left-2 text-sm text-[var(--mantine-color-dimmed)]"
-          aria-hidden
-        >
-          {composition.ratioId} · {pixelCaption(composition.ratioId)}
-        </span>
       </Box>
 
       {/* The export instance: the same composition at full size, off screen. */}
@@ -158,17 +189,6 @@ export function CoverGenerator() {
       >
         {compositionMarkup}
       </div>
-
-      <Flex gap="md" align="center">
-        <SegmentedControl
-          data={ratios.map((r) => ({ label: r.key, value: r.key }))}
-          value={composition.ratioId}
-          onChange={(ratioId) => set({ ratioId })}
-        />
-        <Button className="touch-target" loading={exporting} onClick={exportCover} variant="filled">
-          下载 {composition.ratioId}
-        </Button>
-      </Flex>
-    </Stack>
+    </Flex>
   );
 }
