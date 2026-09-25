@@ -16,6 +16,8 @@ export type Composition = {
   icon: CompositionIcon | null;
   iconVisible: boolean;
   iconBackground: boolean;
+  backgroundImage: string | null;
+  backgroundOpacity: number;
 };
 
 /** The sample layout a visitor starts from — real copy, not invented content. */
@@ -28,6 +30,8 @@ export function createDefaultComposition(): Composition {
     icon: { source: "lucide", name: "image" },
     iconVisible: true,
     iconBackground: false,
+    backgroundImage: null,
+    backgroundOpacity: 1,
   };
 }
 

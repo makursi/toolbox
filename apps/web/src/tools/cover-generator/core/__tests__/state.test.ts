@@ -18,6 +18,8 @@ describe("composition state", () => {
       icon: { source: "lucide", name: "image" },
       iconVisible: true,
       iconBackground: false,
+      backgroundImage: null,
+      backgroundOpacity: 1,
     });
   });
 

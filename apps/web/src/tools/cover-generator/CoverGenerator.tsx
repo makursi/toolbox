@@ -14,10 +14,13 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
+import { Dropzone } from "@mantine/dropzone";
 import { snapdom } from "@zumer/snapdom";
 import { useEffect, useRef, useState } from "react";
 
+import { refuseBackgroundImage } from "./core/failures";
 import { resolveLucideIcon, searchLucide, type LucideSet } from "./core/icons";
+import { backgroundTooBig } from "./core/limits";
 import { defaultCoverName, uniqueCoverName } from "./core/naming";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
 import {
@@ -53,6 +56,7 @@ export function CoverGenerator() {
   const [exporting, setExporting] = useState(false);
   const [iconSet, setIconSet] = useState<LucideSet | null>(null);
   const [iconQuery, setIconQuery] = useState("");
+  const [bgRefusal, setBgRefusal] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const exportRef = useRef<HTMLDivElement | null>(null);
   const [fit, setFit] = useState(1);
@@ -113,25 +117,43 @@ export function CoverGenerator() {
 
   /** The composition itself — rendered in both the preview and the export. */
   const compositionMarkup = (
-    <Flex align="center" justify="center" gap={20} style={{ height: "100%" }}>
-      <span style={{ fontSize: 64, fontWeight: composition.weight }}>{composition.leftText}</span>
-      {composition.iconVisible &&
-        composition.icon !== null &&
-        (composition.iconBackground ? (
-          <Box
-            style={{
-              background: "var(--mantine-color-default-border)",
-              borderRadius: 24,
-              padding: 16,
-            }}
-          >
-            {renderIcon(64)}
-          </Box>
-        ) : (
-          renderIcon(64)
-        ))}
-      <span style={{ fontSize: 64, fontWeight: composition.weight }}>{composition.rightText}</span>
-    </Flex>
+    <Box
+      style={{ background: "#ffffff", height: "100%", overflow: "hidden", position: "relative" }}
+    >
+      {composition.backgroundImage !== null && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `url(${composition.backgroundImage})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            opacity: composition.backgroundOpacity,
+          }}
+        />
+      )}
+      <Flex align="center" gap={20} justify="center" style={{ inset: 0, position: "absolute" }}>
+        <span style={{ fontSize: 64, fontWeight: composition.weight }}>{composition.leftText}</span>
+        {composition.iconVisible &&
+          composition.icon !== null &&
+          (composition.iconBackground ? (
+            <Box
+              style={{
+                background: "var(--mantine-color-default-border)",
+                borderRadius: 24,
+                padding: 16,
+              }}
+            >
+              {renderIcon(64)}
+            </Box>
+          ) : (
+            renderIcon(64)
+          ))}
+        <span style={{ fontSize: 64, fontWeight: composition.weight }}>
+          {composition.rightText}
+        </span>
+      </Flex>
+    </Box>
   );
 
   async function exportCover() {
@@ -176,6 +198,17 @@ export function CoverGenerator() {
     setIconQuery("");
   }
 
+  function uploadBackground(file: File | null) {
+    if (file === null) return;
+    if (backgroundTooBig(file.size)) {
+      setBgRefusal(refuseBackgroundImage(file.size));
+      return;
+    }
+    if (composition.backgroundImage !== null) URL.revokeObjectURL(composition.backgroundImage);
+    setBgRefusal(null);
+    set({ backgroundImage: URL.createObjectURL(file) });
+  }
+
   const iconResults = iconSet === null ? [] : searchLucide(iconSet, iconQuery);
 
   return (
@@ -184,7 +217,7 @@ export function CoverGenerator() {
           screen without a second tree; the accordion is the same component at
           every width. The 样式 section arrives with ticket #59. */}
       <Box className="order-2 w-full md:order-1 md:w-80">
-        <Accordion multiple defaultValue={["content", "export"]}>
+        <Accordion multiple defaultValue={["content", "style", "export"]}>
           <Accordion.Item value="content">
             <Accordion.Control>内容</Accordion.Control>
             <Accordion.Panel>
@@ -273,7 +306,37 @@ export function CoverGenerator() {
                     没有匹配的图标。
                   </Text>
                 )}
+
+                <Divider />
+                <Dropzone
+                  accept={["image/*"]}
+                  onDrop={(files) => uploadBackground(files[0] ?? null)}
+                  p="sm"
+                  radius="md"
+                >
+                  <Text c="dimmed" size="sm" ta="center">
+                    拖拽背景图到此处，或点击选择
+                  </Text>
+                </Dropzone>
+                {bgRefusal !== null && (
+                  <Text c="red" size="sm">
+                    {bgRefusal}
+                  </Text>
+                )}
               </Stack>
+            </Accordion.Panel>
+          </Accordion.Item>
+
+          <Accordion.Item value="style">
+            <Accordion.Control>样式</Accordion.Control>
+            <Accordion.Panel>
+              <Slider
+                label="背景不透明度"
+                max={100}
+                min={0}
+                onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
+                value={Math.round(composition.backgroundOpacity * 100)}
+              />
             </Accordion.Panel>
           </Accordion.Item>
 
