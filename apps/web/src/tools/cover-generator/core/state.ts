@@ -4,11 +4,18 @@
  * writes back through `updateComposition`. The style sliders (sizes, spacing,
  * colours, shadow) arrive in a later slice (#59) and extend this shape.
  */
+export type CompositionIcon =
+  | { source: "lucide"; name: string }
+  | { source: "upload"; url: string };
+
 export type Composition = {
   leftText: string;
   rightText: string;
   weight: number;
   ratioId: string;
+  icon: CompositionIcon | null;
+  iconVisible: boolean;
+  iconBackground: boolean;
 };
 
 /** The sample layout a visitor starts from — real copy, not invented content. */
@@ -18,6 +25,9 @@ export function createDefaultComposition(): Composition {
     rightText: "文本",
     weight: 400,
     ratioId: "16:9",
+    icon: { source: "lucide", name: "image" },
+    iconVisible: true,
+    iconBackground: false,
   };
 }
 

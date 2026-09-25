@@ -51,6 +51,13 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] The download button, 返回首页 and the header's colour-scheme switch all keep ≥44px hit areas.
 - [ ] Tab and Enter reach the text inputs, the accordion controls, the ratio control and the download button.
 
-The leftover flow items (transparency, filename input, pixel cap, styles, icons, backgrounds, fonts) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+### Icons (#54)
+
+- [ ] 搜索图标 (e.g. `image`) surfaces lucide icons; picking one renders it in the preview and in the exported PNG, in the text colour (monochrome, no "original colour" switch).
+- [ ] 上传图标 renders with its own colours in both preview and export.
+- [ ] 显示图标 and 图标背景 switches change the composition and the export.
+- [ ] The lucide chunk (~0.6 MB) loads from this origin; DevTools shows no outbound request and no console warnings on this page.
+
+The leftover flow items (transparency, filename input, pixel cap, styles, backgrounds, fonts) arrive with the slices that build them, and the gate spec that re-runs the whole flow arrives with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
 
 **引擎实验（#55 / #57，待执行）**：SnapDOM 的 `blob:` 背景图抓取、以及 `FontFace(ArrayBuffer)` 注册的字体进 SVG-as-image 序列化后在 `font-src 'self'` 下的行为——两条都要对着 `pnpm build && pnpm start` 的生产构建跑，结论与证据记在这里和 `apps/web/docs/design/log.md`。

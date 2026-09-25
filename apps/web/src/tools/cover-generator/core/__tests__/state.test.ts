@@ -15,6 +15,9 @@ describe("composition state", () => {
       rightText: "文本",
       weight: 400,
       ratioId: "16:9",
+      icon: { source: "lucide", name: "image" },
+      iconVisible: true,
+      iconBackground: false,
     });
   });
 

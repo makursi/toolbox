@@ -1,12 +1,31 @@
 "use client";
 
-import { Accordion, Box, Button, Flex, SegmentedControl, Slider, TextInput } from "@mantine/core";
+import {
+  Accordion,
+  Box,
+  Button,
+  Divider,
+  FileInput,
+  Flex,
+  SegmentedControl,
+  Slider,
+  Stack,
+  Switch,
+  Text,
+  TextInput,
+} from "@mantine/core";
 import { snapdom } from "@zumer/snapdom";
 import { useEffect, useRef, useState } from "react";
 
+import { resolveLucideIcon, searchLucide, type LucideSet } from "./core/icons";
 import { defaultCoverName, uniqueCoverName } from "./core/naming";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
-import { createDefaultComposition, updateComposition, type Composition } from "./core/state";
+import {
+  createDefaultComposition,
+  updateComposition,
+  type Composition,
+  type CompositionIcon,
+} from "./core/state";
 
 /**
  * Keeps `onFit` current with how an element's width compares to a fixed width,
@@ -22,20 +41,18 @@ function observeFit(el: HTMLElement, ratioWidth: number, onFit: (fit: number) =>
 }
 
 /**
- * Ticket #53 — the editor layout: a ThisCover-style configuration column
- * (content / export sections; style joins in #59) beside the canvas, as one
- * layout that reflows with width. On a narrow screen the canvas pins to the top
- * and the configuration column follows below it; the column is an accordion at
- * every width, so folding is one behaviour, not a second layout (see ADR-0010's
- * "hidden below md" lesson in `apps/web/docs/design/layout.md`).
- *
- * Preview = export by construction: one element shows the composition scaled to
- * fit the pane, a second, offscreen element renders the same composition at the
- * ratio's full pixel size, and the export captures that second instance.
+ * Ticket #54 — the icon system. The lucide set arrives as a same-origin chunk
+ * (`@iconify-json/lucide/icons.json`, ~0.6 MB / 1853 icons) loaded once by
+ * dynamic import; the search is a pure filter over it, and the composition
+ * renders the chosen icon as inline SVG (captured directly by the engine) or as
+ * the visitor's own image, which keeps its own colours. Library icons follow
+ * the text colour; there is no "original colour" switch — see `rules.md`.
  */
 export function CoverGenerator() {
   const [composition, setComposition] = useState<Composition>(createDefaultComposition);
   const [exporting, setExporting] = useState(false);
+  const [iconSet, setIconSet] = useState<LucideSet | null>(null);
+  const [iconQuery, setIconQuery] = useState("");
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const exportRef = useRef<HTMLDivElement | null>(null);
   const [fit, setFit] = useState(1);
@@ -49,13 +66,70 @@ export function CoverGenerator() {
     return observeFit(el, ratio.width, setFit);
   }, [ratio.width]);
 
+  /** The lucide chunk, fetched once from this origin. */
+  useEffect(() => {
+    let live = true;
+    void import("@iconify-json/lucide/icons.json").then((module) => {
+      if (!live) return;
+      setIconSet(module.default);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const set = (patch: Partial<Composition>) =>
     setComposition((prev) => updateComposition(prev, patch));
+
+  /** The chosen icon at `size`, as inline SVG or the visitor's own image. */
+  function renderIcon(size: number) {
+    const icon = composition.icon;
+    if (icon === null) return null;
+    if (icon.source === "upload") {
+      // The visitor's own image is a blob: URL the browser minted; next/image
+      // has no loader for that, so a plain <img> is the honest element.
+      return (
+        // oxlint-disable-next-line next/no-img-element -- blob: URL, see above
+        <img alt="" src={icon.url} style={{ width: size, height: size, objectFit: "contain" }} />
+      );
+    }
+    const resolved = iconSet === null ? undefined : resolveLucideIcon(iconSet, icon.name);
+    if (resolved === undefined) return null;
+    return (
+      <svg
+        aria-hidden
+        dangerouslySetInnerHTML={{ __html: resolved.body }}
+        fill="none"
+        height={size}
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        viewBox={`0 0 ${resolved.width} ${resolved.height}`}
+        width={size}
+      />
+    );
+  }
 
   /** The composition itself — rendered in both the preview and the export. */
   const compositionMarkup = (
     <Flex align="center" justify="center" gap={20} style={{ height: "100%" }}>
       <span style={{ fontSize: 64, fontWeight: composition.weight }}>{composition.leftText}</span>
+      {composition.iconVisible &&
+        composition.icon !== null &&
+        (composition.iconBackground ? (
+          <Box
+            style={{
+              background: "var(--mantine-color-default-border)",
+              borderRadius: 24,
+              padding: 16,
+            }}
+          >
+            {renderIcon(64)}
+          </Box>
+        ) : (
+          renderIcon(64)
+        ))}
       <span style={{ fontSize: 64, fontWeight: composition.weight }}>{composition.rightText}</span>
     </Flex>
   );
@@ -87,8 +161,25 @@ export function CoverGenerator() {
     }
   }
 
+  function pickIcon(icon: CompositionIcon) {
+    if (composition.icon?.source === "upload" && icon.source !== "upload") {
+      URL.revokeObjectURL(composition.icon.url);
+    }
+    set({ icon });
+  }
+
+  function uploadIcon(file: File | null) {
+    if (file === null) return;
+    if (composition.icon?.source === "upload") URL.revokeObjectURL(composition.icon.url);
+    const url = URL.createObjectURL(file);
+    set({ icon: { source: "upload", url } });
+    setIconQuery("");
+  }
+
+  const iconResults = iconSet === null ? [] : searchLucide(iconSet, iconQuery);
+
   return (
-    <Flex className="mt-10 items-start sm:mt-12" direction={{ base: "column", md: "row" }} gap="lg">
+    <Flex className="items-start" direction={{ base: "column", md: "row" }} gap="lg">
       {/* The configuration column. `order` swaps it under the canvas on a narrow
           screen without a second tree; the accordion is the same component at
           every width. The 样式 section arrives with ticket #59. */}
@@ -97,31 +188,92 @@ export function CoverGenerator() {
           <Accordion.Item value="content">
             <Accordion.Control>内容</Accordion.Control>
             <Accordion.Panel>
-              <Flex
-                gap="md"
-                direction={{ base: "column", md: "row" }}
-                align={{ base: "stretch", md: "center" }}
-              >
-                <TextInput
-                  label="左侧文字"
-                  value={composition.leftText}
-                  onChange={(event) => set({ leftText: event.currentTarget.value })}
+              <Stack gap="md">
+                <Flex
+                  gap="md"
+                  direction={{ base: "column", md: "row" }}
+                  align={{ base: "stretch", md: "center" }}
+                >
+                  <TextInput
+                    label="左侧文字"
+                    value={composition.leftText}
+                    onChange={(event) => set({ leftText: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="右侧文字"
+                    value={composition.rightText}
+                    onChange={(event) => set({ rightText: event.currentTarget.value })}
+                  />
+                </Flex>
+                <Slider
+                  label="字重"
+                  min={100}
+                  max={900}
+                  step={100}
+                  value={composition.weight}
+                  onChange={(weight) => set({ weight })}
+                />
+
+                <Divider />
+                <Switch
+                  checked={composition.iconVisible}
+                  label="显示图标"
+                  onChange={(event) => set({ iconVisible: event.currentTarget.checked })}
+                />
+                <Switch
+                  checked={composition.iconBackground}
+                  label="图标背景"
+                  onChange={(event) => set({ iconBackground: event.currentTarget.checked })}
+                />
+                <FileInput
+                  accept="image/*"
+                  label="上传图标"
+                  onChange={uploadIcon}
+                  placeholder="选择图标文件"
                 />
                 <TextInput
-                  label="右侧文字"
-                  value={composition.rightText}
-                  onChange={(event) => set({ rightText: event.currentTarget.value })}
+                  label="搜索图标"
+                  placeholder="例如 image"
+                  value={iconQuery}
+                  onChange={(event) => setIconQuery(event.currentTarget.value)}
                 />
-              </Flex>
-              <Slider
-                label="字重"
-                min={100}
-                max={900}
-                step={100}
-                value={composition.weight}
-                onChange={(weight) => set({ weight })}
-                mt="md"
-              />
+                {iconSet !== null && iconResults.length > 0 && (
+                  <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
+                    {iconResults.map((name) => {
+                      const resolved = resolveLucideIcon(iconSet, name);
+                      const selected =
+                        composition.icon?.source === "lucide" && composition.icon.name === name;
+                      return (
+                        <Button
+                          className="touch-target"
+                          color="gray"
+                          justify="flex-start"
+                          key={name}
+                          leftSection={
+                            resolved === undefined ? null : (
+                              <IconGlyph
+                                body={resolved.body}
+                                height={resolved.height}
+                                size={18}
+                                width={resolved.width}
+                              />
+                            )
+                          }
+                          onClick={() => pickIcon({ source: "lucide", name })}
+                          variant={selected ? "light" : "subtle"}
+                        >
+                          {name}
+                        </Button>
+                      );
+                    })}
+                  </Stack>
+                )}
+                {iconQuery.trim() !== "" && iconResults.length === 0 && (
+                  <Text c="dimmed" size="sm">
+                    没有匹配的图标。
+                  </Text>
+                )}
+              </Stack>
             </Accordion.Panel>
           </Accordion.Item>
 
@@ -190,5 +342,31 @@ export function CoverGenerator() {
         {compositionMarkup}
       </div>
     </Flex>
+  );
+}
+
+/** A library icon as a small inline SVG, for a result row. */
+function IconGlyph({
+  body,
+  height,
+  size,
+  width,
+}: {
+  body: string;
+  height: number;
+  size: number;
+  width: number;
+}) {
+  return (
+    <svg
+      aria-hidden
+      dangerouslySetInnerHTML={{ __html: body }}
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeWidth={2}
+      viewBox={`0 0 ${width} ${height}`}
+      width={size}
+    />
   );
 }
