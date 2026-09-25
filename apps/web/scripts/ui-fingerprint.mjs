@@ -34,10 +34,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import { connect } from "./cdp.mjs";
 
-/** The pages the fingerprint covers. A second Tool is one more line here. */
+/** The pages the fingerprint covers. A third Tool is one more line here. */
 const PAGES = [
   ["home", "/"],
   ["tool", "/tools/image-converter"],
+  ["cover", "/tools/cover-generator"],
 ];
 
 /** Tailwind's `sm` and Mantine's `sm` are different widths, so both are covered. */
