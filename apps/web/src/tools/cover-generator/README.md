@@ -2,30 +2,30 @@
 
 Composes a cover in the browser: two texts (left, right) around a centre icon on a background, at one of four ratios (1:1, 4:3, 16:9, 21:9), exported as a PNG. Nothing is uploaded — every asset the visitor brings is read with the File API and encoded in this tab, and the page makes no outbound request (ADR-0005).
 
-The Tool is being built in vertical slices (#51–#61); this README is the map and the checklist, and it grows with each slice.
-
 ## Layout
 
 ```
-CoverGenerator.tsx   the Tool's UI — the editor (arrives in slices from #52 on)
-meta.ts              the Tool Registry entry
-rules.md             this Tool's own rules — page structure, export surface, icon mechanism, the typography promise (ADR-0014)
-README.md            this file: how it works, and what to check by hand
-core/                pure, browser-free logic — the part `pnpm test` covers (arrives with #52)
-hooks/               the Tool's React state (arrives with #52)
+CoverGenerator.tsx            the editor — wires the hooks to the controls
+composition-canvas/           the composition itself, shared by the preview and the export
+meta.ts                       the Tool Registry entry
+rules.md                      this Tool's own rules — page structure, export surface, icon mechanism, the typography promise (ADR-0014)
+README.md                     this file: how it works, and what to check by hand
+core/                         pure, browser-free logic — the part `pnpm test` covers
+hooks/                        the Tool's React state, one hook per concern
+read-data-url.ts              the File → data: URL helper shared by the two uploads
 ```
 
 The threshold for sharing code is ownership, not the number of consumers — see the toolbox `AGENTS.md`; nothing here becomes a `packages/*` entry until a second consumer exists.
 
 ## How a run works
 
-As of the tool-spine slice (#51): the page renders the ToolPage shell with the Tool's own title and description, and the composition canvas scaffold (a 16:9 frame with the ratio badge). Composing, styling and exporting arrive in the following slices: the state model and PNG export in #52, the editor layout in #53, the icon system in #54, backgrounds in #55–#56, fonts in #57–#58, styles in #59, and the export finish in #60. The rendering engine is SnapDOM (`@zumer/snapdom`) — two acceptance experiments (blob: backgrounds, data fonts under the CSP) are recorded here when run.
+The page renders the ToolPage shell with the Tool's own title and description, and a live composition canvas. The state lives in five single-responsibility hooks — composition, export, icons, fonts, fit — and the composition itself is one component rendered by both the preview and the off-screen export, so "the preview and the export are the same composition" holds by construction. The rendering engine is SnapDOM (`@zumer/snapdom`); the two acceptance experiments (blob: backgrounds, data fonts under the CSP) are recorded at the bottom of this file.
 
 ## What CI covers, and what is still yours
 
-CI runs `fmt:check`, `check:readme`, `lint`, `typecheck`, `test`, `build` and `pnpm e2e`. Until the behaviour gate (#61) lands, the cover generator has no e2e spec of its own; the existing gate keeps running for the Image Converter and must stay green on every slice. The pure modules in `core/` (arriving from #52) are covered by `pnpm test`; everything browser-shaped is the checklist below.
+CI runs `fmt:check`, `check:readme`, `lint`, `typecheck`, `test`, `build` and `pnpm e2e`. The cover generator's behaviour gate (`e2e/cover-generator.spec.ts`) asserts the full compose-and-download flow with zero off-origin requests and zero console noise; the pure modules in `core/` are covered by `pnpm test`; everything browser-shaped is the checklist below.
 
-The instruments already cover this page: `ui-fingerprint` and `touch-targets` gained the `/tools/cover-generator` route in `PAGES`. The fingerprint's previous snapshot is invalidated by design — a new baseline is captured with `pnpm --filter @toolbox/web fingerprint capture` when a slice changes the page, and `touch-targets` measures the page's hit areas at four widths in both schemes.
+The instruments already cover this page: `ui-fingerprint` and `touch-targets` gained the `/tools/cover-generator` route in `PAGES`. A new fingerprint baseline is captured with `pnpm --filter @toolbox/web fingerprint capture` when the page changes, and `touch-targets` measures the page's hit areas at four widths in both schemes.
 
 ## Manual QA checklist
 
@@ -82,7 +82,7 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] 文件名 is pre-filled by the rule and editable, sanitized for the filesystem; 背景透明 exports alpha for PNG (and only PNG — the option says so).
 - [ ] The largest export (21:9 → 2560×1080) matches the pixel cap constant (unit-tested); v1 has no scale multiplier.
 
-The leftover flow items (gate coverage) arrive with #61. Until then, the design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+The design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
 
 **引擎实验 #55（2026-09-22，通过，随后被 #61 门禁修正）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。
 
