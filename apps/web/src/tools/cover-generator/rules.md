@@ -20,6 +20,13 @@
 - 输出面是本 Tool 自己的产品决定（ADR-0014）；`docs/adr/0010-no-output-settings.md` 的禁令只绑定 image-converter，本工具不继承。
 - **像素上限**：最大档 21:9@2560×1080（≈2.8 MP），画布最大边长与上限文案随实现定，拒绝文案进纯函数层。
 
+## 背景后处理
+
+- **作用对象是背景图**，不是纯色：模糊/灰度对纯色无可见内容可处理，所以无背景图时控件禁用；「背景透明」打开时同样禁用（透明 PNG 没有承托，`backdropFilter` 会退化为无效果）。
+- **实现是 `backdropFilter` 覆盖层**，套在背景图与文字/图标之间（不是直接 `filter` 背景图）：文字和图标保持清晰，只有它们后面的背景被糊/去色——这是 ThisCover 的做法，也天然避免 `filter` 的边缘羽化。
+- **模糊是非线性映射**：0–100 强度经二次缓动映射到 0–50px（`50×(v/100)²`），小值几乎无感、拉满才 50px；灰度是线性的 `grayscale(v%)`。两个都是 0–100 强度，映射收敛在 `core/background.ts`，渲染层只拼 CSS。
+- **SnapDOM 捕获已验证**（引擎实验 #62）：`backdropFilter` 的 `blur()` 与 `grayscale()` 都被忠实捕获进导出 PNG，`warnings: []`；`backdrop-filter-failed` 只是仿真抛异常时的降级告警，简单 blur/grayscale 不触发。
+
 ## 图标机制
 
 - **lucide 同源 chunk**：`icons.json`（0.61 MB / 1853 图标）整体进仓，动态 `import()`，inline SVG 渲染（被 SnapDOM 直接捕获）。搜索 = 对捆绑索引的**纯函数过滤**。站点级 CSP 仍然绑：图标数据必须同源到达，不许请求 `api.iconify.design`。

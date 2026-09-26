@@ -24,6 +24,8 @@ describe("composition state", () => {
       iconBackground: false,
       backgroundImage: null,
       backgroundOpacity: 1,
+      backgroundBlur: 0,
+      backgroundGrayscale: 0,
       fontFamily: null,
       fontSize: 64,
       iconSize: 64,
@@ -46,6 +48,13 @@ describe("composition state", () => {
     expect(next.leftText).toBe("新品发布");
     expect(next.rightText).toBe("文本");
     expect(next.ratioId).toBe("16:9");
+  });
+
+  it("updates the background blur without touching grayscale or the rest", () => {
+    const next = updateComposition(createDefaultComposition(), { backgroundBlur: 40 });
+    expect(next.backgroundBlur).toBe(40);
+    expect(next.backgroundGrayscale).toBe(0);
+    expect(next.leftText).toBe("示例");
   });
 
   it("returns the same object when nothing changes", () => {

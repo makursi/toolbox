@@ -271,6 +271,26 @@ export function CoverGenerator() {
                   onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
                   value={Math.round(composition.backgroundOpacity * 100)}
                 />
+                <Slider
+                  disabled={composition.backgroundImage === null || composition.transparent}
+                  label="背景模糊"
+                  max={100}
+                  min={0}
+                  onChange={(backgroundBlur) => set({ backgroundBlur })}
+                  step={1}
+                  thumbLabel="背景模糊"
+                  value={composition.backgroundBlur}
+                />
+                <Slider
+                  disabled={composition.backgroundImage === null || composition.transparent}
+                  label="背景灰度"
+                  max={100}
+                  min={0}
+                  onChange={(backgroundGrayscale) => set({ backgroundGrayscale })}
+                  step={1}
+                  thumbLabel="背景灰度"
+                  value={composition.backgroundGrayscale}
+                />
                 <Switch
                   checked={composition.colorSync}
                   label="颜色同步"

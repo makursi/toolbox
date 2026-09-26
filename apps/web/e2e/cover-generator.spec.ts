@@ -52,6 +52,21 @@ test.describe("the cover generator", () => {
     const background = await solidPng(page.context(), "#00aa88");
     await page.locator(".mantine-Dropzone-root input[type=file]").setInputFiles(background);
 
+    // The background post-processing controls arrive with the background image:
+    // blur and grayscale sliders, enabled now that a background exists. Drive
+    // each a few steps so a non-zero value reaches the export.
+    const blur = page.getByRole("slider", { name: "背景模糊" });
+    const grayscale = page.getByRole("slider", { name: "背景灰度" });
+    await expect(blur).toBeEnabled();
+    await expect(grayscale).toBeEnabled();
+    await blur.focus();
+    await blur.press("ArrowRight");
+    await blur.press("ArrowRight");
+    await grayscale.focus();
+    await grayscale.press("ArrowRight");
+    await grayscale.press("ArrowRight");
+    await grayscale.press("ArrowRight");
+
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "下载 16:9" }).click();
     const download = await downloadPromise;
