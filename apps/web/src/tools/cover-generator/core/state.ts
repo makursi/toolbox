@@ -20,6 +20,8 @@ export type Composition = {
   iconBackground: boolean;
   backgroundImage: string | null;
   backgroundOpacity: number;
+  backgroundBlur: number;
+  backgroundGrayscale: number;
   fontFamily: string | null;
   fontSize: number;
   iconSize: number;
@@ -53,6 +55,8 @@ export function createDefaultComposition(): Composition {
     iconBackground: false,
     backgroundImage: null,
     backgroundOpacity: 1,
+    backgroundBlur: 0,
+    backgroundGrayscale: 0,
     fontFamily: null,
     fontSize: 64,
     iconSize: 64,

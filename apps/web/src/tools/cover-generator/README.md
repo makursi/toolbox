@@ -62,6 +62,8 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 
 - [ ] 拖拽或点击上传背景图：出现在预览与导出 PNG 里（`blob:` 捕获已由实验 #55 验证）。
 - [ ] 背景不透明度 0–100%（样式节）只作用于背景层，并随导出生效。
+- [ ] 背景模糊 / 背景灰度（样式节，0–100）：拖动即更新预览与导出；文字与图标保持清晰，只有背景被糊/去色。
+- [ ] 无背景图或「背景透明」打开时，模糊/灰度两个 slider 处于禁用态。
 - [ ] 超过 10 MB 的背景图被拒，给出「这个背景图有 N MB，上限是 10 MB。」（copy 有单测）。
 
 ### Fonts (#58)
@@ -89,3 +91,5 @@ The design decisions live in `rules.md` and the spec in issue #50 (tickets #51�
 **✅ 修正已落地（#61，2026-09-22）**：上面的实验跑在**无 CSP 的 about:blank** 上；真实站点的 CSP（`connect-src 'self'`）会拦 SnapDOM 对 `blob:` 的 `fetch()`。因此上传（背景图 + 图标）改为 `FileReader.readAsDataURL` 存 `data:` URL（`img-src 'self' blob: data:` 放行、无需 fetch），导出选项加 `reconcile: true` 消除 SnapDOM 的文字重排警告。e2e 门禁对全流程（含上传与导出）断言零 outbound + 零 console 噪音。
 
 **引擎实验 #57（2026-09-22，通过）**：`FontFace(ArrayBuffer)` 注册的字体在 SnapDOM 的 SVG-as-image 序列化下正常光栅化。方法：无头 Chrome 对着 `next start` 的**生产构建**（CSP `font-src 'self'` 生效），字节来自同源 `fetch()` 的页内字体，注册后画「字形甲乙」再导出 PNG：采样最暗像素 17（字形已绘制）、`warnings: []`、零 console 噪音（CSP 没拦）。结论：字体上传走 `File.arrayBuffer() → new FontFace → document.fonts.add` 即可，SnapDOM 的 `embedFonts` 会把它内联进文件。两条引擎实验（#55、#57）均已闭合。
+
+**引擎实验 #62（2026-09-23，通过）**：`backdropFilter` 的 `blur()` 与 `grayscale()` 都能被 SnapDOM（v3.1.0）忠实捕获进导出 PNG。方法：无头 Chrome（Playwright 钉的 chromium-1243）里 `blob:` URL 载入 `dist/snapdom.mjs`，画「红/蓝硬边界 + `backdropFilter: blur(30px)`」与「纯红 + `backdropFilter: grayscale(100%)`」两个用例，导出 PNG 读像素：边界处 `[129,0,126]`（红蓝混，证明 blur 真糊了）、纯红变 `[54,54,54]`（中性灰，证明 grayscale 真去色了）、`warnings: []`。结论：`backdrop-filter` 在简单 blur/grayscale 下不触发 `backdrop-filter-failed` 降级，覆盖层方案（背景在文字/图标之后被糊/去色）成立。

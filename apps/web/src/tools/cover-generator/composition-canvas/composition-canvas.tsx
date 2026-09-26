@@ -1,5 +1,6 @@
 import { Box, Flex } from "@mantine/core";
 
+import { backdropFilter } from "@/tools/cover-generator/core/background";
 import { resolveLucideIcon, type LucideSet } from "@/tools/cover-generator/core/icons";
 import type { Composition } from "@/tools/cover-generator/core/state";
 
@@ -29,6 +30,13 @@ export function CompositionCanvas({
       ? `drop-shadow(0 2px 8px ${composition.shadowColor})`
       : undefined;
 
+  const filter = backdropFilter(
+    composition.backgroundImage,
+    composition.backgroundBlur,
+    composition.backgroundGrayscale,
+    composition.transparent,
+  );
+
   return (
     <Box
       style={{
@@ -49,6 +57,9 @@ export function CompositionCanvas({
             opacity: composition.backgroundOpacity,
           }}
         />
+      )}
+      {filter !== null && (
+        <div style={{ position: "absolute", inset: 0, backdropFilter: filter }} />
       )}
       <Flex
         align="center"
