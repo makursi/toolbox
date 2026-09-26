@@ -16,254 +16,37 @@ import {
   TextInput,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
-import { snapdom } from "@zumer/snapdom";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 
-import { fontUnreadable, refuseBackgroundImage, refuseFontFile } from "./core/failures";
-import { resolveLucideIcon, searchLucide, type LucideSet } from "./core/icons";
-import { backgroundTooBig, fontTooBig } from "./core/limits";
-import { defaultCoverName, sanitizeFileName, uniqueCoverName } from "./core/naming";
+import { CompositionCanvas } from "./composition-canvas/composition-canvas";
+import { resolveLucideIcon } from "./core/icons";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
-import {
-  createDefaultComposition,
-  proportionalSizes,
-  updateComposition,
-  type Composition,
-  type CompositionIcon,
-  type ShadowScope,
-} from "./core/state";
+import { proportionalSizes, type ShadowScope } from "./core/state";
+import { useCoverComposition } from "./hooks/use-cover-composition/use-cover-composition";
+import { useCoverExport } from "./hooks/use-cover-export/use-cover-export";
+import { useCoverFonts } from "./hooks/use-cover-fonts/use-cover-fonts";
+import { useFitScale } from "./hooks/use-fit-scale/use-fit-scale";
+import { useLucideIcons } from "./hooks/use-lucide-icons/use-lucide-icons";
+import { readAsDataUrl } from "./read-data-url";
 
 /**
- * Keeps `onFit` current with how an element's width compares to a fixed width,
- * and returns a stop function. Lives at module scope so the effect's return
- * value is one shape on every path.
- */
-function observeFit(el: HTMLElement, ratioWidth: number, onFit: (fit: number) => void): () => void {
-  const update = () => onFit(el.clientWidth / ratioWidth);
-  update();
-  const observer = new ResizeObserver(update);
-  observer.observe(el);
-  return () => observer.disconnect();
-}
-
-/**
- * Read a visitor's file as a `data:` URL. `data:` needs no fetch and is
- * allowed by `img-src`, so SnapDOM can inline it under this site's CSP; a
- * `blob:` URL would be fetched and blocked by `connect-src 'self'` (the #61
- * finding in the README).
- */
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener(
-      "load",
-      () => {
-        const result = reader.result;
-        if (typeof result === "string") resolve(result);
-        else reject(new Error("expected a data: URL"));
-      },
-      { once: true },
-    );
-    reader.addEventListener("error", () => reject(reader.error), { once: true });
-    reader.readAsDataURL(file);
-  });
-}
-
-/** The one field of a Local Font Access read that this Tool uses. */
-type LocalFontRead = { family: string };
-
-/**
- * Ticket #54 — the icon system. The lucide set arrives as a same-origin chunk
- * (`@iconify-json/lucide/icons.json`, ~0.6 MB / 1853 icons) loaded once by
- * dynamic import; the search is a pure filter over it, and the composition
- * renders the chosen icon as inline SVG (captured directly by the engine) or as
- * the visitor's own image, which keeps its own colours. Library icons follow
- * the text colour; there is no "original colour" switch — see `rules.md`.
+ * The Cover Generator: compose two texts around a centre icon on a background,
+ * at one of four ratios, and download it as a PNG.
+ *
+ * The state lives in five single-responsibility hooks (composition, export,
+ * icons, fonts, fit) and the composition itself is one component shared by the
+ * preview and the off-screen export. This component is the editor: it wires the
+ * hooks to the controls and bridges the read-side hooks back into the
+ * composition through `set`.
  */
 export function CoverGenerator() {
-  const [composition, setComposition] = useState<Composition>(createDefaultComposition);
-  const [exporting, setExporting] = useState(false);
-  const [iconSet, setIconSet] = useState<LucideSet | null>(null);
-  const [iconQuery, setIconQuery] = useState("");
-  const [bgRefusal, setBgRefusal] = useState<string | null>(null);
-  const [fontRefusal, setFontRefusal] = useState<string | null>(null);
-  const [sysFonts, setSysFonts] = useState<string[]>([]);
-  const [sysHint, setSysHint] = useState<string | null>(null);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const exportRef = useRef<HTMLDivElement | null>(null);
-  const [fit, setFit] = useState(1);
-
+  const { composition, set, bgRefusal, uploadBackground } = useCoverComposition();
+  const { iconSet, iconQuery, setIconQuery, results: iconResults } = useLucideIcons();
+  const { fontRefusal, sysFonts, sysHint, uploadFont, fetchSystemFonts } = useCoverFonts();
   const ratio = ratioByKey(composition.ratioId) ?? ratios[2];
-
-  /** Scale the full-size composition down to the pane's width. */
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (el === null) return () => undefined;
-    return observeFit(el, ratio.width, setFit);
-  }, [ratio.width]);
-
-  /** The lucide chunk, fetched once from this origin. */
-  useEffect(() => {
-    let live = true;
-    void import("@iconify-json/lucide/icons.json").then((module) => {
-      if (!live) return;
-      setIconSet(module.default);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  const set = (patch: Partial<Composition>) =>
-    setComposition((prev) => updateComposition(prev, patch));
-
-  /** The chosen icon at `size`, as inline SVG or the visitor's own image. */
-  function renderIcon(size: number) {
-    const icon = composition.icon;
-    if (icon === null) return null;
-    if (icon.source === "upload") {
-      // The visitor's own image is a blob: URL the browser minted; next/image
-      // has no loader for that, so a plain <img> is the honest element.
-      return (
-        // oxlint-disable-next-line next/no-img-element -- blob: URL, see above
-        <img alt="" src={icon.url} style={{ width: size, height: size, objectFit: "contain" }} />
-      );
-    }
-    const resolved = iconSet === null ? undefined : resolveLucideIcon(iconSet, icon.name);
-    if (resolved === undefined) return null;
-    return (
-      <svg
-        aria-hidden
-        dangerouslySetInnerHTML={{ __html: resolved.body }}
-        fill="none"
-        height={size}
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        viewBox={`0 0 ${resolved.width} ${resolved.height}`}
-        width={size}
-      />
-    );
-  }
-
-  /** The composition itself — rendered in both the preview and the export. */
-  const textShadow =
-    composition.shadowScope === "all" || composition.shadowScope === "text"
-      ? `${composition.shadowColor} 0 2px 8px`
-      : undefined;
-  const iconShadow =
-    composition.shadowScope === "all" || composition.shadowScope === "icon"
-      ? `drop-shadow(0 2px 8px ${composition.shadowColor})`
-      : undefined;
-  const iconColor = composition.colorSync ? composition.textColor : composition.iconColor;
-
-  const compositionMarkup = (
-    <Box
-      style={{
-        background: composition.transparent ? "transparent" : composition.bgColor,
-        height: "100%",
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
-      {composition.backgroundImage !== null && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundImage: `url(${composition.backgroundImage})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            opacity: composition.backgroundOpacity,
-          }}
-        />
-      )}
-      <Flex
-        align="center"
-        gap={composition.spacing}
-        justify="center"
-        style={{ inset: 0, position: "absolute" }}
-      >
-        <span
-          style={{
-            color: composition.textColor,
-            fontFamily: composition.fontFamily ?? undefined,
-            fontSize: composition.fontSize,
-            fontWeight: composition.weight,
-            textShadow,
-          }}
-        >
-          {composition.leftText}
-        </span>
-        {composition.iconVisible &&
-          composition.icon !== null &&
-          (composition.iconBackground ? (
-            <Box
-              style={{
-                background: "var(--mantine-color-default-border)",
-                borderRadius: `${composition.iconRadius}%`,
-                padding: 16,
-              }}
-            >
-              <span style={{ color: iconColor, filter: iconShadow }}>
-                {renderIcon(composition.iconSize)}
-              </span>
-            </Box>
-          ) : (
-            <span style={{ color: iconColor, filter: iconShadow }}>
-              {renderIcon(composition.iconSize)}
-            </span>
-          ))}
-        <span
-          style={{
-            color: composition.textColor,
-            fontFamily: composition.fontFamily ?? undefined,
-            fontSize: composition.fontSize,
-            fontWeight: composition.weight,
-            textShadow,
-          }}
-        >
-          {composition.rightText}
-        </span>
-      </Flex>
-    </Box>
-  );
-
-  async function exportCover() {
-    const element = exportRef.current;
-    if (element === null) return;
-    setExporting(true);
-    try {
-      const result = await snapdom(element, {
-        width: ratio.width,
-        height: ratio.height,
-        format: "png",
-        backgroundColor: composition.transparent ? null : undefined,
-        // SnapDOM warns when inline/table-cell text may re-wrap under font
-        // fallback; reconcile pins exact layout (see the #61 finding in the
-        // README).
-        reconcile: true,
-      });
-      const blob = await result.toBlob({ format: "png" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      const base =
-        composition.filename.trim() === ""
-          ? defaultCoverName(composition.ratioId, composition.leftText, composition.rightText)
-          : sanitizeFileName(composition.filename);
-      anchor.href = url;
-      anchor.download = `${uniqueCoverName(base, new Set())}.png`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  function pickIcon(icon: CompositionIcon) {
-    set({ icon });
-  }
+  const { fit, wrapperRef } = useFitScale(ratio.width);
+  const exportRef = useRef<HTMLDivElement | null>(null);
+  const { exportCover, exporting } = useCoverExport(exportRef, composition, ratio);
 
   async function uploadIcon(file: File | null) {
     if (file === null) return;
@@ -272,67 +55,16 @@ export function CoverGenerator() {
     setIconQuery("");
   }
 
-  async function uploadBackground(file: File | null) {
-    if (file === null) return;
-    if (backgroundTooBig(file.size)) {
-      setBgRefusal(refuseBackgroundImage(file.size));
-      return;
-    }
-    const url = await readAsDataUrl(file);
-    setBgRefusal(null);
-    set({ backgroundImage: url });
+  async function onUploadFont(file: File | null) {
+    const family = await uploadFont(file);
+    if (family !== null) set({ fontFamily: family });
   }
-
-  /** Upload a font: bytes → FontFace → document fonts (experiment #57 verified
-      the capture path; the browser's parse errors stay in the console). */
-  async function uploadFont(file: File | null) {
-    if (file === null) return;
-    if (fontTooBig(file.size)) {
-      setFontRefusal(refuseFontFile(file.size));
-      return;
-    }
-    setFontRefusal(null);
-    try {
-      const bytes = await file.arrayBuffer();
-      const family = sanitizeFileName(file.name.replace(/\.[^.]+$/, "")) || "访客字体";
-      const face = new FontFace(family, bytes);
-      await face.load();
-      document.fonts.add(face);
-      set({ fontFamily: family });
-    } catch {
-      setFontRefusal(fontUnreadable());
-    }
-  }
-
-  /** Local Font Access, graceful where the API does not exist (Chromium only). */
-  async function fetchSystemFonts() {
-    const query = (window as Window & { queryLocalFonts?: () => Promise<LocalFontRead[]> })
-      .queryLocalFonts;
-    if (typeof query !== "function") {
-      setSysHint("此浏览器不支持读取系统字体。");
-      return;
-    }
-    try {
-      const fonts = await query();
-      const families = [...new Set(fonts.map((font) => font.family))];
-      // The tsconfig target (ES2022) has no Array#toSorted; the array is a
-      // fresh spread, so sorting it mutates nothing shared.
-      // oxlint-disable-next-line unicorn/no-array-sort -- see above
-      families.sort((a, b) => a.localeCompare(b));
-      setSysFonts(families);
-      setSysHint(null);
-    } catch {
-      setSysHint("读取系统字体被拒绝。");
-    }
-  }
-
-  const iconResults = iconSet === null ? [] : searchLucide(iconSet, iconQuery);
 
   return (
     <Flex className="items-start" direction={{ base: "column", md: "row" }} gap="lg">
       {/* The configuration column. `order` swaps it under the canvas on a narrow
           screen without a second tree; the accordion is the same component at
-          every width. The 样式 section arrives with ticket #59. */}
+          every width. */}
       <Box className="order-2 w-full md:order-1 md:w-80">
         <Accordion multiple defaultValue={["content", "style", "export"]}>
           <Accordion.Item value="content">
@@ -409,7 +141,7 @@ export function CoverGenerator() {
                               />
                             )
                           }
-                          onClick={() => pickIcon({ source: "lucide", name })}
+                          onClick={() => set({ icon: { source: "lucide", name } })}
                           variant={selected ? "light" : "subtle"}
                         >
                           {name}
@@ -445,7 +177,7 @@ export function CoverGenerator() {
                 <FileInput
                   accept=".woff2,.woff,.ttf,.otf"
                   label="上传字体"
-                  onChange={uploadFont}
+                  onChange={onUploadFont}
                   placeholder="选择字体文件"
                 />
                 {fontRefusal !== null && (
@@ -634,7 +366,7 @@ export function CoverGenerator() {
                 transformOrigin: "top left",
               }}
             >
-              {compositionMarkup}
+              <CompositionCanvas composition={composition} iconSet={iconSet} />
             </div>
             <span
               className="absolute top-2 left-2 text-sm text-[var(--mantine-color-dimmed)]"
@@ -659,7 +391,7 @@ export function CoverGenerator() {
           background: "#ffffff",
         }}
       >
-        {compositionMarkup}
+        <CompositionCanvas composition={composition} iconSet={iconSet} />
       </div>
     </Flex>
   );
