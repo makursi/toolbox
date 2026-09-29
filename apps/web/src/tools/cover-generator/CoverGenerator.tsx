@@ -40,7 +40,7 @@ import { readAsDataUrl } from "./read-data-url";
  * composition through `set`.
  */
 export function CoverGenerator() {
-  const { composition, set, bgRefusal, uploadBackground } = useCoverComposition();
+  const { composition, set, bgRefusal, uploadBackground, clearBackground } = useCoverComposition();
   const { iconSet, iconQuery, setIconQuery, results: iconResults } = useLucideIcons();
   const { fontRefusal, sysFonts, sysHint, uploadFont, fetchSystemFonts } = useCoverFonts();
   const ratio = ratioByKey(composition.ratioId) ?? ratios[2];
@@ -171,6 +171,16 @@ export function CoverGenerator() {
                   <Text c="red" size="sm">
                     {bgRefusal}
                   </Text>
+                )}
+                {composition.backgroundImage !== null && (
+                  <Button
+                    className="touch-target"
+                    color="gray"
+                    onClick={clearBackground}
+                    variant="subtle"
+                  >
+                    清除
+                  </Button>
                 )}
 
                 <Divider />

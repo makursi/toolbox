@@ -57,6 +57,25 @@ describe("composition state", () => {
     expect(next.leftText).toBe("示例");
   });
 
+  it("clears the background image and resets its blur and grayscale", () => {
+    const withImage = updateComposition(createDefaultComposition(), {
+      backgroundImage: "data:image/png;base64,AAAA",
+      backgroundBlur: 40,
+      backgroundGrayscale: 60,
+      leftText: "新品发布",
+    });
+    const next = updateComposition(withImage, {
+      backgroundImage: null,
+      backgroundBlur: 0,
+      backgroundGrayscale: 0,
+    });
+    expect(next.backgroundImage).toBeNull();
+    expect(next.backgroundBlur).toBe(0);
+    expect(next.backgroundGrayscale).toBe(0);
+    expect(next.leftText).toBe("新品发布");
+    expect(next.rightText).toBe("文本");
+  });
+
   it("returns the same object when nothing changes", () => {
     const before = createDefaultComposition();
     expect(updateComposition(before, {})).toBe(before);

@@ -41,5 +41,9 @@ export function useCoverComposition() {
     set({ backgroundImage: url });
   }
 
-  return { composition, set, bgRefusal, uploadBackground };
+  function clearBackground() {
+    set({ backgroundImage: null, backgroundBlur: 0, backgroundGrayscale: 0 });
+  }
+
+  return { composition, set, bgRefusal, uploadBackground, clearBackground };
 }
