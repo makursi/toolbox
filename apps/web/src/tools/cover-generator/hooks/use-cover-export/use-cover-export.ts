@@ -31,8 +31,8 @@ export function useCoverExport(
     setExporting(true);
     try {
       const result = await snapdom(element, {
-        width: ratio.width,
-        height: ratio.height,
+        width: ratio.width * composition.exportScale,
+        height: ratio.height * composition.exportScale,
         format: "png",
         backgroundColor: composition.transparent ? null : undefined,
         // SnapDOM warns when inline/table-cell text may re-wrap under font
@@ -45,7 +45,12 @@ export function useCoverExport(
       const anchor = document.createElement("a");
       const base =
         composition.filename.trim() === ""
-          ? defaultCoverName(composition.ratioId, composition.leftText, composition.rightText)
+          ? defaultCoverName(
+              composition.ratioId,
+              composition.leftText,
+              composition.rightText,
+              composition.exportScale,
+            )
           : sanitizeFileName(composition.filename);
       anchor.href = url;
       anchor.download = `${uniqueCoverName(base, new Set())}.png`;

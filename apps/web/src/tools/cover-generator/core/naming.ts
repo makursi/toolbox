@@ -6,7 +6,11 @@
  * here.
  */
 
-/** The characters no common filesystem accepts; a filename never carries them. */
+import type { ExportScale } from "@/tools/cover-generator/core/state";
+
+/**
+ * The characters no common filesystem accepts; a filename never carries them.
+ */
 const INVALID = /[<>:"/\\|?*]/g;
 
 export function sanitizeFileName(text: string): string {
@@ -29,10 +33,20 @@ export function ratioFileLabel(ratioId: string): string {
   return sanitizeFileName(ratioId.replaceAll(":", "-")) || "cover";
 }
 
-/** The default cover name: ratio + the two texts, made safe. */
-export function defaultCoverName(ratioId: string, leftText: string, rightText: string): string {
+/**
+ * The default cover name: ratio + the two texts, made safe. A scale above 1
+ * appends the Retina-style `@Nx` suffix; 1x (the default) adds nothing so the
+ * base name is unchanged from before scale existed.
+ */
+export function defaultCoverName(
+  ratioId: string,
+  leftText: string,
+  rightText: string,
+  scale: ExportScale = 1,
+): string {
   const words = `${sanitizeFileName(leftText)}${sanitizeFileName(rightText)}`;
-  return `${ratioFileLabel(ratioId)}${words === "" ? "" : `-${words}`}`;
+  const base = `${ratioFileLabel(ratioId)}${words === "" ? "" : `-${words}`}`;
+  return scale > 1 ? `${base}@${scale}x` : base;
 }
 
 /** De-duplicate the way the Image Converter does: `name`, `name-1`, `name-2`. */

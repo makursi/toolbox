@@ -30,6 +30,12 @@ describe("cover filename rule", () => {
     expect(defaultCoverName("1:1", "A", "")).toBe("1-1-A");
   });
 
+  it("appends a scale suffix only when the export scale is above 1", () => {
+    expect(defaultCoverName("16:9", "示例", "文本", 1)).toBe("16-9-示例文本");
+    expect(defaultCoverName("16:9", "示例", "文本", 2)).toBe("16-9-示例文本@2x");
+    expect(defaultCoverName("21:9", "封面", "", 4)).toBe("21-9-封面@4x");
+  });
+
   it("de-duplicates against names already taken, the Image Converter way", () => {
     const base = "16-9-示例文本";
     expect(uniqueCoverName(base, new Set([base]))).toBe(`${base}-1`);
