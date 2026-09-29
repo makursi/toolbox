@@ -10,6 +10,12 @@ export type CompositionIcon =
 /** Which of the three elements a shadow reaches. */
 export type ShadowScope = "none" | "all" | "text" | "icon";
 
+/** The export scale steps, in the order the control shows them. */
+export const EXPORT_SCALES = [1, 2, 3, 4] as const;
+
+/** The export resolution multiplier, applied to the ratio's base pixels. */
+export type ExportScale = (typeof EXPORT_SCALES)[number];
+
 export type Composition = {
   leftText: string;
   rightText: string;
@@ -36,6 +42,7 @@ export type Composition = {
   shadowColor: string;
   filename: string;
   transparent: boolean;
+  exportScale: ExportScale;
 };
 
 /** The proportions a size change carries with it under 等比缩放. */
@@ -71,6 +78,7 @@ export function createDefaultComposition(): Composition {
     shadowColor: "#000000",
     filename: "",
     transparent: false,
+    exportScale: 1,
   };
 }
 

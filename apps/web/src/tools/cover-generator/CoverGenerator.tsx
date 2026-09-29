@@ -21,7 +21,7 @@ import { useRef } from "react";
 import { CompositionCanvas } from "./composition-canvas/composition-canvas";
 import { resolveLucideIcon } from "./core/icons";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
-import { proportionalSizes, type ShadowScope } from "./core/state";
+import { EXPORT_SCALES, proportionalSizes, type ShadowScope } from "./core/state";
 import { useCoverComposition } from "./hooks/use-cover-composition/use-cover-composition";
 import { useCoverExport } from "./hooks/use-cover-export/use-cover-export";
 import { useCoverFonts } from "./hooks/use-cover-fonts/use-cover-fonts";
@@ -368,8 +368,23 @@ export function CoverGenerator() {
                   value={composition.ratioId}
                   onChange={(ratioId) => set({ ratioId })}
                 />
+                <Text c="dimmed" size="sm">
+                  导出缩放
+                </Text>
+                <SegmentedControl
+                  data={EXPORT_SCALES.map((scale) => ({
+                    label: `${scale}x`,
+                    value: String(scale),
+                  }))}
+                  value={String(composition.exportScale)}
+                  onChange={(value) => {
+                    const scale = EXPORT_SCALES.find((one) => String(one) === value);
+                    if (scale !== undefined) set({ exportScale: scale });
+                  }}
+                />
                 <Button className="touch-target" loading={exporting} onClick={exportCover}>
                   下载 {composition.ratioId}
+                  {composition.exportScale > 1 ? ` @${composition.exportScale}x` : ""}
                 </Button>
               </Flex>
             </Accordion.Panel>

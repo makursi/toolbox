@@ -40,6 +40,7 @@ describe("composition state", () => {
       shadowColor: "#000000",
       filename: "",
       transparent: false,
+      exportScale: 1,
     });
   });
 
@@ -48,6 +49,13 @@ describe("composition state", () => {
     expect(next.leftText).toBe("新品发布");
     expect(next.rightText).toBe("文本");
     expect(next.ratioId).toBe("16:9");
+  });
+
+  it("scales the export resolution without touching the rest", () => {
+    const next = updateComposition(createDefaultComposition(), { exportScale: 3 });
+    expect(next.exportScale).toBe(3);
+    expect(next.ratioId).toBe("16:9");
+    expect(next.leftText).toBe("示例");
   });
 
   it("updates the background blur without touching grayscale or the rest", () => {
