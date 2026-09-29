@@ -9,6 +9,7 @@ import {
   FileInput,
   Flex,
   SegmentedControl,
+  Select,
   Slider,
   Stack,
   Switch,
@@ -19,6 +20,7 @@ import { Dropzone } from "@mantine/dropzone";
 import { useRef } from "react";
 
 import { CompositionCanvas } from "./composition-canvas/composition-canvas";
+import { matchesFont } from "./core/fonts";
 import { resolveLucideIcon } from "./core/icons";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
 import { EXPORT_SCALES, proportionalSizes, type ShadowScope } from "./core/state";
@@ -209,22 +211,28 @@ export function CoverGenerator() {
                     {sysHint}
                   </Text>
                 )}
-                {sysFonts.length > 0 && (
-                  <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
-                    {sysFonts.map((family) => (
-                      <Button
-                        className="touch-target"
-                        color="gray"
-                        justify="flex-start"
-                        key={family}
-                        onClick={() => set({ fontFamily: family })}
-                        variant={composition.fontFamily === family ? "light" : "subtle"}
-                      >
-                        {family}
-                      </Button>
-                    ))}
-                  </Stack>
-                )}
+                <Select
+                  searchable
+                  data={sysFonts}
+                  disabled={sysFonts.length === 0}
+                  filter={(input) =>
+                    input.options.filter(
+                      (option) => "value" in option && matchesFont(option.value, input.search),
+                    )
+                  }
+                  label="系统字体"
+                  maxDropdownHeight={220}
+                  nothingFoundMessage="没有匹配的字体"
+                  onChange={(family) => {
+                    if (family !== null) set({ fontFamily: family });
+                  }}
+                  placeholder={sysFonts.length === 0 ? "先获取系统字体" : "搜索字体"}
+                  value={
+                    composition.fontFamily !== null && sysFonts.includes(composition.fontFamily)
+                      ? composition.fontFamily
+                      : null
+                  }
+                />
               </Stack>
             </Accordion.Panel>
           </Accordion.Item>
