@@ -102,6 +102,10 @@ jobs:
           curl -sf --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:9333/json/version > /dev/null
           # A background job that died during the wait is invisible to `bash -e`;
           # without this the probe fails with a connection error that blames the page.
+          # The server must be alive; the browser only has to answer the port above —
+          # Chrome detaches from the shell on some platforms, so its launcher being
+          # gone is a note, not a failure (a browser that dies *later* is caught by the
+          # instrument's own deadlines in `apps/web/scripts/cdp.mjs`).
           kill -0 "$SERVER" || { echo "next start is gone:"; cat "$RUNNER_TEMP/server.log"; exit 1; }
-          kill -0 "$BROWSER" || { echo "the browser is gone:"; cat "$RUNNER_TEMP/chrome.log"; exit 1; }
+          kill -0 "$BROWSER" 2>/dev/null || { echo "the browser's launcher is gone; the debugging port answered, continuing"; cat "$RUNNER_TEMP/chrome.log"; }
           pnpm --filter @toolbox/web touch-targets "http://127.0.0.1:$PORT"
