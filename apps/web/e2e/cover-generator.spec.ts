@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream";
 
-import { expect, test, type BrowserContext } from "@playwright/test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 import { open } from "./tool-page";
 
@@ -93,9 +93,10 @@ test.describe("the cover generator", () => {
     await page.getByLabel("右侧文字").fill("此刻");
     await expect(page.getByText("16:9 · 1280×720")).toBeVisible();
 
-    // Mantine's SegmentedControl puts a visually hidden radio under a visible
-    // label; the label is what a visitor clicks, and what a real click has to
-    // land on here.
+    // Mantine's SegmentedControl is a visually hidden radio under a label whose
+    // inner span carries the text; `getByText` resolves to that span, so the click
+    // lands inside the label a visitor sees — the same click, and no strict-mode
+    // clash between the input and the label.
     await page.getByText("2x", { exact: true }).click();
 
     // Still the base ratio's pixels: the scale only reaches the exported file.
@@ -132,10 +133,11 @@ test.describe("the cover generator", () => {
     await expect(clear).toBeHidden();
 
     // Mantine takes a disabled slider's thumb out of the layout (`display: none`
-    // in its own stylesheet), so the `slider` role leaves with it and a role
-    // query can no longer name the control. The element is still there carrying
-    // its aria state — and the track stays visible, greyed.
-    const disabledBlur = page.locator('[role=slider][aria-label="背景模糊"]');
+    // in its own stylesheet), so the `slider` role leaves with it and a role query
+    // can no longer name the control. `sliderNode` is the element itself, still
+    // carrying the aria state, with its track left visible and greyed.
+    const disabledBlur = sliderNode(page, "背景模糊");
+    await expect(disabledBlur).toBeHidden();
     await expect(disabledBlur).toHaveAttribute("aria-disabled", "true");
     await expect(disabledBlur).toHaveAttribute("aria-valuenow", "0");
   });
@@ -164,15 +166,28 @@ test.describe("the cover generator", () => {
     await page.getByRole("button", { name: "获取系统字体" }).click();
     await expect(picker).toBeEnabled();
 
-    // Typing filters by case-insensitive substring, so every name left in the
-    // dropdown carries the query — and picking one applies it and collapses.
-    await picker.click();
-    await picker.fill("a");
+    // The dropdown opens with the whole list; the query is what decides what
+    // survives it.
     const options = page.getByRole("option");
+    await picker.click();
+    await expect(options.first()).toBeVisible();
+    const all = await options.allInnerTexts();
+
+    // A query that matches nothing is what makes the filter decisive: with the
+    // `filter` prop deleted, the whole list would still be rendered and the Tool's
+    // own 「没有匹配的字体」 would never appear.
+    await picker.fill("zzzz");
+    await expect(page.getByText("没有匹配的字体")).toBeVisible();
+
+    // A query that matches something leaves only names carrying it — and fewer of
+    // them than the full list. The query is the first family's own prefix, so it
+    // cannot be one this machine has no font for.
+    const query = (all[0] ?? "").trim().slice(0, 3);
+    await picker.fill(query);
     await expect(options.first()).toBeVisible();
     const names = await options.allInnerTexts();
-    expect(names.length, "the machine listed no fonts at all").toBeGreaterThan(0);
-    for (const name of names) expect(name.toLowerCase()).toContain("a");
+    for (const name of names) expect(name.toLowerCase()).toContain(query.toLowerCase());
+    expect(names.length, "filtering left the whole list in place").toBeLessThan(all.length);
 
     const chosen = names[0]?.trim() ?? "";
     await options.first().click();
@@ -221,4 +236,14 @@ async function readPngHeader(stream: Readable) {
     width: bytes.length >= 24 ? bytes.readUInt32BE(16) : 0,
     height: bytes.length >= 24 ? bytes.readUInt32BE(20) : 0,
   };
+}
+
+/**
+ * A slider's thumb, in whatever state it is in. The role query cannot reach a
+ * disabled one — Mantine hides the thumb with `display: none`, which takes it out
+ * of the accessibility tree together with its role — so the element is named
+ * directly, the way the probe names the controls it measures.
+ */
+function sliderNode(page: Page, name: string): Locator {
+  return page.locator(`[role=slider][aria-label="${name}"]`);
 }

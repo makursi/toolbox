@@ -428,8 +428,16 @@ export function CoverGenerator() {
             className="relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
             style={{ aspectRatio: `${ratio.width} / ${ratio.height}` }}
           >
+            {/* The composition is a fixed 1280×720 box, so it sits out of the
+                layout flow: a `w-full` pane whose child is 1280px wide has an
+                intrinsic width of 1280, and any slip in the breakpoints above it
+                used to let that inflate the column and draw the preview at 1:1
+                (#80). The pane's height comes from its own aspect ratio. */}
             <div
               style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
                 width: ratio.width,
                 height: ratio.height,
                 transform: `scale(${fit})`,
