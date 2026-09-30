@@ -18,12 +18,19 @@
  * also catches a target that grew into a neighbour, which is the other way this
  * fails.
  *
- * What it deliberately does not cover: anything that is not hit-testing —
+ * What it deliberately does not cover: anything that is not hit-testing — the
  * keyboard, focus order, the drawing. Those keep the one-off scripts and
  * `ui-fingerprint.mjs` (which answers "did anything move", not "is this big
  * enough"). The three controls the checklist needs a file for (清空 and a row's
  * remove cross, and the cover generator's 清除) get one through CDP, the
  * technique `apps/web/docs/design/log.md` already records.
+ *
+ * It grew two more claims, both about the rendered page and neither about a hit
+ * area: every page names the controls it has to carry (#81 — a floor on the count
+ * cannot tell 清除 from the ~50 icon rows that arrive on their own), and the cover
+ * generator's canvas column has to sit on the side of the breakpoint its layout
+ * rule names (#80 — an `order` swap moves what a visitor sees without moving the
+ * DOM, resizing anything or overflowing).
  *
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
@@ -61,28 +68,31 @@ const HEIGHT = 900;
 const MIN = 43;
 
 /**
- * The three pages, and the fewest controls each should carry (`minControls`) —
- * a probe that silently measured nothing would pass, which is the one way this
- * check can lie. The header's colour-scheme switch is on every page, because the
- * header is; the tool pages add 返回首页 (and the cover generator's counter of
- * controls grows with its slices: 2 in the spine slice, 3 once the download
- * button lands in #52, 4 once 清除 arrives with the background it clears in #73).
+ * The three pages, and the controls each one has to carry **by name**.
+ *
+ * A floor on the count cannot carry this: the cover page renders ~50 icon result
+ * rows the moment the lucide chunk lands, and 获取系统字体 carries the class too,
+ * so "at least 4" was already true with no background image and no 清除 — the
+ * control the file is dropped for was the one control the check could not miss
+ * (#81). Every name below is awaited before the measurement, so a control that
+ * never renders fails as a missing name rather than leaving the report quietly.
+ *
  * A page whose controls only exist after a file is dropped names the input that
- * takes it in `fileInput`. Fixed numbers rather than comfortable floors:
- * a regression that drops a control has to fail here rather than slip under the
- * bar.
+ * takes it in `fileInput`; `layout` asks for the cover generator's two-column
+ * check (see `LAYOUT`).
  */
 const PAGES = [
-  { minControls: 1, name: "home", path: "/" },
+  { controls: ["切换到"], name: "home", path: "/" },
   {
+    controls: ["切换到", "返回首页", "清空", "移除 cover.jpg"],
     fileInput: "input[type=file]",
-    minControls: 4,
     name: "tool",
     path: "/tools/image-converter",
   },
   {
+    controls: ["切换到", "返回首页", "获取系统字体", "下载 16:9", "清除"],
     fileInput: ".mantine-Dropzone-root input[type=file]",
-    minControls: 4,
+    layout: true,
     name: "cover",
     path: "/tools/cover-generator",
   },
@@ -140,6 +150,31 @@ const MEASURE = `(() => {
   });
 })()`;
 
+/**
+ * The cover generator's two columns, and which side of the breakpoint it is on.
+ *
+ * A swap written with `order` moves what a visitor sees without moving the DOM,
+ * resizing anything or overflowing: on 2026-09-30 the editor column was first and
+ * 320px wide from 768 to 991 with the preview pushed below all of it, and every
+ * measurement this script already made stayed green (#80). So the boxes are read
+ * directly — where the canvas is relative to the editor, and how wide each one is.
+ */
+const LAYOUT = `(() => {
+  const flex = document.querySelector('main .mantine-Flex-root');
+  const editor = document.querySelector('.cover-editor-column');
+  const canvas = document.querySelector('.cover-canvas-column');
+  if (!flex || !editor || !canvas) return JSON.stringify({ missing: true });
+  const box = (el) => {
+    const rect = el.getBoundingClientRect();
+    return { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width) };
+  };
+  return JSON.stringify({
+    canvas: box(canvas),
+    direction: getComputedStyle(flex).flexDirection,
+    editor: box(editor),
+  });
+})()`;
+
 /** A check's whole output is its result, which is the one place a console is right. */
 function report(line) {
   // oxlint-disable-next-line no-console -- see above.
@@ -176,15 +211,21 @@ async function addFile(client, selector) {
 }
 
 /**
- * Wait until the page carries the controls it should, and let the count check
- * below report it if it never does. A control that arrives after a file has been
- * read would otherwise be measured as a control the page does not have — the one
- * failure this probe would report for the wrong reason.
+ * Wait until the page carries every control it names, and let the name check
+ * below report the one that never arrived. A control that appears a beat after a
+ * file has been read would otherwise be measured as a control the page does not
+ * have — the one failure this probe would report for the wrong reason.
  */
-async function waitForControls(client, minControls) {
+async function waitForControls(client, names) {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const count = await client.evaluate("document.querySelectorAll('.touch-target').length");
-    if (count >= minControls) return;
+    const texts = JSON.parse(
+      await client.evaluate(`JSON.stringify(
+        [...document.querySelectorAll('.touch-target')].map((el) =>
+          (el.getAttribute('aria-label') || el.innerText || '').replace(/\\s+/g, ' ').trim(),
+        ),
+      )`),
+    );
+    if (names.every((name) => texts.some((text) => text.includes(name)))) return;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
@@ -211,17 +252,39 @@ async function probe(baseUrl) {
           await navigate(client, `${baseUrl}${page.path}`);
           if (page.fileInput !== undefined) {
             await addFile(client, page.fileInput);
-            await waitForControls(client, page.minControls);
           }
+          await waitForControls(client, page.controls);
 
           const measured = JSON.parse(await client.evaluate(MEASURE));
           report(`\n${width}px ${scheme} — ${page.path}`);
 
-          if (measured.controls.length < page.minControls) {
-            failures++;
-            report(
-              `  FAIL  expected at least ${page.minControls} touch-target control(s), found ${measured.controls.length} — the page did not render what this check measures`,
-            );
+          for (const name of page.controls) {
+            const found = measured.controls.some((control) => control.control.includes(name));
+            if (!found) failures++;
+            report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
+          }
+
+          if (page.layout === true) {
+            const layout = JSON.parse(await client.evaluate(LAYOUT));
+            if (layout.missing === true) {
+              failures++;
+              report("  FAIL  the cover generator's two columns are not on the page");
+            } else {
+              const narrow = layout.direction === "column";
+              const ok = narrow
+                ? layout.canvas.top < layout.editor.top &&
+                  Math.abs(layout.canvas.width - layout.editor.width) <= 1
+                : layout.editor.left < layout.canvas.left &&
+                  Math.abs(layout.canvas.top - layout.editor.top) <= 1;
+              if (!ok) failures++;
+              report(
+                `  ${ok ? "PASS" : "FAIL"}  ${
+                  narrow
+                    ? "the canvas column comes before the editor's"
+                    : "the editor and the canvas are side by side"
+                } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}`,
+              );
+            }
           }
 
           if (measured.overflow > 0) {
