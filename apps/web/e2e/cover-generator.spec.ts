@@ -54,7 +54,9 @@ test.describe("the cover generator", () => {
 
     // The background post-processing controls arrive with the background image:
     // blur and grayscale sliders, enabled now that a background exists. Drive
-    // each a few steps so a non-zero value reaches the export.
+    // each a few steps so a non-zero value reaches the export. They live in
+    // another section of the editor, so the tab has to be picked first (#91).
+    await showSection(page, "样式");
     const blur = page.getByRole("slider", { name: "背景模糊" });
     const grayscale = page.getByRole("slider", { name: "背景灰度" });
     await expect(blur).toBeEnabled();
@@ -67,6 +69,7 @@ test.describe("the cover generator", () => {
     await grayscale.press("ArrowRight");
     await grayscale.press("ArrowRight");
 
+    await showSection(page, "导出");
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "下载 16:9" }).click();
     const download = await downloadPromise;
@@ -92,6 +95,10 @@ test.describe("the cover generator", () => {
     await page.getByLabel("左侧文字").fill("新品发布");
     await page.getByLabel("右侧文字").fill("此刻");
     await expect(page.getByText("16:9 · 1280×720")).toBeVisible();
+
+    // The scale control lives in the 导出 section, which the editor shows one at
+    // a time (#91).
+    await showSection(page, "导出");
 
     // Mantine's SegmentedControl is a visually hidden radio under a label whose
     // inner span carries the text; `getByText` resolves to that span, so the click
@@ -119,6 +126,7 @@ test.describe("the cover generator", () => {
     const background = await solidPng(page.context(), "#00aa88");
     await page.locator(".mantine-Dropzone-root input[type=file]").setInputFiles(background);
 
+    await showSection(page, "样式");
     const blur = page.getByRole("slider", { name: "背景模糊" });
     await expect(blur).toBeEnabled();
     await blur.focus();
@@ -126,11 +134,18 @@ test.describe("the cover generator", () => {
     await blur.press("ArrowRight");
     await expect(blur).toHaveAttribute("aria-valuenow", "2");
 
+    // 清除 is 内容's, so the tab goes back before it can be pressed.
+    await showSection(page, "内容");
     const clear = page.getByRole("button", { name: "清除" });
     await expect(clear).toBeVisible();
     await clear.click();
 
     await expect(clear).toBeHidden();
+
+    // The slider 清除 reset lives in 样式, and an unpicked section is not in the DOM
+    // (#91), so the tab comes first. What it reads is the composition's own value,
+    // which switching tabs does not touch.
+    await showSection(page, "样式");
 
     // Mantine takes a disabled slider's thumb out of the layout (`display: none`
     // in its own stylesheet), so the `slider` role leaves with it and a role query
@@ -194,6 +209,44 @@ test.describe("the cover generator", () => {
     await expect(picker).toHaveValue(chosen);
     await expect(page.getByRole("listbox")).toBeHidden();
   });
+
+  /*
+   * #91: the three sections are a tab row, and only the picked one is on the page.
+   * This is the claim the gate owns — that picking a tab does what it looks like it
+   * does. How the row is drawn, and how big its targets are, belong to the
+   * instrument (`docs/adr/0012-playwright-for-the-browser-gate.md`).
+   */
+  test("shows one section at a time, and only that one", async ({ page }) => {
+    await open(page, COVER_PATH);
+
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await expect(page.getByRole("tab", { name: "内容" })).toHaveAttribute("aria-selected", "true");
+
+    // 内容 first, with the other two not merely hidden but absent: a section left in
+    // the DOM would let the row look switched while the old panel is still what a
+    // pointer reaches.
+    await expect(page.getByLabel("左侧文字")).toBeVisible();
+    await expect(page.getByRole("button", { name: "获取系统字体" })).toBeVisible();
+    await expect(page.getByRole("slider", { name: "字体大小" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "下载 16:9" })).toHaveCount(0);
+
+    await showSection(page, "样式");
+    await expect(page.getByRole("tab", { name: "样式" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("slider", { name: "字体大小" })).toBeVisible();
+    await expect(page.getByLabel("左侧文字")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "下载 16:9" })).toHaveCount(0);
+
+    await showSection(page, "导出");
+    await expect(page.getByRole("button", { name: "下载 16:9" })).toBeVisible();
+    await expect(page.getByRole("slider", { name: "字体大小" })).toHaveCount(0);
+    await expect(page.getByLabel("左侧文字")).toHaveCount(0);
+
+    // The keyboard model the row inherits from the library: an arrow key moves
+    // along the row instead of walking into the panel.
+    await page.getByRole("tab", { name: "导出" }).focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByRole("tab", { name: "样式" })).toBeFocused();
+  });
 });
 
 /** A solid-colour PNG built by the browser, named like the visitor's file would be. */
@@ -236,6 +289,21 @@ async function readPngHeader(stream: Readable) {
     width: bytes.length >= 24 ? bytes.readUInt32BE(16) : 0,
     height: bytes.length >= 24 ? bytes.readUInt32BE(20) : 0,
   };
+}
+
+/**
+ * Bring one of the editor's sections into view.
+ *
+ * The configuration column is a tab row whose unpicked panels are not mounted
+ * (#91), so a control from another section is not merely hidden: it is not on the
+ * page at all until its tab is picked. One line, and it stays one line because
+ * Playwright settles the action itself — the click waits for the tab to be
+ * actionable and every `expect` after it waits for the state it asserts. The
+ * instrument had to write its own wait for the same click only because plain CDP
+ * has no such waiting.
+ */
+async function showSection(page: Page, name: "内容" | "样式" | "导出") {
+  await page.getByRole("tab", { name }).click();
 }
 
 /**

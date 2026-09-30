@@ -45,11 +45,12 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 
 ### Editor layout (#53)
 
-- [ ] Wide screens show the configuration column (内容 / 导出) beside the canvas.
-- [ ] On a 390px screen the canvas pins to the top and the configuration column follows beneath it — one component tree with the order swapped, not a second layout.
-- [ ] The accordion sections expand and collapse identically at every width; the 样式 section arrives with #59.
-- [ ] The download button, 返回首页 and the header's colour-scheme switch all keep ≥44px hit areas.
-- [ ] Tab and Enter reach the text inputs, the accordion controls, the ratio control and the download button.
+- [ ] Wide screens show the configuration column beside the canvas, one section at a time.
+- [ ] On a 390px screen the canvas column pins to the top, so the preview stays in view while the configuration column scrolls beneath it — one component tree with the order swapped, not a second layout.
+- [ ] The section tabs pin 1rem below the top of the viewport at every width, so a long panel can be scrolled without losing the row.
+- [ ] The three sections are a tab row with the same behaviour at every width, and only the picked one is in the DOM.
+- [ ] The download button, 返回首页, the section tabs and the header's colour-scheme switch all keep ≥44px hit areas.
+- [ ] Tab and Enter reach the text inputs, the section tabs, the ratio control and the download button.
 
 ### Icons (#54)
 

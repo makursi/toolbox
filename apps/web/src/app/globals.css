@@ -295,6 +295,100 @@
 }
 
 /*
+ * The cover generator's preview pane: a maximum width, so that the pane's height
+ * can be capped.
+ *
+ * On a short screen the pane is what eats the viewport. Its height comes from its
+ * own width through `aspect-ratio`, and at 375px wide a 1:1 composition is 375px
+ * tall — 56% of an iPhone SE's 667px — while the pane is pinned, which leaves the
+ * settings below it less than half the screen. Below the site's `sm` the pane may
+ * therefore be no taller than 45% of the viewport.
+ *
+ * The cap is written as a maximum *width* rather than a maximum height because
+ * clamping the height of a box whose height is derived from its width crops the
+ * composition instead of scaling it. The aspect ratio is the only thing that turns
+ * one into the other, and it arrives as the custom property the component sets
+ * from the one ratio table in the tool's core — so there is no second copy of the
+ * ratios here to drift.
+ *
+ * The pane is centred because a capped pane is narrower than the column it sits in.
+ *
+ * The breakpoint is Mantine's `sm` (48em) read backwards, the same 768 the cover
+ * generator's columns swap at, so the cap lands in the band the layout rule names
+ * (`apps/web/docs/design/layout.md`). It is written inside `components` rather than
+ * unlayered so that a Tailwind utility can still take it back — the same reason the
+ * `Button` override above is.
+ */
+@layer components {
+  .cover-preview-pane {
+    --cover-preview-max-height: 45dvh;
+    margin-inline: auto;
+  }
+
+  @media (max-width: 767.98px) {
+    .cover-preview-pane {
+      max-width: min(100%, calc(var(--cover-preview-max-height) * var(--cover-aspect)));
+    }
+  }
+}
+
+/*
+ * The cover generator's section tabs (#91).
+ *
+ * A Mantine tab is about 34px tall and the implementation this pattern was taken
+ * from draws 36px; both are under the 44px this site's controls owe a finger. The
+ * row is given that height by the layout rather than by the `.touch-target`
+ * overlay, because a target the layout grants is one every pointer can use rather
+ * than one that has to be probed for (apps/web/docs/design/components.md).
+ *
+ * The hairline is pointed at this site's warm border token. Mantine's own tab line
+ * is its cool `gray-3` / `dark-4`, which would be the one cold line on the page
+ * (apps/web/docs/design/colour.md). The active marker needs no override: it is
+ * painted with `--tabs-color`, which is the theme's primary — `ink`.
+ */
+@layer components {
+  .cover-tabs {
+    --tab-border-color: var(--mantine-color-default-border);
+  }
+
+  /*
+   * 46px rather than the 44px floor. Where this row's top falls is a fraction — the
+   * `aspect-ratio` preview pane above it decides that height — and the probe walks
+   * whole pixels, so a 44px row measured 41 at 360 while measuring 43 to 45 at
+   * 375, 390, 768 and 1024 (#91). The two extra pixels keep the *measured* area
+   * above the floor wherever the row lands, instead of loosening the threshold the
+   * whole site is held to.
+   */
+  .cover-tabs .mantine-Tabs-tab {
+    min-height: 46px;
+  }
+
+  /*
+   * The row stays with the visitor, and below the breakpoint the preview is pinned
+   * above it — so the row's offset is the preview's real height plus the gap the
+   * preview itself uses (`top-4`). Above the breakpoint the preview is beside the
+   * row rather than over it, and the offset is that gap alone. CSS cannot read a
+   * sibling's box, so the height arrives as the custom property the component sets
+   * from the scale it already keeps for the composition.
+   *
+   * The row needs a background of its own: it is 46px of transparent tabs with a
+   * hairline, and a panel scrolling under it would otherwise show through.
+   */
+  .cover-tabs .mantine-Tabs-list {
+    background-color: var(--mantine-color-body);
+    position: sticky;
+    top: 1rem;
+    z-index: 1;
+  }
+
+  @media (max-width: 767.98px) {
+    .cover-tabs .mantine-Tabs-list {
+      top: calc(var(--cover-preview-height, 0px) + 1rem);
+    }
+  }
+}
+
+/*
  * The Tool card's cover frame. Its geometry lives here rather than in the card's
  * `style` prop: an inline declaration outranks every breakpoint (see apps/web/docs/design/layout.md),
  * so the only part of the frame that belongs in the component is the width, which
