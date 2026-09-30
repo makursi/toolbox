@@ -16,16 +16,18 @@
 
 ## 输出面
 
-- **v1 形状（issue #50 定案）**：格式固定 **PNG**（JPG/WebP 下拉不进 v1）；倍率只留 **1x**（"选比例即得对应像素"；多像素密度未来用预设档位，不是开关）；**文件名接受输入框**，默认值由规则给出（比例 + 示例文案，去重后缀沿用 `naming` 规则）；**背景透明**保留，规则是"透明只对 PNG 有意义"。
+- **输出形状（issue #50 定案）**：格式固定 **PNG**（JPG/WebP 下拉不进 v1）；**文件名接受输入框**，默认值由规则给出（比例 + 示例文案，去重后缀沿用 `naming` 规则）；**背景透明**保留，规则是"透明只对 PNG 有意义"。
+- **导出倍率是预设档位，不是开关**（issue #75，2026-09-29 落地）：1x / 2x / 3x / 4x 四档 `SegmentedControl`，默认 **1x**。倍率只乘导出像素、不改预览；`>1x` 时默认文件名追加 `@Nx`、下载按钮文案带 `@Nx`，1x 时两者与从前逐字一致。issue #50 当时判的是"倍率只留 1x"，这条是后来改的，改动只在这里。
 - 输出面是本 Tool 自己的产品决定（ADR-0014）；`docs/adr/0010-no-output-settings.md` 的禁令只绑定 image-converter，本工具不继承。
-- **像素上限**：最大档 21:9@2560×1080（≈2.8 MP），画布最大边长与上限文案随实现定，拒绝文案进纯函数层。
+- **像素上限**：`MAX_EXPORT_PIXELS` 钉的是**比例基准表**——最大档 21:9@2560×1080（≈2.8 MP），`limits.test.ts` 逐档断言。倍率放大后的导出（4x 时 21:9 为 10240×4320 ≈ 44 MP）**不另设上限**，由 SnapDOM 自带的钳制兜底（issue #75 的决定）。
 
 ## 背景后处理
 
 - **作用对象是背景图**，不是纯色：模糊/灰度对纯色无可见内容可处理，所以无背景图时控件禁用；「背景透明」打开时同样禁用（透明 PNG 没有承托，`backdropFilter` 会退化为无效果）。
+- **清除把背景连同后处理一起归零**：`清除` 只在有背景图时出现，按下后 `backgroundImage` 归 `null`、模糊与灰度同时回到 0（`useCoverComposition.clearBackground`），不留"图没了但强度还在"的半套状态。
 - **实现是 `backdropFilter` 覆盖层**，套在背景图与文字/图标之间（不是直接 `filter` 背景图）：文字和图标保持清晰，只有它们后面的背景被糊/去色——这是 ThisCover 的做法，也天然避免 `filter` 的边缘羽化。
 - **模糊是非线性映射**：0–100 强度经二次缓动映射到 0–50px（`50×(v/100)²`），小值几乎无感、拉满才 50px；灰度是线性的 `grayscale(v%)`。两个都是 0–100 强度，映射收敛在 `core/background.ts`，渲染层只拼 CSS。
-- **SnapDOM 捕获已验证**（引擎实验 #62）：`backdropFilter` 的 `blur()` 与 `grayscale()` 都被忠实捕获进导出 PNG，`warnings: []`；`backdrop-filter-failed` 只是仿真抛异常时的降级告警，简单 blur/grayscale 不触发。
+- **SnapDOM 捕获已验证**（引擎实验 #69）：`backdropFilter` 的 `blur()` 与 `grayscale()` 都被忠实捕获进导出 PNG，`warnings: []`；`backdrop-filter-failed` 只是仿真抛异常时的降级告警，简单 blur/grayscale 不触发。
 
 ## 图标机制
 
@@ -38,6 +40,7 @@
 - **导出图里的字形取决于导出机器**：系统回退 + 访客自带。README 写明"同一份设计在两台不同系统的机器上导出，字形不一样"；不进站点 `design/typography.md`。
 - 字体上传走 `new FontFace(family, ArrayBuffer)`（规格层面不经 `font-src`）；生产构建录一次基线（accentance，见 #57）。
 - 系统字体（Local Font Access）仅 Chromium 桌面可用：「不支持时会提示」，回退文案进 `core/hints.ts`；不引入 polyfill。
+- **系统字体列表是可搜索的下拉**（issue #78）：默认折叠，按子串、大小写不敏感过滤（规则在纯层 `core/fonts.ts` 的 `matchesFont`），未点「获取系统字体」前禁用，无匹配时显示「没有匹配的字体」。上传字体是另一条路径，不写进这个下拉的值。
 
 ## 指向
 

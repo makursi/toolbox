@@ -15,8 +15,9 @@ export function fontTooBig(sizeBytes: number): boolean {
 }
 
 /**
- * The pixel cap of one export: the largest ratio (21:9 = 2560×1080) is the
- * canvas limit, so a v1 with no scale multiplier can never exceed it. The test
- * pins the table against it.
+ * The pixel cap that pins the ratio table: the largest base ratio
+ * (21:9 = 2560×1080) is the canvas limit, and the test asserts every ratio
+ * against it. The export scale (issue #75) multiplies past it on purpose — a
+ * scaled export has no ceiling of its own, SnapDOM's clamp is the guard.
  */
 export const MAX_EXPORT_PIXELS = 2560 * 1080;

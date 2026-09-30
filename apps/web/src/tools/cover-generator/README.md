@@ -19,7 +19,7 @@ The threshold for sharing code is ownership, not the number of consumers — see
 
 ## How a run works
 
-The page renders the ToolPage shell with the Tool's own title and description, and a live composition canvas. The state lives in five single-responsibility hooks — composition, export, icons, fonts, fit — and the composition itself is one component rendered by both the preview and the off-screen export, so "the preview and the export are the same composition" holds by construction. The rendering engine is SnapDOM (`@zumer/snapdom`); the two acceptance experiments (blob: backgrounds, data fonts under the CSP) are recorded at the bottom of this file.
+The page renders the ToolPage shell with the Tool's own title and description, and a live composition canvas. The state lives in five single-responsibility hooks — composition, export, icons, fonts, fit — and the composition itself is one component rendered by both the preview and the off-screen export, so "the preview and the export are the same composition" holds by construction. The rendering engine is SnapDOM (`@zumer/snapdom`); the three engine experiments (blob: backgrounds, data fonts under the CSP, backdrop-filter capture) are recorded at the bottom of this file.
 
 ## What CI covers, and what is still yours
 
@@ -61,6 +61,7 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 ### Background (#56)
 
 - [ ] 拖拽或点击上传背景图：出现在预览与导出 PNG 里（`blob:` 捕获已由实验 #55 验证）。
+- [ ] 清除（有背景图时才出现的按钮，#73）移除背景图，并把模糊与灰度两个强度一起归零；按钮随后消失。
 - [ ] 背景不透明度 0–100%（样式节）只作用于背景层，并随导出生效。
 - [ ] 背景模糊 / 背景灰度（样式节，0–100）：拖动即更新预览与导出；文字与图标保持清晰，只有背景被糊/去色。
 - [ ] 无背景图或「背景透明」打开时，模糊/灰度两个 slider 处于禁用态。
@@ -71,6 +72,8 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 - [ ] 上传字体 renders in preview and export (per experiment #57).
 - [ ] A font over 20 MB is refused with its size named; an unreadable font shows 「这个字体文件无法载入。」.
 - [ ] 获取系统字体: where Local Font Access exists, picking a family applies it; elsewhere it shows 「此浏览器不支持读取系统字体。」 — a hint, not a dead control.
+- [ ] 系统字体列表是一个可搜索的下拉（#78）：默认折叠，输入关键字按子串、大小写不敏感过滤（`ya` 命中 `Yatra`），无匹配时显示「没有匹配的字体」，选中即收起并应用。
+- [ ] 下拉在点「获取系统字体」之前是禁用态（占位文案「先获取系统字体」）；上传字体不写进下拉的值，两条路径互不干扰。
 - [ ] The typography promise in the README and `rules.md` matches behaviour: the exported glyphs depend on the machine that drew them.
 
 ### Styles (#59)
@@ -82,9 +85,17 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 ### Export finish (#60)
 
 - [ ] 文件名 is pre-filled by the rule and editable, sanitized for the filesystem; 背景透明 exports alpha for PNG (and only PNG — the option says so).
-- [ ] The largest export (21:9 → 2560×1080) matches the pixel cap constant (unit-tested); v1 has no scale multiplier.
+- [ ] The largest base ratio (21:9 → 2560×1080) matches the pixel cap constant (unit-tested); the cap pins the ratio table only, not a scaled export.
 
-The design decisions live in `rules.md` and the spec in issue #50 (tickets #51–#61).
+### Export scale (#75, #76)
+
+- [ ] 导出缩放 sits in the export section, below the ratio control and above the download button: 1x / 2x / 3x / 4x, 1x by default.
+- [ ] The exported PNG's pixel size is the ratio base multiplied by the scale, for every ratio (16:9 @2x → 2560×1440), and it opens in an image viewer.
+- [ ] The preview is unchanged by the scale — it affects export resolution only.
+- [ ] Above 1x the default filename gains `@Nx` (`16-9-示例文本@2x.png`) and the button reads 「下载 16:9 @2x」; at 1x both are exactly as before.
+- [ ] No pixel ceiling is added at the top scale: SnapDOM's own clamp is the guard (the decision in #75).
+
+The design decisions live in `rules.md`. The spec is issue #50 (tickets #51–#61); the slices after it have their own issues: #63 (hooks and the composition canvas), #66–#71 (background blur and grayscale), #73 (clear the background), #75 (export scale), #78 (searchable system-font picker).
 
 **引擎实验 #55（2026-09-22，通过，随后被 #61 门禁修正）**：`blob:` 背景图与 `blob:` 上传图标都能被 SnapDOM 捕获。方法：无头 Chrome（chromium-1243）里用 canvas 生成绿色 320×180 背景图与红色 64×64 图标（都是 `blob:` URL），SnapDOM 320×180 PNG 导出后读像素：中心 `[0,255,0,255]`、图标位 `[255,0,0,255]`、`warnings: []`。
 
@@ -92,4 +103,4 @@ The design decisions live in `rules.md` and the spec in issue #50 (tickets #51�
 
 **引擎实验 #57（2026-09-22，通过）**：`FontFace(ArrayBuffer)` 注册的字体在 SnapDOM 的 SVG-as-image 序列化下正常光栅化。方法：无头 Chrome 对着 `next start` 的**生产构建**（CSP `font-src 'self'` 生效），字节来自同源 `fetch()` 的页内字体，注册后画「字形甲乙」再导出 PNG：采样最暗像素 17（字形已绘制）、`warnings: []`、零 console 噪音（CSP 没拦）。结论：字体上传走 `File.arrayBuffer() → new FontFace → document.fonts.add` 即可，SnapDOM 的 `embedFonts` 会把它内联进文件。两条引擎实验（#55、#57）均已闭合。
 
-**引擎实验 #62（2026-09-23，通过）**：`backdropFilter` 的 `blur()` 与 `grayscale()` 都能被 SnapDOM（v3.1.0）忠实捕获进导出 PNG。方法：无头 Chrome（Playwright 钉的 chromium-1243）里 `blob:` URL 载入 `dist/snapdom.mjs`，画「红/蓝硬边界 + `backdropFilter: blur(30px)`」与「纯红 + `backdropFilter: grayscale(100%)`」两个用例，导出 PNG 读像素：边界处 `[129,0,126]`（红蓝混，证明 blur 真糊了）、纯红变 `[54,54,54]`（中性灰，证明 grayscale 真去色了）、`warnings: []`。结论：`backdrop-filter` 在简单 blur/grayscale 下不触发 `backdrop-filter-failed` 降级，覆盖层方案（背景在文字/图标之后被糊/去色）成立。
+**引擎实验 #69（2026-09-23，通过）**：`backdropFilter` 的 `blur()` 与 `grayscale()` 都能被 SnapDOM（v3.1.0）忠实捕获进导出 PNG。方法：无头 Chrome（Playwright 钉的 chromium-1243）里 `blob:` URL 载入 `dist/snapdom.mjs`，画「红/蓝硬边界 + `backdropFilter: blur(30px)`」与「纯红 + `backdropFilter: grayscale(100%)`」两个用例，导出 PNG 读像素：边界处 `[129,0,126]`（红蓝混，证明 blur 真糊了）、纯红变 `[54,54,54]`（中性灰，证明 grayscale 真去色了）、`warnings: []`。结论：`backdrop-filter` 在简单 blur/grayscale 下不触发 `backdrop-filter-failed` 降级，覆盖层方案（背景在文字/图标之后被糊/去色）成立。
