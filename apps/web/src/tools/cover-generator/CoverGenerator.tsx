@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Accordion,
   Box,
   Button,
   ColorInput,
@@ -13,11 +12,12 @@ import {
   Slider,
   Stack,
   Switch,
+  Tabs,
   Text,
   TextInput,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
-import { useRef } from "react";
+import { useRef, type CSSProperties } from "react";
 
 import { CompositionCanvas } from "./composition-canvas/composition-canvas";
 import { matchesFont } from "./core/fonts";
@@ -46,7 +46,12 @@ export function CoverGenerator() {
   const { iconSet, iconQuery, setIconQuery, results: iconResults } = useLucideIcons();
   const { fontRefusal, sysFonts, sysHint, uploadFont, fetchSystemFonts } = useCoverFonts();
   const ratio = ratioByKey(composition.ratioId) ?? ratios[2];
-  const { fit, wrapperRef } = useFitScale(ratio.width);
+  const { fit, paneHeight, wrapperRef } = useFitScale(ratio.width);
+  // The pane's shape, in one number. `aspectRatio` is what gets drawn; the same
+  // number goes to the stylesheet as a custom property, because the narrow-screen
+  // cap there has to turn a maximum height into a maximum width
+  // (`.cover-preview-pane` in `globals.css`).
+  const aspect = ratio.width / ratio.height;
   const exportRef = useRef<HTMLDivElement | null>(null);
   const { exportCover, exporting } = useCoverExport(exportRef, composition, ratio);
 
@@ -78,382 +83,398 @@ export function CoverGenerator() {
           Tailwind `sm:` would have flipped at 640 and split them, which is the
           band this tool shipped broken (#80). */}
       <Box className="cover-editor-column order-2 md:order-1" w={{ base: "100%", sm: 320 }}>
-        <Accordion multiple defaultValue={["content", "style", "export"]}>
-          <Accordion.Item value="content">
-            <Accordion.Control>内容</Accordion.Control>
-            <Accordion.Panel>
-              <Stack gap="md">
-                <Flex
-                  gap="md"
-                  direction={{ base: "column", md: "row" }}
-                  align={{ base: "stretch", md: "center" }}
-                >
-                  <TextInput
-                    label="左侧文字"
-                    value={composition.leftText}
-                    onChange={(event) => set({ leftText: event.currentTarget.value })}
-                  />
-                  <TextInput
-                    label="右侧文字"
-                    value={composition.rightText}
-                    onChange={(event) => set({ rightText: event.currentTarget.value })}
-                  />
-                </Flex>
-                <Slider
-                  label="字重"
-                  min={100}
-                  max={900}
-                  step={100}
-                  thumbLabel="字重"
-                  value={composition.weight}
-                  onChange={(weight) => set({ weight })}
-                />
+        {/* The three sections as a tab row, the same behaviour at every width
+            (#91): a second behaviour per width is what `ADR-0010` rejected, and a
+            narrow screen is where this one earns its keep. The panels are not kept
+            mounted, so what a visitor has not picked is not in the DOM either. */}
+        <Tabs
+          className="cover-tabs"
+          defaultValue="content"
+          keepMounted={false}
+          style={{ "--cover-preview-height": `${paneHeight}px` } as CSSProperties}
+        >
+          <Tabs.List grow>
+            <Tabs.Tab className="touch-target" value="content">
+              内容
+            </Tabs.Tab>
+            <Tabs.Tab className="touch-target" value="style">
+              样式
+            </Tabs.Tab>
+            <Tabs.Tab className="touch-target" value="export">
+              导出
+            </Tabs.Tab>
+          </Tabs.List>
 
-                <Divider />
-                <Switch
-                  checked={composition.iconVisible}
-                  label="显示图标"
-                  onChange={(event) => set({ iconVisible: event.currentTarget.checked })}
-                />
-                <Switch
-                  checked={composition.iconBackground}
-                  label="图标背景"
-                  onChange={(event) => set({ iconBackground: event.currentTarget.checked })}
-                />
-                <FileInput
-                  accept="image/*"
-                  label="上传图标"
-                  onChange={uploadIcon}
-                  placeholder="选择图标文件"
+          <Tabs.Panel value="content">
+            <Stack gap="md">
+              <Flex
+                gap="md"
+                direction={{ base: "column", md: "row" }}
+                align={{ base: "stretch", md: "center" }}
+              >
+                <TextInput
+                  label="左侧文字"
+                  value={composition.leftText}
+                  onChange={(event) => set({ leftText: event.currentTarget.value })}
                 />
                 <TextInput
-                  label="搜索图标"
-                  placeholder="例如 image"
-                  value={iconQuery}
-                  onChange={(event) => setIconQuery(event.currentTarget.value)}
+                  label="右侧文字"
+                  value={composition.rightText}
+                  onChange={(event) => set({ rightText: event.currentTarget.value })}
                 />
-                {iconSet !== null && iconResults.length > 0 && (
-                  <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
-                    {iconResults.map((name) => {
-                      const resolved = resolveLucideIcon(iconSet, name);
-                      const selected =
-                        composition.icon?.source === "lucide" && composition.icon.name === name;
-                      return (
-                        <Button
-                          className="touch-target shrink-0"
-                          color="gray"
-                          h={44}
-                          justify="flex-start"
-                          key={name}
-                          leftSection={
-                            resolved === undefined ? null : (
-                              <IconGlyph
-                                body={resolved.body}
-                                height={resolved.height}
-                                size={18}
-                                width={resolved.width}
-                              />
-                            )
-                          }
-                          onClick={() => set({ icon: { source: "lucide", name } })}
-                          variant={selected ? "light" : "subtle"}
-                        >
-                          {name}
-                        </Button>
-                      );
-                    })}
-                  </Stack>
-                )}
-                {iconQuery.trim() !== "" && iconResults.length === 0 && (
-                  <Text c="dimmed" size="sm">
-                    没有匹配的图标。
-                  </Text>
-                )}
+              </Flex>
+              <Slider
+                label="字重"
+                min={100}
+                max={900}
+                step={100}
+                thumbLabel="字重"
+                value={composition.weight}
+                onChange={(weight) => set({ weight })}
+              />
 
-                <Divider />
-                <Dropzone
-                  accept={["image/*"]}
-                  onDrop={(files) => uploadBackground(files[0] ?? null)}
-                  p="sm"
-                  radius="md"
-                >
-                  <Text c="dimmed" size="sm" ta="center">
-                    拖拽背景图到此处，或点击选择
-                  </Text>
-                </Dropzone>
-                {bgRefusal !== null && (
-                  <Text c="red" size="sm">
-                    {bgRefusal}
-                  </Text>
-                )}
-                {composition.backgroundImage !== null && (
-                  <Button
-                    className="touch-target"
-                    color="gray"
-                    onClick={clearBackground}
-                    variant="subtle"
-                  >
-                    清除
-                  </Button>
-                )}
+              <Divider />
+              <Switch
+                checked={composition.iconVisible}
+                label="显示图标"
+                onChange={(event) => set({ iconVisible: event.currentTarget.checked })}
+              />
+              <Switch
+                checked={composition.iconBackground}
+                label="图标背景"
+                onChange={(event) => set({ iconBackground: event.currentTarget.checked })}
+              />
+              <FileInput
+                accept="image/*"
+                label="上传图标"
+                onChange={uploadIcon}
+                placeholder="选择图标文件"
+              />
+              <TextInput
+                label="搜索图标"
+                placeholder="例如 image"
+                value={iconQuery}
+                onChange={(event) => setIconQuery(event.currentTarget.value)}
+              />
+              {iconSet !== null && iconResults.length > 0 && (
+                <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
+                  {iconResults.map((name) => {
+                    const resolved = resolveLucideIcon(iconSet, name);
+                    const selected =
+                      composition.icon?.source === "lucide" && composition.icon.name === name;
+                    return (
+                      <Button
+                        className="touch-target shrink-0"
+                        color="gray"
+                        h={44}
+                        justify="flex-start"
+                        key={name}
+                        leftSection={
+                          resolved === undefined ? null : (
+                            <IconGlyph
+                              body={resolved.body}
+                              height={resolved.height}
+                              size={18}
+                              width={resolved.width}
+                            />
+                          )
+                        }
+                        onClick={() => set({ icon: { source: "lucide", name } })}
+                        variant={selected ? "light" : "subtle"}
+                      >
+                        {name}
+                      </Button>
+                    );
+                  })}
+                </Stack>
+              )}
+              {iconQuery.trim() !== "" && iconResults.length === 0 && (
+                <Text c="dimmed" size="sm">
+                  没有匹配的图标。
+                </Text>
+              )}
 
-                <Divider />
-                <FileInput
-                  accept=".woff2,.woff,.ttf,.otf"
-                  label="上传字体"
-                  onChange={onUploadFont}
-                  placeholder="选择字体文件"
-                />
-                {fontRefusal !== null && (
-                  <Text c="red" size="sm">
-                    {fontRefusal}
-                  </Text>
-                )}
+              <Divider />
+              <Dropzone
+                accept={["image/*"]}
+                onDrop={(files) => uploadBackground(files[0] ?? null)}
+                p="sm"
+                radius="md"
+              >
+                <Text c="dimmed" size="sm" ta="center">
+                  拖拽背景图到此处，或点击选择
+                </Text>
+              </Dropzone>
+              {bgRefusal !== null && (
+                <Text c="red" size="sm">
+                  {bgRefusal}
+                </Text>
+              )}
+              {composition.backgroundImage !== null && (
                 <Button
                   className="touch-target"
                   color="gray"
-                  justify="flex-start"
-                  onClick={fetchSystemFonts}
+                  onClick={clearBackground}
                   variant="subtle"
                 >
-                  获取系统字体
+                  清除
                 </Button>
-                {sysHint !== null && (
-                  <Text c="dimmed" size="sm">
-                    {sysHint}
-                  </Text>
-                )}
-                <Select
-                  searchable
-                  data={sysFonts}
-                  disabled={sysFonts.length === 0}
-                  filter={(input) =>
-                    input.options.filter(
-                      (option) => "value" in option && matchesFont(option.value, input.search),
-                    )
-                  }
-                  label="系统字体"
-                  maxDropdownHeight={220}
-                  nothingFoundMessage="没有匹配的字体"
-                  onChange={(family) => {
-                    if (family !== null) set({ fontFamily: family });
-                  }}
-                  placeholder={sysFonts.length === 0 ? "先获取系统字体" : "搜索字体"}
-                  value={
-                    composition.fontFamily !== null && sysFonts.includes(composition.fontFamily)
-                      ? composition.fontFamily
-                      : null
-                  }
-                />
-              </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
+              )}
 
-          <Accordion.Item value="style">
-            <Accordion.Control>样式</Accordion.Control>
-            <Accordion.Panel>
-              <Stack gap="md">
-                <Slider
-                  label="字体大小"
-                  max={256}
-                  min={16}
-                  onChange={(fontSize) =>
-                    set(
-                      composition.proportional
-                        ? { fontSize, ...proportionalSizes(fontSize) }
-                        : { fontSize },
-                    )
-                  }
-                  thumbLabel="字体大小"
-                  value={composition.fontSize}
-                />
-                <Slider
-                  label="图标大小"
-                  max={256}
-                  min={16}
-                  onChange={(iconSize) => set({ iconSize })}
-                  thumbLabel="图标大小"
-                  value={composition.iconSize}
-                />
-                <Slider
-                  label="图标圆角"
-                  max={50}
-                  min={0}
-                  onChange={(iconRadius) => set({ iconRadius })}
-                  thumbLabel="图标圆角"
-                  value={composition.iconRadius}
-                />
-                <Slider
-                  label="间距"
-                  max={120}
-                  min={0}
-                  onChange={(spacing) => set({ spacing })}
-                  thumbLabel="间距"
-                  value={composition.spacing}
-                />
-                <Switch
-                  checked={composition.proportional}
-                  label="等比缩放"
-                  onChange={(event) => set({ proportional: event.currentTarget.checked })}
-                />
-
-                <Divider />
-                <Slider
-                  label="背景不透明度"
-                  max={100}
-                  min={0}
-                  onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
-                  thumbLabel="背景不透明度"
-                  value={Math.round(composition.backgroundOpacity * 100)}
-                />
-                <Slider
-                  disabled={composition.backgroundImage === null || composition.transparent}
-                  label="背景模糊"
-                  max={100}
-                  min={0}
-                  onChange={(backgroundBlur) => set({ backgroundBlur })}
-                  step={1}
-                  thumbLabel="背景模糊"
-                  value={composition.backgroundBlur}
-                />
-                <Slider
-                  disabled={composition.backgroundImage === null || composition.transparent}
-                  label="背景灰度"
-                  max={100}
-                  min={0}
-                  onChange={(backgroundGrayscale) => set({ backgroundGrayscale })}
-                  step={1}
-                  thumbLabel="背景灰度"
-                  value={composition.backgroundGrayscale}
-                />
-                <Switch
-                  checked={composition.colorSync}
-                  label="颜色同步"
-                  onChange={(event) => set({ colorSync: event.currentTarget.checked })}
-                />
-                <ColorInput
-                  format="hex"
-                  label="文字颜色"
-                  onChange={(textColor) => set({ textColor })}
-                  value={composition.textColor}
-                />
-                <ColorInput
-                  disabled={composition.colorSync}
-                  format="hex"
-                  label="图标颜色"
-                  onChange={(value) => set({ iconColor: value })}
-                  value={composition.iconColor}
-                />
-                <ColorInput
-                  format="hex"
-                  label="背景颜色"
-                  onChange={(bgColor) => set({ bgColor })}
-                  value={composition.bgColor}
-                />
-
-                <Divider />
-                <SegmentedControl
-                  data={SHADOW_SCOPES.map((scope) => ({
-                    label: SHADOW_LABELS[scope],
-                    value: scope,
-                  }))}
-                  onChange={(value) => {
-                    const scope = SHADOW_SCOPES.find((one) => one === value);
-                    if (scope !== undefined) set({ shadowScope: scope });
-                  }}
-                  value={composition.shadowScope}
-                />
-                <ColorInput
-                  format="hex"
-                  label="阴影颜色"
-                  onChange={(shadowColor) => set({ shadowColor })}
-                  value={composition.shadowColor}
-                />
-              </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
-
-          <Accordion.Item value="export">
-            <Accordion.Control>导出</Accordion.Control>
-            <Accordion.Panel>
-              <Flex gap="md" direction="column" align="stretch">
-                <TextInput
-                  label="文件名"
-                  onChange={(event) => set({ filename: event.currentTarget.value })}
-                  placeholder="默认按比例与文字生成"
-                  value={composition.filename}
-                />
-                <Switch
-                  checked={composition.transparent}
-                  label="背景透明（仅 PNG）"
-                  onChange={(event) => set({ transparent: event.currentTarget.checked })}
-                />
-                <SegmentedControl
-                  data={ratios.map((r) => ({ label: r.key, value: r.key }))}
-                  value={composition.ratioId}
-                  onChange={(ratioId) => set({ ratioId })}
-                />
-                <Text c="dimmed" size="sm">
-                  导出缩放
+              <Divider />
+              <FileInput
+                accept=".woff2,.woff,.ttf,.otf"
+                label="上传字体"
+                onChange={onUploadFont}
+                placeholder="选择字体文件"
+              />
+              {fontRefusal !== null && (
+                <Text c="red" size="sm">
+                  {fontRefusal}
                 </Text>
-                <SegmentedControl
-                  data={EXPORT_SCALES.map((scale) => ({
-                    label: `${scale}x`,
-                    value: String(scale),
-                  }))}
-                  value={String(composition.exportScale)}
-                  onChange={(value) => {
-                    const scale = EXPORT_SCALES.find((one) => String(one) === value);
-                    if (scale !== undefined) set({ exportScale: scale });
-                  }}
-                />
-                <Button className="touch-target" loading={exporting} onClick={exportCover}>
-                  下载 {composition.ratioId}
-                  {composition.exportScale > 1 ? ` @${composition.exportScale}x` : ""}
-                </Button>
-              </Flex>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
+              )}
+              <Button
+                className="touch-target"
+                color="gray"
+                justify="flex-start"
+                onClick={fetchSystemFonts}
+                variant="subtle"
+              >
+                获取系统字体
+              </Button>
+              {sysHint !== null && (
+                <Text c="dimmed" size="sm">
+                  {sysHint}
+                </Text>
+              )}
+              <Select
+                searchable
+                data={sysFonts}
+                disabled={sysFonts.length === 0}
+                filter={(input) =>
+                  input.options.filter(
+                    (option) => "value" in option && matchesFont(option.value, input.search),
+                  )
+                }
+                label="系统字体"
+                maxDropdownHeight={220}
+                nothingFoundMessage="没有匹配的字体"
+                onChange={(family) => {
+                  if (family !== null) set({ fontFamily: family });
+                }}
+                placeholder={sysFonts.length === 0 ? "先获取系统字体" : "搜索字体"}
+                value={
+                  composition.fontFamily !== null && sysFonts.includes(composition.fontFamily)
+                    ? composition.fontFamily
+                    : null
+                }
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="style">
+            <Stack gap="md">
+              <Slider
+                label="字体大小"
+                max={256}
+                min={16}
+                onChange={(fontSize) =>
+                  set(
+                    composition.proportional
+                      ? { fontSize, ...proportionalSizes(fontSize) }
+                      : { fontSize },
+                  )
+                }
+                thumbLabel="字体大小"
+                value={composition.fontSize}
+              />
+              <Slider
+                label="图标大小"
+                max={256}
+                min={16}
+                onChange={(iconSize) => set({ iconSize })}
+                thumbLabel="图标大小"
+                value={composition.iconSize}
+              />
+              <Slider
+                label="图标圆角"
+                max={50}
+                min={0}
+                onChange={(iconRadius) => set({ iconRadius })}
+                thumbLabel="图标圆角"
+                value={composition.iconRadius}
+              />
+              <Slider
+                label="间距"
+                max={120}
+                min={0}
+                onChange={(spacing) => set({ spacing })}
+                thumbLabel="间距"
+                value={composition.spacing}
+              />
+              <Switch
+                checked={composition.proportional}
+                label="等比缩放"
+                onChange={(event) => set({ proportional: event.currentTarget.checked })}
+              />
+
+              <Divider />
+              <Slider
+                label="背景不透明度"
+                max={100}
+                min={0}
+                onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
+                thumbLabel="背景不透明度"
+                value={Math.round(composition.backgroundOpacity * 100)}
+              />
+              <Slider
+                disabled={composition.backgroundImage === null || composition.transparent}
+                label="背景模糊"
+                max={100}
+                min={0}
+                onChange={(backgroundBlur) => set({ backgroundBlur })}
+                step={1}
+                thumbLabel="背景模糊"
+                value={composition.backgroundBlur}
+              />
+              <Slider
+                disabled={composition.backgroundImage === null || composition.transparent}
+                label="背景灰度"
+                max={100}
+                min={0}
+                onChange={(backgroundGrayscale) => set({ backgroundGrayscale })}
+                step={1}
+                thumbLabel="背景灰度"
+                value={composition.backgroundGrayscale}
+              />
+              <Switch
+                checked={composition.colorSync}
+                label="颜色同步"
+                onChange={(event) => set({ colorSync: event.currentTarget.checked })}
+              />
+              <ColorInput
+                format="hex"
+                label="文字颜色"
+                onChange={(textColor) => set({ textColor })}
+                value={composition.textColor}
+              />
+              <ColorInput
+                disabled={composition.colorSync}
+                format="hex"
+                label="图标颜色"
+                onChange={(value) => set({ iconColor: value })}
+                value={composition.iconColor}
+              />
+              <ColorInput
+                format="hex"
+                label="背景颜色"
+                onChange={(bgColor) => set({ bgColor })}
+                value={composition.bgColor}
+              />
+
+              <Divider />
+              <SegmentedControl
+                data={SHADOW_SCOPES.map((scope) => ({
+                  label: SHADOW_LABELS[scope],
+                  value: scope,
+                }))}
+                onChange={(value) => {
+                  const scope = SHADOW_SCOPES.find((one) => one === value);
+                  if (scope !== undefined) set({ shadowScope: scope });
+                }}
+                value={composition.shadowScope}
+              />
+              <ColorInput
+                format="hex"
+                label="阴影颜色"
+                onChange={(shadowColor) => set({ shadowColor })}
+                value={composition.shadowColor}
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="export">
+            <Flex gap="md" direction="column" align="stretch">
+              <TextInput
+                label="文件名"
+                onChange={(event) => set({ filename: event.currentTarget.value })}
+                placeholder="默认按比例与文字生成"
+                value={composition.filename}
+              />
+              <Switch
+                checked={composition.transparent}
+                label="背景透明（仅 PNG）"
+                onChange={(event) => set({ transparent: event.currentTarget.checked })}
+              />
+              <SegmentedControl
+                data={ratios.map((r) => ({ label: r.key, value: r.key }))}
+                value={composition.ratioId}
+                onChange={(ratioId) => set({ ratioId })}
+              />
+              <Text c="dimmed" size="sm">
+                导出缩放
+              </Text>
+              <SegmentedControl
+                data={EXPORT_SCALES.map((scale) => ({
+                  label: `${scale}x`,
+                  value: String(scale),
+                }))}
+                value={String(composition.exportScale)}
+                onChange={(value) => {
+                  const scale = EXPORT_SCALES.find((one) => String(one) === value);
+                  if (scale !== undefined) set({ exportScale: scale });
+                }}
+              />
+              <Button className="touch-target" loading={exporting} onClick={exportCover}>
+                下载 {composition.ratioId}
+                {composition.exportScale > 1 ? ` @${composition.exportScale}x` : ""}
+              </Button>
+            </Flex>
+          </Tabs.Panel>
+        </Tabs>
       </Box>
 
-      {/* The canvas column: pinned on a narrow screen so the composition stays
-          in view while the configuration column scrolls beneath it. */}
-      <Box className="cover-canvas-column order-1 min-w-0 flex-1 md:order-2">
-        <div className="sticky top-4">
-          {/* The preview: the full-size composition, scaled to fit the pane. The
-              badge and the pixel caption sit here, not in the export. */}
-          <Box
-            ref={wrapperRef}
-            className="relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
-            style={{ aspectRatio: `${ratio.width} / ${ratio.height}` }}
+      {/* The canvas column, and it is the sticky element itself rather than the pane
+          inside it. A sticky box can only travel inside its own containing block: the
+          inner wrapper's parent was the column, which is exactly as tall as the pane,
+          so it never moved at all — the preview scrolled away like a static box
+          (measured 2026-09-30, recorded in `rules.md`). On the column the containing
+          block is the Flex spanning both columns, so the preview really does stay in
+          view while the settings scroll beneath it — hence the z-index, since it
+          overlays the column that follows it on a narrow screen. */}
+      <Box className="cover-canvas-column sticky top-4 z-[2] order-1 min-w-0 flex-1 md:order-2">
+        {/* The preview: the full-size composition, scaled to fit the pane. The
+            badge and the pixel caption sit here, not in the export. */}
+        <Box
+          ref={wrapperRef}
+          className="cover-preview-pane relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
+          style={{ "--cover-aspect": aspect, aspectRatio: aspect } as CSSProperties}
+        >
+          {/* The composition is a fixed 1280×720 box, so it sits out of the
+              layout flow: a `w-full` pane whose child is 1280px wide has an
+              intrinsic width of 1280, and any slip in the breakpoints above it
+              used to let that inflate the column and draw the preview at 1:1
+              (#80). The pane's height comes from its own aspect ratio. */}
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: ratio.width,
+              height: ratio.height,
+              transform: `scale(${fit})`,
+              transformOrigin: "top left",
+            }}
           >
-            {/* The composition is a fixed 1280×720 box, so it sits out of the
-                layout flow: a `w-full` pane whose child is 1280px wide has an
-                intrinsic width of 1280, and any slip in the breakpoints above it
-                used to let that inflate the column and draw the preview at 1:1
-                (#80). The pane's height comes from its own aspect ratio. */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: ratio.width,
-                height: ratio.height,
-                transform: `scale(${fit})`,
-                transformOrigin: "top left",
-              }}
-            >
-              <CompositionCanvas composition={composition} iconSet={iconSet} />
-            </div>
-            <span
-              className="absolute top-2 left-2 text-sm text-[var(--mantine-color-dimmed)]"
-              aria-hidden
-            >
-              {composition.ratioId} · {pixelCaption(composition.ratioId)}
-            </span>
-          </Box>
-        </div>
+            <CompositionCanvas composition={composition} iconSet={iconSet} />
+          </div>
+          <span
+            className="absolute top-2 left-2 text-sm text-[var(--mantine-color-dimmed)]"
+            aria-hidden
+          >
+            {composition.ratioId} · {pixelCaption(composition.ratioId)}
+          </span>
+        </Box>
       </Box>
 
       {/* The export instance: the same composition at full size, off screen. */}

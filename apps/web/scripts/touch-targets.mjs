@@ -4,8 +4,8 @@
  * in a real browser.
  *
  * `apps/web/docs/design/components.md` wants a 44px touch target, and the pre-flight
- * checklist claims no clickable control is under it at 360 / 390 / 768 / 1024.
- * That is a claim about the *rendered* page, so nothing short of a browser can
+ * checklist claims no clickable control is under it at 360 / 375×667 / 390 / 768 /
+ * 1024. That is a claim about the *rendered* page, so nothing short of a browser can
  * make it: `.touch-target` declares 44x44 on a pseudo-element, and a declaration
  * is not a hit area. On a Mantine `Button` the declaration was there and the hit
  * area was the button's own box, because the root clipped the overlay with
@@ -14,9 +14,12 @@
  * The method, so that the numbers mean something: walk out from the control's
  * centre one pixel at a time, asking `elementFromPoint` at each step, and stop
  * when either side stops answering. A 44px overlay reads 43, because 44 whole
- * pixels hold 43 interior sample points. Requiring *both* sides is deliberate: it
- * also catches a target that grew into a neighbour, which is the other way this
- * fails.
+ * pixels hold 43 interior sample points. The centre it walks out from is the real
+ * one rather than a rounded one, so a control sitting at a fractional offset is
+ * not reported smaller than it is — the walk requires both sides, which turns half
+ * a pixel of bias into two or three pixels of apparent loss (#91). Requiring *both*
+ * sides is deliberate: it also catches a target that grew into a neighbour, which
+ * is the other way this fails.
  *
  * What it deliberately does not cover: anything that is not hit-testing — the
  * keyboard, focus order, the drawing. Those keep the one-off scripts and
@@ -25,12 +28,14 @@
  * remove cross, and the cover generator's 清除) get one through CDP, the
  * technique `apps/web/docs/design/log.md` already records.
  *
- * It grew two more claims, both about the rendered page and neither about a hit
+ * It grew more claims, all about the rendered page and none of them about a hit
  * area: every page names the controls it has to carry (#81 — a floor on the count
- * cannot tell 清除 from the ~50 icon rows that arrive on their own), and the cover
+ * cannot tell 清除 from the ~50 icon rows that arrive on their own), the cover
  * generator's canvas column has to sit on the side of the breakpoint its layout
  * rule names (#80 — an `order` swap moves what a visitor sees without moving the
- * DOM, resizing anything or overflowing).
+ * DOM, resizing anything or overflowing), and that page's preview has to stay
+ * within the share of a short viewport its rule allows (#90 — a cap that is
+ * silently removed would otherwise be invisible to every check here).
  *
  * Since #84 each width is measured on the desktop pointer first, and the narrow
  * widths again as a phone (`hover: none`): the site keeps 窄屏 and 触屏 apart, the
@@ -52,16 +57,34 @@
  * item 3, 2026-09-30).
  *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
- * under 43, when a control the page says it must carry is missing, when the cover
- * generator's columns are on the wrong side of the breakpoint, or on horizontal
- * overflow, so it gates a shell chain.
+ * under 43, when a control the page says it must carry is missing, when a control
+ * another section owns is on the page while a section is open, when the cover
+ * generator's two columns are on the wrong side of the breakpoint, when its preview
+ * is taller than the share its rule allows or no longer fills its column, when its
+ * tab row has scrolled away, or on horizontal overflow, so it gates a shell chain.
  */
 import { fileURLToPath } from "node:url";
 
 import { connect } from "./cdp.mjs";
 
-/** The four widths the pre-flight checklist names. */
-const WIDTHS = [360, 390, 768, 1024];
+/**
+ * The viewports this probe measures: the four widths the pre-flight checklist
+ * names, plus the phone the owner actually holds — each with the height it is
+ * measured at (#89).
+ *
+ * 900 was the only height for as long as this script existed, because only the
+ * width was ever under test. A symptom that a *short* screen produces and a tall
+ * one hides — the cover generator's pinned preview eating half the viewport — is
+ * invisible at 900, so the height became part of the case. 375×667 is the iPhone
+ * SE: a width no check covered and a height no check had ever used.
+ */
+const CASES = [
+  { height: 900, width: 360 },
+  { height: 667, width: 375 },
+  { height: 900, width: 390 },
+  { height: 900, width: 768 },
+  { height: 900, width: 1024 },
+];
 
 /**
  * The site's own `sm`, in pixels (Mantine's `sm` is 48em, Tailwind's `md` is
@@ -102,11 +125,17 @@ const POINTERS = [
  */
 const SCHEMES = ["light", "dark"];
 
-/** Tall enough for the tool page to lay out; only the width is under test. */
-const HEIGHT = 900;
-
 /** The probe's resolution: a 44px span reads 43. */
 const MIN = 43;
+
+/**
+ * The cover generator's narrow-screen preview cap, as a share of the viewport
+ * height (#90). Repeated here rather than read back out of the stylesheet on
+ * purpose: a guard that follows the implementation it guards cannot fail. The rule
+ * and its reasoning are the Tool's own (`src/tools/cover-generator/rules.md`); the
+ * number in the stylesheet is `.cover-preview-pane`.
+ */
+const PREVIEW_MAX_SHARE = 0.45;
 
 /**
  * The three pages, and the controls each one has to carry **by name**.
@@ -120,7 +149,10 @@ const MIN = 43;
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; `layout` asks for the cover generator's two-column
- * check (see `LAYOUT`).
+ * check (see `LAYOUT`); `sections` says the page's controls live in an editor that
+ * shows one panel at a time, so each section names its own and each is visited
+ * (#91). The page-level names still have to be there for every section — the shell,
+ * and the tab row itself, which is the new must-carry control.
  */
 const PAGES = [
   { controls: ["切换到"], name: "home", path: "/" },
@@ -131,11 +163,19 @@ const PAGES = [
     path: "/tools/image-converter",
   },
   {
-    controls: ["切换到", "返回首页", "获取系统字体", "下载 16:9", "清除"],
+    controls: ["切换到", "返回首页", "内容", "样式", "导出"],
     fileInput: ".mantine-Dropzone-root input[type=file]",
     layout: true,
     name: "cover",
     path: "/tools/cover-generator",
+    sections: [
+      { controls: ["获取系统字体", "清除"], tab: "内容" },
+      // The 样式 panel holds no `.touch-target` control — its controls are sliders
+      // and switches — but it is still visited: the point of naming it is that
+      // nothing from the other sections may be on the page while it is open.
+      { controls: [], tab: "样式" },
+      { controls: ["下载 16:9"], tab: "导出" },
+    ],
   },
 ];
 
@@ -166,12 +206,21 @@ const MEASURE = `(() => {
     return Boolean(hit) && (hit === el || el.contains(hit));
   };
   const span = (el, cx, cy, axis) => {
+    // The centre arrives fractional and only the probe points are rounded. Rounding
+    // the centre first biases every step by up to half a pixel, and a walk that
+    // requires both sides turns that into a hit area two or three pixels smaller
+    // than the one that is really there: the cover generator's tab row sits at a
+    // fractional top (an aspect-ratio pane above it decides that height), and 44px
+    // tabs read 41 at 360 while reading 43 everywhere else (#91). A box on whole
+    // pixels measures exactly as it did before.
+    const px = Math.round(cx);
+    const py = Math.round(cy);
     let offset = 0;
     while (
       offset < 120 &&
       (axis === 'x'
-        ? hits(el, cx - offset - 1, cy) && hits(el, cx + offset + 1, cy)
-        : hits(el, cx, cy - offset - 1) && hits(el, cx, cy + offset + 1))
+        ? hits(el, Math.round(cx - offset - 1), py) && hits(el, Math.round(cx + offset + 1), py)
+        : hits(el, px, Math.round(cy - offset - 1)) && hits(el, px, Math.round(cy + offset + 1)))
     ) {
       offset += 1;
     }
@@ -179,9 +228,17 @@ const MEASURE = `(() => {
   };
   const controls = [...document.querySelectorAll('.touch-target')].map((el) => {
     el.scrollIntoView({ block: 'center' });
+    // Land the control on whole pixels before measuring it. Where a row's top falls
+    // is a fraction — an aspect-ratio pane above it decides that height, and the
+    // scroll offset adds its own — while the walk answers in whole pixels. Without
+    // this, the same 44px control measures differently from one visit to the next:
+    // the cover generator's tab row read 43 on one pass and 41 on the next, with
+    // nothing on the page different but the scroll position (#91).
+    const before = el.getBoundingClientRect();
+    window.scrollBy(0, before.top - Math.round(before.top));
     const rect = el.getBoundingClientRect();
-    const cx = Math.round(rect.left + rect.width / 2);
-    const cy = Math.round(rect.top + rect.height / 2);
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
     const after = getComputedStyle(el, '::after');
     const name = label(el);
     return {
@@ -200,13 +257,18 @@ const MEASURE = `(() => {
 })()`;
 
 /**
- * The cover generator's two columns, and which side of the breakpoint it is on.
+ * The cover generator's two columns, which side of the breakpoint it is on, and
+ * the preview pane's box.
  *
  * A swap written with `order` moves what a visitor sees without moving the DOM,
  * resizing anything or overflowing: on 2026-09-30 the editor column was first and
  * 320px wide from 768 to 991 with the preview pushed below all of it, and every
  * measurement this script already made stayed green (#80). So the boxes are read
  * directly — where the canvas is relative to the editor, and how wide each one is.
+ *
+ * The pane is read in the same pass because the cap (#90) is a claim about its box
+ * rather than about a hit area, and because the pane's own width is what its height
+ * comes from.
  */
 const LAYOUT = `(() => {
   const editor = document.querySelector('.cover-editor-column');
@@ -220,10 +282,57 @@ const LAYOUT = `(() => {
     const rect = el.getBoundingClientRect();
     return { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width) };
   };
+  const pane = document.querySelector('.cover-preview-pane');
+  const paneBox =
+    pane === null
+      ? null
+      : { height: Math.round(pane.getBoundingClientRect().height), width: Math.round(pane.getBoundingClientRect().width) };
   return JSON.stringify({
     canvas: box(canvas),
     direction: getComputedStyle(flex).flexDirection,
     editor: box(editor),
+    preview: paneBox,
+  });
+})()`;
+
+/**
+ * The cover generator's tab row and preview, read at two scroll positions.
+ *
+ * The row pins below the preview (#92), and "pinned" is a claim about the rendered
+ * page rather than about a rule in a stylesheet. Halfway down the page is where that
+ * claim is actually testable: the preview is on screen there if it is pinned at all,
+ * and it is where a row offset that ignored the preview would overlap it. Reading
+ * only at the end of the page proves nothing about the overlap — by then the
+ * preview is far above the row whatever the offset is.
+ */
+const STICKY = `(() => {
+  const list = document.querySelector('.cover-tabs .mantine-Tabs-list');
+  if (list === null) return JSON.stringify({ missing: true });
+  const pane = document.querySelector('.cover-preview-pane');
+  const box = (el) => {
+    const rect = el.getBoundingClientRect();
+    return { bottom: Math.round(rect.bottom), top: Math.round(rect.top) };
+  };
+  const read = () => ({
+    pane: pane === null ? null : box(pane),
+    row: box(list),
+    scrollY: Math.round(window.scrollY),
+    viewport: window.innerHeight,
+  });
+  // Where the preview sits in the document, before any scrolling, so the caller can
+  // tell a page long enough for the preview to reach its pinning offset from one too
+  // short to get there.
+  window.scrollTo(0, 0);
+  const paneStaticTop = pane === null ? null : Math.round(pane.getBoundingClientRect().top);
+  const reach = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo(0, Math.round(reach / 2));
+  const middle = read();
+  window.scrollTo(0, document.documentElement.scrollHeight);
+  return JSON.stringify({
+    end: read(),
+    middle,
+    paneStaticTop,
+    scrollable: reach > 40,
   });
 })()`;
 
@@ -303,20 +412,88 @@ async function waitForControls(client, names) {
   }
 }
 
+/**
+ * Click the element whose own text is exactly `text`, among those matching
+ * `selector`, and say whether one was there.
+ *
+ * One expression, because the three callers below all want the same thing from
+ * Mantine controls whose visible text is the whole of what names them, and the
+ * find-and-click was written out once per caller before this.
+ */
+async function clickByText(client, selector, text) {
+  return client.evaluate(`(() => {
+    const target = [...document.querySelectorAll(${JSON.stringify(selector)})].find(
+      (el) => el.textContent.trim() === ${JSON.stringify(text)},
+    );
+    if (!target) return false;
+    target.click();
+    return true;
+  })()`);
+}
+
+/**
+ * Open one of an editor's sections, and wait for the page to say it did.
+ *
+ * The wait is on `aria-selected`, which is the transition the tab row makes — a
+ * section with no control of its own (样式) would otherwise have nothing to wait
+ * for, and the measurement after it would report a panel nobody opened.
+ */
+async function selectTab(client, name) {
+  if ((await clickByText(client, "[role=tab]", name)) !== true) {
+    throw new Error(`no tab labelled ${name} on the page`);
+  }
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const selected = await client.evaluate(`(() => {
+      const tab = [...document.querySelectorAll('[role=tab]')].find(
+        (el) => el.textContent.trim() === ${JSON.stringify(name)},
+      );
+      return tab !== undefined && tab.getAttribute('aria-selected') === 'true';
+    })()`);
+    if (selected === true) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`the ${name} tab never came to be selected`);
+}
+
+/**
+ * Pick a ratio preset, and wait for the page to say it did.
+ *
+ * The download button is named after the ratio ("下载 16:9"), so "1:1 has arrived"
+ * is a state transition rather than a sleep — and, unlike waiting for something to
+ * disappear, it cannot be true before React has rendered it. This throws instead of
+ * returning quietly: a ratio that never changed would leave the cap below measuring
+ * the one ratio that does not bind it, which reads as a pass.
+ */
+async function selectRatio(client, ratioKey) {
+  if ((await clickByText(client, "label", ratioKey)) !== true) {
+    throw new Error(`no ratio preset labelled ${ratioKey} on the page`);
+  }
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const labels = JSON.parse(
+      await client.evaluate(`JSON.stringify(
+        [...document.querySelectorAll('.touch-target')].map(${LABEL}),
+      )`),
+    );
+    if (labels.some((label) => label.includes(`下载 ${ratioKey}`))) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`the download button never came to say 下载 ${ratioKey}`);
+}
+
 async function probe(baseUrl) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
   let failures = 0;
 
   try {
-    for (const width of WIDTHS) {
+    for (const { height, width } of CASES) {
       for (const pointer of POINTERS) {
         if (pointer.narrowOnly === true && width >= NARROW_BELOW) continue;
 
         for (const scheme of SCHEMES) {
           await client.send("Emulation.setDeviceMetricsOverride", {
             width,
-            height: HEIGHT,
+            height,
             deviceScaleFactor: 1,
             mobile: width < NARROW_BELOW,
           });
@@ -329,15 +506,60 @@ async function probe(baseUrl) {
             if (page.fileInput !== undefined) {
               await addFile(client, page.fileInput);
             }
-            await waitForControls(client, page.controls);
 
-            const measured = JSON.parse(await client.evaluate(MEASURE));
-            report(`\n${width}px ${scheme}${pointer.label} — ${page.path}`);
+            // A page with sections is visited one section at a time: the editor's
+            // panels are unmounted when they are not picked (#91), so a flat list of
+            // names would be a list of controls that are never on the page together,
+            // and the hit areas of the sections nobody opened would never be
+            // measured. A page without sections is the single pass it always was.
+            const sections = page.sections ?? [{ controls: [], tab: null }];
 
-            for (const name of page.controls) {
-              const found = measured.controls.some((control) => control.label.includes(name));
-              if (!found) failures++;
-              report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
+            for (const [index, section] of sections.entries()) {
+              if (section.tab !== null) await selectTab(client, section.tab);
+              await waitForControls(client, [...page.controls, ...section.controls]);
+
+              const measured = JSON.parse(await client.evaluate(MEASURE));
+              if (index === 0) {
+                report(`\n${width}×${height} ${scheme}${pointer.label} — ${page.path}`);
+              }
+              if (section.tab !== null) report(`  [${section.tab}]`);
+
+              for (const name of [...page.controls, ...section.controls]) {
+                const found = measured.controls.some((control) => control.label.includes(name));
+                if (!found) failures++;
+                report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
+              }
+
+              // The other sections' controls have to be gone, not merely hidden: a
+              // section left on the page would let the row look switched while the
+              // old panel is still what a pointer reaches.
+              if (page.sections !== undefined) {
+                const leaked = page.sections
+                  .filter((other) => other.tab !== section.tab)
+                  .flatMap((other) => other.controls)
+                  .filter((name) =>
+                    measured.controls.some((control) => control.label.includes(name)),
+                  );
+                if (leaked.length > 0) failures++;
+                report(
+                  `  ${leaked.length === 0 ? "PASS" : "FAIL"}  nothing from the other sections is on the page${
+                    leaked.length === 0 ? "" : ` — found ${leaked.join(", ")}`
+                  }`,
+                );
+              }
+
+              if (measured.overflow > 0) {
+                failures++;
+                report(`  FAIL  horizontal overflow: ${measured.overflow}px`);
+              }
+
+              for (const control of measured.controls) {
+                const ok = control.x >= MIN && control.y >= MIN;
+                if (!ok) failures++;
+                report(
+                  `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
+                );
+              }
             }
 
             if (page.layout === true) {
@@ -361,19 +583,90 @@ async function probe(baseUrl) {
                   } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}; the page's own direction is ${layout.direction}`,
                 );
               }
-            }
 
-            if (measured.overflow > 0) {
-              failures++;
-              report(`  FAIL  horizontal overflow: ${measured.overflow}px`);
-            }
+              // The default ratio's pane as well, because the cap is narrow-only: on a
+              // wide screen the pane has to be exactly its column at 16:9 too, and this
+              // is the only reading taken before the ratio changes (the cap's own
+              // reading is at 1:1, the ratio that can bind it).
+              if (layout.preview !== null) {
+                const share = Math.round(PREVIEW_MAX_SHARE * 100);
+                const ceiling = Math.round(height * PREVIEW_MAX_SHARE);
+                const ok =
+                  width < NARROW_BELOW
+                    ? layout.preview.height <= ceiling + 1
+                    : Math.abs(layout.preview.width - layout.canvas.width) <= 1;
+                if (!ok) failures++;
+                report(
+                  `  ${ok ? "PASS" : "FAIL"}  ${
+                    width < NARROW_BELOW
+                      ? `at the default ratio the preview is no taller than ${share}% of the viewport`
+                      : "at the default ratio the preview is exactly its column"
+                  } — pane ${layout.preview.width}x${layout.preview.height}, column ${layout.canvas.width}px, ceiling ${ceiling}px of ${height}px`,
+                );
+              }
 
-            for (const control of measured.controls) {
-              const ok = control.x >= MIN && control.y >= MIN;
-              if (!ok) failures++;
-              report(
-                `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
-              );
+              // Then the cap, measured on the ratio that can bind it: at the default
+              // 16:9 a narrow pane is 211px of a 667px screen and sits well inside
+              // the cap, so a guard that only looked at the default would pass
+              // without ever exercising the rule. 1:1 is the ratio that needs it —
+              // and the ratio control lives in 导出, which the section loop above
+              // has just left open.
+              await selectRatio(client, "1:1");
+              const capped = JSON.parse(await client.evaluate(LAYOUT));
+              if (capped.missing === true || capped.preview === null) {
+                failures++;
+                report("  FAIL  the cover generator's preview pane is not on the page");
+              } else {
+                const narrow = width < NARROW_BELOW;
+                const share = Math.round(PREVIEW_MAX_SHARE * 100);
+                const ceiling = Math.round(height * PREVIEW_MAX_SHARE);
+                const ok = narrow
+                  ? capped.preview.height <= ceiling + 1
+                  : Math.abs(capped.preview.width - capped.canvas.width) <= 1;
+                if (!ok) failures++;
+                report(
+                  `  ${ok ? "PASS" : "FAIL"}  ${
+                    narrow
+                      ? `on 1:1 the preview is no taller than ${share}% of the viewport`
+                      : "on 1:1 the preview still fills its column"
+                  } — pane ${capped.preview.width}x${capped.preview.height}, ceiling ${ceiling}px of ${height}px, column ${capped.canvas.width}px`,
+                );
+              }
+
+              // And the row keeps its place: read halfway down the page, where the
+              // claim is testable, and again at the end, where the row must not have
+              // gone anywhere. The long panel is the one to read from — it is the panel
+              // a visitor scrolls through, and it is the only one long enough for the
+              // preview to reach the offset it pins at.
+              await selectTab(client, "内容");
+              const sticky = JSON.parse(await client.evaluate(STICKY));
+              if (sticky.missing === true) {
+                failures++;
+                report("  FAIL  the cover generator's tab row is not on the page");
+              } else {
+                const narrow = width < NARROW_BELOW;
+                const endOk =
+                  sticky.end.row.top >= 0 && sticky.end.row.bottom <= sticky.end.viewport;
+                const pane = sticky.middle.pane;
+                // The preview has to be pinned once the scroll has carried its static
+                // position above the offset it pins at — that is the box the visitor is
+                // editing, and the row's own offset below the breakpoint is computed
+                // from its height. A page too short to get there proves the clearance
+                // instead, not the pinning.
+                const shouldPin =
+                  pane !== null &&
+                  sticky.paneStaticTop !== null &&
+                  sticky.paneStaticTop - sticky.middle.scrollY <= 18;
+                const pinned = !shouldPin || Math.abs(pane.top - 16) <= 2;
+                const clears = !narrow || pane === null || sticky.middle.row.top >= pane.bottom - 1;
+                const midOk =
+                  !sticky.scrollable || (pinned && clears && sticky.middle.row.top >= 0);
+                const ok = endOk && midOk;
+                if (!ok) failures++;
+                report(
+                  `  ${ok ? "PASS" : "FAIL"}  the row keeps its place while the page scrolls — halfway: row ${sticky.middle.row.top}..${sticky.middle.row.bottom}, preview ${pane === null ? "none" : `${pane.top}..${pane.bottom}`} of a ${sticky.middle.viewport}px viewport at scroll ${sticky.middle.scrollY}${shouldPin ? " (pinned is required here)" : " (too short to reach the pin)"}; at the end: row ${sticky.end.row.top}..${sticky.end.row.bottom}${sticky.scrollable ? "" : " (the page does not scroll)"}`,
+                );
+              }
             }
           }
         }
