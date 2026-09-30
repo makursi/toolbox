@@ -64,14 +64,20 @@ export function CoverGenerator() {
 
   return (
     <Flex
-      align={{ base: "stretch", md: "flex-start" }}
-      direction={{ base: "column", md: "row" }}
+      align={{ base: "stretch", sm: "flex-start" }}
+      direction={{ base: "column", sm: "row" }}
       gap="lg"
     >
       {/* The configuration column. `order` swaps it under the canvas on a narrow
           screen without a second tree; the accordion is the same component at
-          every width. */}
-      <Box className="order-2 w-full md:order-1 md:w-80">
+          every width.
+
+          The swap is the one property Mantine has no style prop for, so it stays
+          a Tailwind class: Tailwind's `md` is 48rem and Mantine's `sm` is 48em,
+          which is the same 768px, so both sides of the layout flip together. A
+          Tailwind `sm:` would have flipped at 640 and split them, which is the
+          band this tool shipped broken (#80). */}
+      <Box className="cover-editor-column order-2 md:order-1" w={{ base: "100%", sm: 320 }}>
         <Accordion multiple defaultValue={["content", "style", "export"]}>
           <Accordion.Item value="content">
             <Accordion.Control>内容</Accordion.Control>
@@ -413,7 +419,7 @@ export function CoverGenerator() {
 
       {/* The canvas column: pinned on a narrow screen so the composition stays
           in view while the configuration column scrolls beneath it. */}
-      <Box className="order-1 min-w-0 flex-1 md:order-2">
+      <Box className="cover-canvas-column order-1 min-w-0 flex-1 md:order-2">
         <div className="sticky top-4">
           {/* The preview: the full-size composition, scaled to fit the pane. The
               badge and the pixel caption sit here, not in the export. */}
