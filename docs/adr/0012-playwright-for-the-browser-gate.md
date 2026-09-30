@@ -24,3 +24,15 @@ A claim about how something is drawn belongs in `scripts/`; a claim about what i
 - **`chrome-remote-interface`, for the transport alone**: rejected — it replaces the 67-line `cdp.mjs` and nothing else: no auto-waiting, no retries, no trace, no runner, and no CI.
 - **The Playwright CLI plus its skill, installed globally and no dependency in the repo**: genuinely cheaper (nothing in the repo at all, and it would help in every other repo in the workspace), but it makes an agent better at writing a throwaway script; it does not make a check exist on every pull request. Worth adding later for the throwaway half — not as a substitute for this.
 - **Porting the instruments into Playwright as well**: rejected — the measurement code would move unchanged, and the fingerprint's "before" is a saved file; turning it into a committed fixture would quietly redefine "nothing moved" as "nothing moved since that file".
+
+## Update — 2026-09-30: the threshold instrument moves into CI
+
+The seam above stands, and one of the two instruments has crossed the "runs locally" half of it. `touch-targets.mjs` was found red on the cover generator's page since #54 — 406 failures: 938px of horizontal overflow at 360px, and every icon result row declaring a 44px target with a 1px hit area. Nothing had said so, because nothing ran it, and the five days are what the arrangement above costs: **a threshold nobody runs is not a check.**
+
+What moved is only who hands it a browser and a server:
+
+- **The script is unchanged.** Still `node:` plus CDP, still `elementFromPoint` walked out from each control's centre, still numbers printed and exit code 1 under 43. It measures; it asserts nothing about behaviour, and it is still not a test case.
+- **CI gains one step** (`Hit areas` in `.github/workflows/ci.yml`, after the gate, on the build the gate already drove). It starts `next start` and launches the Chrome for Testing that `@playwright/test` pins, so the two tiers keep reading the same engine major in the same `--headless=new`.
+- **`ui-fingerprint.mjs` does not move, and cannot.** Its "before" is a file a person saved on the same machine; CI has nothing to compare against, and committing a baseline would redefine "nothing moved" as "nothing moved since that file" — the option rejected below.
+
+The rejected option below ("let CI launch Chrome itself") is not this one: that was about not having a gate at all and having CI improvise one around throwaway scripts. Here the instrument already existed and already printed numbers; CI only supplies what a person used to supply by hand.

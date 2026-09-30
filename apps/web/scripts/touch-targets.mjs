@@ -32,6 +32,11 @@
  *   chrome --headless=new --remote-debugging-port=9333 --user-data-dir=<tmp dir>
  *   pnpm --filter @toolbox/web touch-targets [baseUrl]
  *
+ * CI does that launching for you: the `Hit areas` step in `.github/workflows/ci.yml`
+ * starts the server and the Chrome `@playwright/test` pins, on the build the gate
+ * just drove — a threshold nobody runs is not a check (`apps/web/docs/design/log.md`
+ * item 3, 2026-09-30).
+ *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
  * under 43, when a control the page should carry is missing, or on horizontal
  * overflow, so it gates a shell chain.
