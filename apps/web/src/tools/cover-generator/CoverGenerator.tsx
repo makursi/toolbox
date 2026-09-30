@@ -63,7 +63,11 @@ export function CoverGenerator() {
   }
 
   return (
-    <Flex className="items-start" direction={{ base: "column", md: "row" }} gap="lg">
+    <Flex
+      align={{ base: "stretch", md: "flex-start" }}
+      direction={{ base: "column", md: "row" }}
+      gap="lg"
+    >
       {/* The configuration column. `order` swaps it under the canvas on a narrow
           screen without a second tree; the accordion is the same component at
           every width. */}
@@ -94,6 +98,7 @@ export function CoverGenerator() {
                   min={100}
                   max={900}
                   step={100}
+                  thumbLabel="字重"
                   value={composition.weight}
                   onChange={(weight) => set({ weight })}
                 />
@@ -129,8 +134,9 @@ export function CoverGenerator() {
                         composition.icon?.source === "lucide" && composition.icon.name === name;
                       return (
                         <Button
-                          className="touch-target"
+                          className="touch-target shrink-0"
                           color="gray"
+                          h={44}
                           justify="flex-start"
                           key={name}
                           leftSection={
@@ -252,6 +258,7 @@ export function CoverGenerator() {
                         : { fontSize },
                     )
                   }
+                  thumbLabel="字体大小"
                   value={composition.fontSize}
                 />
                 <Slider
@@ -259,6 +266,7 @@ export function CoverGenerator() {
                   max={256}
                   min={16}
                   onChange={(iconSize) => set({ iconSize })}
+                  thumbLabel="图标大小"
                   value={composition.iconSize}
                 />
                 <Slider
@@ -266,6 +274,7 @@ export function CoverGenerator() {
                   max={50}
                   min={0}
                   onChange={(iconRadius) => set({ iconRadius })}
+                  thumbLabel="图标圆角"
                   value={composition.iconRadius}
                 />
                 <Slider
@@ -273,6 +282,7 @@ export function CoverGenerator() {
                   max={120}
                   min={0}
                   onChange={(spacing) => set({ spacing })}
+                  thumbLabel="间距"
                   value={composition.spacing}
                 />
                 <Switch
@@ -287,6 +297,7 @@ export function CoverGenerator() {
                   max={100}
                   min={0}
                   onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
+                  thumbLabel="背景不透明度"
                   value={Math.round(composition.backgroundOpacity * 100)}
                 />
                 <Slider

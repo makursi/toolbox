@@ -21,9 +21,9 @@
  * What it deliberately does not cover: anything that is not hit-testing —
  * keyboard, focus order, the drawing. Those keep the one-off scripts and
  * `ui-fingerprint.mjs` (which answers "did anything move", not "is this big
- * enough"). The two controls the checklist needs a file for (清空 and a row's
- * remove cross) get one through CDP, the technique `apps/web/docs/design/log.md`
- * already records.
+ * enough"). The three controls the checklist needs a file for (清空 and a row's
+ * remove cross, and the cover generator's 清除) get one through CDP, the
+ * technique `apps/web/docs/design/log.md` already records.
  *
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
@@ -61,21 +61,34 @@ const MIN = 43;
  * check can lie. The header's colour-scheme switch is on every page, because the
  * header is; the tool pages add 返回首页 (and the cover generator's counter of
  * controls grows with its slices: 2 in the spine slice, 3 once the download
- * button lands in #52). Fixed numbers rather than comfortable floors:
+ * button lands in #52, 4 once 清除 arrives with the background it clears in #73).
+ * A page whose controls only exist after a file is dropped names the input that
+ * takes it in `fileInput`. Fixed numbers rather than comfortable floors:
  * a regression that drops a control has to fail here rather than slip under the
  * bar.
  */
 const PAGES = [
   { minControls: 1, name: "home", path: "/" },
-  { minControls: 4, name: "tool", path: "/tools/image-converter" },
-  { minControls: 3, name: "cover", path: "/tools/cover-generator" },
+  {
+    fileInput: "input[type=file]",
+    minControls: 4,
+    name: "tool",
+    path: "/tools/image-converter",
+  },
+  {
+    fileInput: ".mantine-Dropzone-root input[type=file]",
+    minControls: 4,
+    name: "cover",
+    path: "/tools/cover-generator",
+  },
 ];
 
 /**
- * A file for the list, because 清空 and the remove cross only exist once something
- * is in it. The Tool's own cover is a real JPEG the sniffer accepts, so no fixture
- * has to be committed and no encoder has to live in this script; the file is never
- * converted, only queued.
+ * A file for the controls that only exist once something has been dropped: 清空
+ * and a row's remove cross in the Image Converter, and the cover generator's 清除,
+ * which arrives with a background image (the Dropzone takes `image/*`). The Tool's
+ * own cover is a real JPEG, so no fixture has to be committed and no encoder has
+ * to live in this script; the file is never converted, only queued.
  */
 const FIXTURE = fileURLToPath(
   new URL("../public/tools/image-converter/cover.jpg", import.meta.url),
@@ -140,20 +153,35 @@ async function navigate(client, url) {
  * its own change event and CDP sets the files on it. See item 2 of `apps/web/docs/design/log.md` — headless Chrome can do this, and the claim that it could not was
  * a limitation of an older tool, not of the browser.
  */
-async function addFile(client) {
+async function addFile(client, selector) {
   const document = await client.send("DOM.getDocument", { depth: 1 });
   const input = await client.send("DOM.querySelector", {
     nodeId: document.result.root.nodeId,
-    selector: "input[type=file]",
+    selector,
   });
-  if (!input.result?.nodeId) throw new Error("no file input on the tool page");
+  if (!input.result?.nodeId) throw new Error(`no file input matching ${selector}`);
   await client.send("DOM.setFileInputFiles", {
     files: [FIXTURE],
     nodeId: input.result.nodeId,
   });
-  // The row renders, then its thumbnail decodes into it; only the row's geometry
-  // is measured, so this only has to outlast the render.
+  // The row renders, then its thumbnail decodes into it; the cover generator reads
+  // its background as a data: URL and only then renders 清除. Only geometry is
+  // measured, so this only has to outlast the render.
   await new Promise((resolve) => setTimeout(resolve, 1200));
+}
+
+/**
+ * Wait until the page carries the controls it should, and let the count check
+ * below report it if it never does. A control that arrives after a file has been
+ * read would otherwise be measured as a control the page does not have — the one
+ * failure this probe would report for the wrong reason.
+ */
+async function waitForControls(client, minControls) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const count = await client.evaluate("document.querySelectorAll('.touch-target').length");
+    if (count >= minControls) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 async function probe(baseUrl) {
@@ -176,8 +204,9 @@ async function probe(baseUrl) {
 
         for (const page of PAGES) {
           await navigate(client, `${baseUrl}${page.path}`);
-          if (page.name === "tool") {
-            await addFile(client);
+          if (page.fileInput !== undefined) {
+            await addFile(client, page.fileInput);
+            await waitForControls(client, page.minControls);
           }
 
           const measured = JSON.parse(await client.evaluate(MEASURE));
