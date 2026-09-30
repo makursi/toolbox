@@ -76,13 +76,19 @@ jobs:
       # (apps/web/docs/design/log.md item 3, ADR 0012's update). The browser is the
       # one the gate already pinned, so both tiers read the same engine major in the
       # same `--headless=new`.
+      #
+      # `--no-sandbox` is not a shortcut: Chromium's own sandbox cannot start on this
+      # runner (it aborts before it listens), and Playwright launches with
+      # `chromiumSandbox: false` anyway — so this is the gate's own arrangement, not
+      # a looser one. `--disable-dev-shm-usage` is the same story for shared memory.
       - name: Hit areas
         working-directory: apps/web
         run: |
           CHROME=$(node -p "require('@playwright/test').chromium.executablePath()")
           pnpm exec next start -p 3111 &
-          "$CHROME" --headless=new --remote-debugging-port=9333 \
-            --user-data-dir="$(mktemp -d)" --no-first-run about:blank &
+          "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage \
+            --remote-debugging-port=9333 --user-data-dir="$(mktemp -d)" \
+            --no-first-run about:blank &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:3111/ > /dev/null && break; sleep 1; done
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:9333/json/version > /dev/null && break; sleep 1; done
           pnpm --filter @toolbox/web touch-targets
