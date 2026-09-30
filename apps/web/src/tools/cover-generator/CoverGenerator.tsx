@@ -425,7 +425,7 @@ export function CoverGenerator() {
                   if (scale !== undefined) set({ exportScale: scale });
                 }}
               />
-              <Button className="touch-target" loading={exporting} onClick={exportCover}>
+              <Button loading={exporting} onClick={exportCover}>
                 下载 {composition.ratioId}
                 {composition.exportScale > 1 ? ` @${composition.exportScale}x` : ""}
               </Button>

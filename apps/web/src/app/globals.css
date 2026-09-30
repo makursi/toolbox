@@ -360,7 +360,7 @@
    * whole site is held to.
    */
   .cover-tabs .mantine-Tabs-tab {
-    min-height: 46px;
+    min-height: 30px;
   }
 
   /*
