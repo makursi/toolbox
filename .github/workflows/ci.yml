@@ -17,6 +17,7 @@ jobs:
   check:
     name: format, readme, lint, types, test, build, e2e, hit areas
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -74,8 +75,10 @@ jobs:
       # threshold nobody runs is not a check: this probe was found red on the cover
       # generator's page for five days, 406 failures, with nothing to say so
       # (apps/web/docs/design/log.md item 3, ADR 0012's update). The browser is the
-      # one the gate already pinned, so both tiers read the same engine major in the
-      # same `--headless=new`.
+      # one the gate already pinned, so the two tiers read the same engine major in
+      # headless mode. They do not get the same *environment*: Playwright also pins
+      # hover/pointer capability, scrollbars and timer throttling, and the probe sets
+      # the media features it certifies itself (#84).
       #
       # `--no-sandbox` is not a shortcut: Chromium's own sandbox cannot start on this
       # runner (it aborts before it listens), and Playwright launches with
@@ -85,10 +88,20 @@ jobs:
         working-directory: apps/web
         run: |
           CHROME=$(node -p "require('@playwright/test').chromium.executablePath()")
-          pnpm exec next start -p 3111 &
+          # A port of its own: a stray listener on the gate's would satisfy the
+          # readiness wait below and then be measured instead of this build.
+          PORT=3211
+          pnpm exec next start -p "$PORT" > "$RUNNER_TEMP/server.log" 2>&1 &
+          SERVER=$!
           "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage \
             --remote-debugging-port=9333 --user-data-dir="$(mktemp -d)" \
-            --no-first-run about:blank &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3111/ > /dev/null && break; sleep 1; done
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:9333/json/version > /dev/null && break; sleep 1; done
-          pnpm --filter @toolbox/web touch-targets
+            --no-first-run about:blank > "$RUNNER_TEMP/chrome.log" 2>&1 &
+          BROWSER=$!
+          trap 'kill "$BROWSER" "$SERVER" 2>/dev/null || true' EXIT
+          curl -sf --retry 30 --retry-delay 1 --retry-connrefused "http://127.0.0.1:$PORT/" > /dev/null
+          curl -sf --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:9333/json/version > /dev/null
+          # A background job that died during the wait is invisible to `bash -e`;
+          # without this the probe fails with a connection error that blames the page.
+          kill -0 "$SERVER" || { echo "next start is gone:"; cat "$RUNNER_TEMP/server.log"; exit 1; }
+          kill -0 "$BROWSER" || { echo "the browser is gone:"; cat "$RUNNER_TEMP/chrome.log"; exit 1; }
+          pnpm --filter @toolbox/web touch-targets "http://127.0.0.1:$PORT"

@@ -32,6 +32,13 @@
  * rule names (#80 — an `order` swap moves what a visitor sees without moving the
  * DOM, resizing anything or overflowing).
  *
+ * Since #84 each width is measured on the desktop pointer first, and the narrow
+ * widths again as a phone (`hover: none`): the site keeps 窄屏 and 触屏 apart, the
+ * touch branch is allowed to grow a control, so the narrow *window* is the strict
+ * case and the phone is the one no other check looks at. Waits are for React's own
+ * hydration signal rather than for a sleep — a control in the prerendered HTML
+ * looks hydrated, and a click or a file dropped on it is silently lost.
+ *
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
  *
@@ -45,7 +52,8 @@
  * item 3, 2026-09-30).
  *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
- * under 43, when a control the page should carry is missing, or on horizontal
+ * under 43, when a control the page says it must carry is missing, when the cover
+ * generator's columns are on the wrong side of the breakpoint, or on horizontal
  * overflow, so it gates a shell chain.
  */
 import { fileURLToPath } from "node:url";
@@ -64,6 +72,29 @@ const WIDTHS = [360, 390, 768, 1024];
  * check ratify any band, including the wrong one.
  */
 const NARROW_BELOW = 768;
+
+/**
+ * The two pointers the site keeps apart — "窄屏 and 触屏 are two things"
+ * (`apps/web/docs/design/layout.md`) — and what each is measured for.
+ *
+ * Every width runs the desktop one first, because that is the strict case for the
+ * 44px rule: the touch branch is allowed to grow a control (`@media (hover: none)`
+ * takes the Image Converter's drop-zone button to 50px), so a control can pass as
+ * a phone and fail as a narrow desktop window. The narrow widths are then measured
+ * again as the phone, because that is the device the rule is written for and no
+ * other check looks at it.
+ */
+const POINTERS = [
+  { label: "", media: [] },
+  {
+    label: " (touch)",
+    media: [
+      { name: "hover", value: "none" },
+      { name: "pointer", value: "coarse" },
+    ],
+    narrowOnly: true,
+  },
+];
 
 /**
  * Both schemes: the toggle swaps a moon for a sun, and the two icons could differ
@@ -204,15 +235,42 @@ function report(line) {
 
 async function navigate(client, url) {
   await client.send("Page.navigate", { url });
-  // The page is prerendered, the hydrate has to finish before a click or a file
-  // will be taken: the fingerprint waits the same 1800ms for the same reason.
-  await new Promise((resolve) => setTimeout(resolve, 1800));
+  await waitForHydration(client);
+}
+
+/**
+ * Wait for React to claim the page, rather than sleeping and hoping.
+ *
+ * The server sends prerendered HTML first, and a control in it looks exactly like
+ * a hydrated one — but a click or a file dropped on the un-hydrated copy is
+ * silently lost, which reads here as "the page never rendered that control". The
+ * signal is React's own bookkeeping on a host element (`__reactFiber…`, attached
+ * during hydration, impossible in server HTML); the gate's page helper waits on
+ * the same one (`apps/web/e2e/tool-page.ts`). It is React's detail rather than
+ * this site's, which is what makes it acceptable as a wait — and not as an
+ * assertion. The 1800 ms this replaced was wrong in both directions.
+ */
+async function waitForHydration(client) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const hydrated = await client.evaluate(
+      `[...document.querySelectorAll('body *')].some((element) =>
+        Object.keys(element).some((key) => key.startsWith('__reactFiber')),
+      )`,
+    );
+    if (hydrated === true) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("the page never hydrated: React's bookkeeping never appeared");
 }
 
 /**
  * Put a file into the page's file input. React does receive this: the input keeps
  * its own change event and CDP sets the files on it. See item 2 of `apps/web/docs/design/log.md` — headless Chrome can do this, and the claim that it could not was
  * a limitation of an older tool, not of the browser.
+ *
+ * No sleep after this: whatever the file triggers (a row, a background image, 清除)
+ * is waited for by name in `waitForControls`, which is both faster and stricter
+ * than the 1200 ms this used to wait.
  */
 async function addFile(client, selector) {
   const document = await client.send("DOM.getDocument", { depth: 1 });
@@ -225,10 +283,6 @@ async function addFile(client, selector) {
     files: [FIXTURE],
     nodeId: input.result.nodeId,
   });
-  // The row renders, then its thumbnail decodes into it; the cover generator reads
-  // its background as a data: URL and only then renders 清除. Only geometry is
-  // measured, so this only has to outlast the render.
-  await new Promise((resolve) => setTimeout(resolve, 1200));
 }
 
 /**
@@ -256,67 +310,71 @@ async function probe(baseUrl) {
 
   try {
     for (const width of WIDTHS) {
-      for (const scheme of SCHEMES) {
-        await client.send("Emulation.setDeviceMetricsOverride", {
-          width,
-          height: HEIGHT,
-          deviceScaleFactor: 1,
-          mobile: width < 768,
-        });
-        await client.send("Emulation.setEmulatedMedia", {
-          features: [{ name: "prefers-color-scheme", value: scheme }],
-        });
+      for (const pointer of POINTERS) {
+        if (pointer.narrowOnly === true && width >= NARROW_BELOW) continue;
 
-        for (const page of PAGES) {
-          await navigate(client, `${baseUrl}${page.path}`);
-          if (page.fileInput !== undefined) {
-            await addFile(client, page.fileInput);
-          }
-          await waitForControls(client, page.controls);
+        for (const scheme of SCHEMES) {
+          await client.send("Emulation.setDeviceMetricsOverride", {
+            width,
+            height: HEIGHT,
+            deviceScaleFactor: 1,
+            mobile: width < NARROW_BELOW,
+          });
+          await client.send("Emulation.setEmulatedMedia", {
+            features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
+          });
 
-          const measured = JSON.parse(await client.evaluate(MEASURE));
-          report(`\n${width}px ${scheme} — ${page.path}`);
+          for (const page of PAGES) {
+            await navigate(client, `${baseUrl}${page.path}`);
+            if (page.fileInput !== undefined) {
+              await addFile(client, page.fileInput);
+            }
+            await waitForControls(client, page.controls);
 
-          for (const name of page.controls) {
-            const found = measured.controls.some((control) => control.label.includes(name));
-            if (!found) failures++;
-            report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
-          }
+            const measured = JSON.parse(await client.evaluate(MEASURE));
+            report(`\n${width}px ${scheme}${pointer.label} — ${page.path}`);
 
-          if (page.layout === true) {
-            const layout = JSON.parse(await client.evaluate(LAYOUT));
-            if (layout.missing === true) {
+            for (const name of page.controls) {
+              const found = measured.controls.some((control) => control.label.includes(name));
+              if (!found) failures++;
+              report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
+            }
+
+            if (page.layout === true) {
+              const layout = JSON.parse(await client.evaluate(LAYOUT));
+              if (layout.missing === true) {
+                failures++;
+                report("  FAIL  the cover generator's two columns are not on the page");
+              } else {
+                const narrow = width < NARROW_BELOW;
+                const ok = narrow
+                  ? layout.canvas.top < layout.editor.top &&
+                    Math.abs(layout.canvas.width - layout.editor.width) <= 1
+                  : layout.editor.left < layout.canvas.left &&
+                    Math.abs(layout.canvas.top - layout.editor.top) <= 1;
+                if (!ok) failures++;
+                report(
+                  `  ${ok ? "PASS" : "FAIL"}  ${
+                    narrow
+                      ? "the canvas column comes before the editor's"
+                      : "the editor and the canvas are side by side"
+                  } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}; the page's own direction is ${layout.direction}`,
+                );
+              }
+            }
+
+            if (measured.overflow > 0) {
               failures++;
-              report("  FAIL  the cover generator's two columns are not on the page");
-            } else {
-              const narrow = width < NARROW_BELOW;
-              const ok = narrow
-                ? layout.canvas.top < layout.editor.top &&
-                  Math.abs(layout.canvas.width - layout.editor.width) <= 1
-                : layout.editor.left < layout.canvas.left &&
-                  Math.abs(layout.canvas.top - layout.editor.top) <= 1;
+              report(`  FAIL  horizontal overflow: ${measured.overflow}px`);
+            }
+
+            for (const control of measured.controls) {
+              const ok = control.x >= MIN && control.y >= MIN;
               if (!ok) failures++;
               report(
-                `  ${ok ? "PASS" : "FAIL"}  ${
-                  narrow
-                    ? "the canvas column comes before the editor's"
-                    : "the editor and the canvas are side by side"
-                } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}; the page's own direction is ${layout.direction}`,
+                `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
               );
             }
-          }
-
-          if (measured.overflow > 0) {
-            failures++;
-            report(`  FAIL  horizontal overflow: ${measured.overflow}px`);
-          }
-
-          for (const control of measured.controls) {
-            const ok = control.x >= MIN && control.y >= MIN;
-            if (!ok) failures++;
-            report(
-              `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
-            );
           }
         }
       }
