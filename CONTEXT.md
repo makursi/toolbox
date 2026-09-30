@@ -37,7 +37,7 @@ toolbox — the repository and the workspace packages (`@toolbox/*`), which is a
 _Avoid_: app, repo
 
 **Instrument**:
-Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. It measures the same page twice on one machine, prints both readings, and does not pass or fail on its own.
+Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. It measures the same page twice on one machine, prints both readings, and keeps those numbers as its output.
 _Avoid_: probe, checker, browser test, snapshot test
 
 **Gate**:

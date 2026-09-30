@@ -1,8 +1,8 @@
 # Playwright for the browser gate
 
-CI has never run a browser. Everything this site has learned about how it behaves — a `transition` that was not gated behind reduced-motion, the 44px overlay a Mantine `Button` clipped with `overflow: hidden`, the format row whose clicks went to an element that handles none — came from a one-off CDP script run by hand against `pnpm build && pnpm start`, and none of it could stop the next pull request. `pnpm e2e` is that half of the pre-flight checklist as a gate: `@playwright/test` in `apps/web`, `apps/web/e2e/`, against the production build, started by Turborepo (`e2e` depends on `build`) and run by CI.
+CI had never run a browser when this was decided. Everything this site has learned about how it behaves — a `transition` that was not gated behind reduced-motion, the 44px overlay a Mantine `Button` clipped with `overflow: hidden`, the format row whose clicks went to an element that handles none — came from a one-off CDP script run by hand against `pnpm build && pnpm start`, and none of it could stop the next pull request. `pnpm e2e` is that half of the pre-flight checklist as a gate: `@playwright/test` in `apps/web`, `apps/web/e2e/`, against the production build, started by Turborepo (`e2e` depends on `build`) and run by CI.
 
-The two instruments do not move. `ui-fingerprint.mjs` and `touch-targets.mjs` measure geometry and computed style: the same page twice, on one machine, where "before" is a file a person saved. That is not a test case and no runner makes it one. The seam:
+The two instruments do not move. `ui-fingerprint.mjs` and `touch-targets.mjs` measure geometry and computed style: the same page twice, on one machine, where "before" is a file a person saved. That is not a test case and no runner makes it one. _Update 2026-09-30: the hit-area instrument has since moved into CI, where its exit code can stop a build; it is still not a test case — see the update section at the end._ The seam:
 
 - **an instrument measures** — is anything under 44px, did anything move;
 - **the gate asserts** — did the click do what it looked like it would do.
@@ -11,7 +11,7 @@ A claim about how something is drawn belongs in `scripts/`; a claim about what i
 
 ## Consequences
 
-- **Two browsers, each named.** The gate runs the Chrome for Testing that `@playwright/test` pins — asked for by name (`channel: "chromium"`) so it is that build and not the headless shell — and it happens to be 153, the same engine major, in the same `--headless=new`, that the instruments were last measured on. The instruments keep running whatever Chrome is on the machine. Only the gate's is pinned by a lockfile, and only the gate's runs in CI, so "red locally, green in CI" has one more explanation to rule out first.
+- **Two browsers, each named.** The gate runs the Chrome for Testing that `@playwright/test` pins — asked for by name (`channel: "chromium"`) so it is that build and not the headless shell — and it happens to be 153, the same engine major the instruments were last measured on, in the same headless mode: Playwright passes `--headless`, an instrument's own shell passes `--headless=new`, and Chrome 153 treats the two as one. The instruments keep running whatever Chrome is on the machine. Only the gate's is pinned by a lockfile, and when this was decided only the gate's ran in CI, so "red locally, green in CI" has one more explanation to rule out first. _Update 2026-09-30: the hit-area instrument runs there too — see the update section at the end._
 - **`pnpm install` does not download a browser.** `pnpm --filter @toolbox/web exec playwright install chromium` does, once per machine (~200MB), and the gate fails with Playwright's own message until it has.
 - **CI gains a step and a cache keyed on the Playwright version.** A cold `playwright install` is the slowest part of the job; a cache key that does not track the version is worse than none, because it serves binaries the library no longer matches.
 - **The gate never retries.** A retry that passes turns a flake into a green run and hides the one thing the gate is for. A failure keeps its trace instead.
@@ -31,8 +31,8 @@ The seam above stands, and one of the two instruments has crossed the "runs loca
 
 What moved is only who hands it a browser and a server:
 
-- **The script is unchanged.** Still `node:` plus CDP, still `elementFromPoint` walked out from each control's centre, still numbers printed and exit code 1 under 43. It measures; it asserts nothing about behaviour, and it is still not a test case.
-- **CI gains one step** (`Hit areas` in `.github/workflows/ci.yml`, after the gate, on the build the gate already drove). It starts `next start` and launches the Chrome for Testing that `@playwright/test` pins, so the two tiers keep reading the same engine major in the same `--headless=new`.
+- **The measurement code is unchanged.** Still `node:` plus CDP, still `elementFromPoint` walked out from each control's centre, still numbers printed and exit code 1 under 43. It measures; it asserts nothing about behaviour, and it is still not a test case.
+- **CI gains one step** (`Hit areas` in `.github/workflows/ci.yml`, after the gate, on the build the gate already drove). It starts `next start` and launches the Chrome for Testing that `@playwright/test` pins, so the two tiers keep reading the same engine major in the same headless mode (this step's shell passes `--headless=new`; Playwright passes `--headless`; Chrome 153 treats them as one).
 - **`ui-fingerprint.mjs` does not move, and cannot.** Its "before" is a file a person saved on the same machine; CI has nothing to compare against, and committing a baseline would redefine "nothing moved" as "nothing moved since that file" — the option rejected below.
 
 The rejected option below ("let CI launch Chrome itself") is not this one: that was about not having a gate at all and having CI improvise one around throwaway scripts. Here the instrument already existed and already printed numbers; CI only supplies what a person used to supply by hand.
