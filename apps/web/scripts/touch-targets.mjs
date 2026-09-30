@@ -56,6 +56,16 @@ import { connect } from "./cdp.mjs";
 const WIDTHS = [360, 390, 768, 1024];
 
 /**
+ * The site's own `sm`, in pixels (Mantine's `sm` is 48em, Tailwind's `md` is
+ * 48rem — the same 768): below it a tool page keeps its one-column layout, at or
+ * above it the cover generator's editor and canvas sit side by side. The layout
+ * assertion expects *this*, rather than reading which breakpoint the page happened
+ * to pick — taking "narrow" from the page's own `flex-direction` would let the
+ * check ratify any band, including the wrong one.
+ */
+const NARROW_BELOW = 768;
+
+/**
  * Both schemes: the toggle swaps a moon for a sun, and the two icons could differ
  * in size, which would move the control it sits in.
  */
@@ -84,7 +94,7 @@ const MIN = 43;
 const PAGES = [
   { controls: ["切换到"], name: "home", path: "/" },
   {
-    controls: ["切换到", "返回首页", "清空", "移除 cover.jpg"],
+    controls: ["切换到", "返回首页", "清空", "移除"],
     fileInput: "input[type=file]",
     name: "tool",
     path: "/tools/image-converter",
@@ -109,11 +119,17 @@ const FIXTURE = fileURLToPath(
   new URL("../public/tools/image-converter/cover.jpg", import.meta.url),
 );
 
+/**
+ * How a control is named — in one place, because two expressions need the exact
+ * same rule: the measurement that lists them, and the wait that checks the names
+ * have arrived. `aria-label` first (an icon-only control has no text), the
+ * visible text otherwise. A name is matched as a *substring*, which is what lets
+ * one expected name cover the colour switch's two labels (切换到深色 / 浅色).
+ */
+const LABEL = `(el) => (el.getAttribute('aria-label') || el.innerText || '').replace(/\\s+/g, ' ').trim()`;
+
 const MEASURE = `(() => {
-  const name = (el) => (el.getAttribute('aria-label') || el.innerText || '')
-    .replace(/\\s+/g, ' ')
-    .trim()
-    .slice(0, 24);
+  const label = ${LABEL};
   const hits = (el, x, y) => {
     const hit = document.elementFromPoint(x, y);
     return Boolean(hit) && (hit === el || el.contains(hit));
@@ -136,8 +152,10 @@ const MEASURE = `(() => {
     const cx = Math.round(rect.left + rect.width / 2);
     const cy = Math.round(rect.top + rect.height / 2);
     const after = getComputedStyle(el, '::after');
+    const name = label(el);
     return {
-      control: el.tagName.toLowerCase() + (name(el) ? ' "' + name(el) + '"' : ''),
+      control: el.tagName.toLowerCase() + (name ? ' "' + name.slice(0, 24) + '"' : ''),
+      label: name,
       drawn: Math.round(rect.width) + 'x' + Math.round(rect.height),
       declared: after.width + ' x ' + after.height,
       x: span(el, cx, cy, 'x'),
@@ -160,10 +178,13 @@ const MEASURE = `(() => {
  * directly — where the canvas is relative to the editor, and how wide each one is.
  */
 const LAYOUT = `(() => {
-  const flex = document.querySelector('main .mantine-Flex-root');
   const editor = document.querySelector('.cover-editor-column');
   const canvas = document.querySelector('.cover-canvas-column');
-  if (!flex || !editor || !canvas) return JSON.stringify({ missing: true });
+  if (!editor || !canvas) return JSON.stringify({ missing: true });
+  // The columns' own parent is the flex container: no guessing at "the first Flex
+  // in main", and nothing to update if the page above them grows one.
+  const flex = editor.parentElement;
+  if (!flex || flex !== canvas.parentElement) return JSON.stringify({ missing: true });
   const box = (el) => {
     const rect = el.getBoundingClientRect();
     return { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width) };
@@ -220,9 +241,7 @@ async function waitForControls(client, names) {
   for (let attempt = 0; attempt < 20; attempt++) {
     const texts = JSON.parse(
       await client.evaluate(`JSON.stringify(
-        [...document.querySelectorAll('.touch-target')].map((el) =>
-          (el.getAttribute('aria-label') || el.innerText || '').replace(/\\s+/g, ' ').trim(),
-        ),
+        [...document.querySelectorAll('.touch-target')].map(${LABEL}),
       )`),
     );
     if (names.every((name) => texts.some((text) => text.includes(name)))) return;
@@ -259,7 +278,7 @@ async function probe(baseUrl) {
           report(`\n${width}px ${scheme} — ${page.path}`);
 
           for (const name of page.controls) {
-            const found = measured.controls.some((control) => control.control.includes(name));
+            const found = measured.controls.some((control) => control.label.includes(name));
             if (!found) failures++;
             report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
           }
@@ -270,7 +289,7 @@ async function probe(baseUrl) {
               failures++;
               report("  FAIL  the cover generator's two columns are not on the page");
             } else {
-              const narrow = layout.direction === "column";
+              const narrow = width < NARROW_BELOW;
               const ok = narrow
                 ? layout.canvas.top < layout.editor.top &&
                   Math.abs(layout.canvas.width - layout.editor.width) <= 1
@@ -282,7 +301,7 @@ async function probe(baseUrl) {
                   narrow
                     ? "the canvas column comes before the editor's"
                     : "the editor and the canvas are side by side"
-                } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}`,
+                } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}; the page's own direction is ${layout.direction}`,
               );
             }
           }

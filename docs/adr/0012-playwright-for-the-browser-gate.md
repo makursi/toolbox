@@ -31,7 +31,7 @@ The seam above stands, and one of the two instruments has crossed the "runs loca
 
 What moved is only who hands it a browser and a server:
 
-- **The measurement code is unchanged.** Still `node:` plus CDP, still `elementFromPoint` walked out from each control's centre, still numbers printed and exit code 1 under 43. It measures; it asserts nothing about behaviour, and it is still not a test case.
+- **The measurement code is unchanged.** Still `node:` plus CDP, still `elementFromPoint` walked out from each control's centre, still numbers printed. It measures; it asserts nothing about behaviour, and it is still not a test case. Its exit code is 1 when a hit area probes under 43, when a control the page says it must carry is missing, or on horizontal overflow — the threshold was always there, the names arrived with #81.
 - **CI gains one step** (`Hit areas` in `.github/workflows/ci.yml`, after the gate, on the build the gate already drove). It starts `next start` and launches the Chrome for Testing that `@playwright/test` pins, so the two tiers keep reading the same engine major in the same headless mode (this step's shell passes `--headless=new`; Playwright passes `--headless`; Chrome 153 treats them as one).
 - **`ui-fingerprint.mjs` does not move, and cannot.** Its "before" is a file a person saved on the same machine; CI has nothing to compare against, and committing a baseline would redefine "nothing moved" as "nothing moved since that file" — the option rejected below.
 

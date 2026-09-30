@@ -35,6 +35,6 @@ apps/web/
 
 `e2e/` is the **gate**: `@playwright/test`, the production build, every pull request. It asserts what the site _does_ — a real pointer landing on the control it looks like it landed on, a file going in and coming back out as a valid file, no request off this origin.
 
-`scripts/` is the **instruments**: `node` plus CDP, printing numbers. `ui-fingerprint.mjs` says whether anything moved between two snapshots, against a Chrome you started; `touch-targets.mjs` says how big a hit area really is, and **also runs in CI** (the Hit areas step), where it exits 1 under 43.
+`scripts/` is the **instruments**: `node` plus CDP, printing numbers. `ui-fingerprint.mjs` says whether anything moved between two snapshots, against a Chrome you started; `touch-targets.mjs` says how big a hit area really is and whether the controls a page says it must carry are there, and **also runs in CI** (the Hit areas step), where it exits 1 on a hit area under 43, a missing name, or horizontal overflow.
 
 The directories are named for the tier, not for the tool, and neither is a `tests/`: the unit tests are already `__tests__/*.test.ts` beside the code they cover, so a third name would say nothing about which runner runs what. A claim about how something is _drawn_ goes in `scripts/`; a claim about what it _does_ goes in `e2e/`; when it could be either, `scripts/` wins — see `docs/adr/0012-playwright-for-the-browser-gate.md`, and each script's header comment for its usage, including the Chrome it needs already running.
