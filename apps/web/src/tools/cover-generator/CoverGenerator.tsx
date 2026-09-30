@@ -187,12 +187,7 @@ export function CoverGenerator() {
                   </Text>
                 )}
                 {composition.backgroundImage !== null && (
-                  <Button
-                    className="touch-target"
-                    color="gray"
-                    onClick={clearBackground}
-                    variant="subtle"
-                  >
+                  <Button color="gray" onClick={clearBackground} variant="subtle">
                     清除
                   </Button>
                 )}
