@@ -93,6 +93,14 @@
  * the claims it names and nothing else: a page line it does not mention is untouched
  * by the run.
  *
+ * Since #109 every claim declares how it is shown to fail — `falsification` on the
+ * claim: an injection entry in the list, or a named source route for a property no
+ * style can break (a class, a mounted panel). A claim that declares neither fails the
+ * run before a browser is asked for, the roster of routes is printed first so that
+ * "proven by injection" is never a guess, and the whole mode runs in CI on the same
+ * build and the same browser as the sweep: a guard that can no longer go red is a
+ * guard that has stopped guarding.
+ *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
  * under 43, when a control the page says it must carry is missing, when a control
  * matching a declared selector has lost the hit-area class, when a control or a
@@ -101,7 +109,8 @@
  * generator's two columns are on the wrong side of the breakpoint, when its preview
  * is taller than the share its rule allows or no longer fills its column, when its
  * tab row has scrolled away, or on horizontal overflow — and, under `--falsify`,
- * when an injection fails to turn its claim red — so it gates a shell chain.
+ * when an injection fails to turn its claim red or when any claim declares no way to
+ * go red at all — so it gates a shell chain.
  */
 import { fileURLToPath } from "node:url";
 
@@ -596,6 +605,9 @@ const CLAIMS = [
   {
     name: "named-controls",
     about: "every control the page says it must carry is on the page",
+    falsification: {
+      source: "take one declared name off its control, the way #82 took 清除's class away",
+    },
     per: "section",
     read: (ctx) => ctx.read("measure", MEASURE),
     judge: (measured, ctx) =>
@@ -607,6 +619,9 @@ const CLAIMS = [
   {
     name: "class-carriers",
     about: "every control matching a declared selector carries the hit-area class",
+    falsification: {
+      source: "take the class off one matching control — one line in the Tool's component (#106)",
+    },
     per: "section",
     // Nothing declared means nothing to read: a page whose every control has a name
     // is already held by `named-controls`, and an empty walk would only add silence.
@@ -635,6 +650,9 @@ const CLAIMS = [
   {
     name: "section-isolation",
     about: "nothing another section owns is on the page while a section is open",
+    falsification: {
+      source: "render one section's named control inside another section's panel",
+    },
     per: "section",
     only: (ctx) => ctx.page.sections !== undefined,
     read: (ctx) => ctx.read("measure", MEASURE),
@@ -659,6 +677,10 @@ const CLAIMS = [
   {
     name: "section-presence",
     about: "the panels on the page are the ones this section owns, and no others",
+    falsification: {
+      source:
+        "put keepMounted back on the tabs — the shape #94 proved red on the gate's panel claim",
+    },
     per: "section",
     only: (ctx) => ctx.presence !== undefined,
     read: (ctx) => ctx.read("presence", readPresence(ctx.presence)),
@@ -693,6 +715,9 @@ const CLAIMS = [
   {
     name: "horizontal-overflow",
     about: "the page does not scroll sideways",
+    falsification: {
+      source: "give a row a fixed width wider than the narrowest case — the shape #54's 938px was",
+    },
     per: "section",
     read: (ctx) => ctx.read("measure", MEASURE),
     // Only the failure has a line: a page that does not overflow has nothing to say,
@@ -705,6 +730,7 @@ const CLAIMS = [
   {
     name: "hit-areas",
     about: `every .touch-target control answers at ${MIN}+ on both axes`,
+    falsification: { injection: true },
     per: "section",
     read: (ctx) => ctx.read("measure", MEASURE),
     judge: (measured) =>
@@ -719,6 +745,7 @@ const CLAIMS = [
   {
     name: "column-order",
     about: "the cover generator's two columns are on the side of the breakpoint its rule names",
+    falsification: { injection: true },
     per: "page",
     only: (ctx) => ctx.page.layout === true,
     read: (ctx) => ctx.read("layout", LAYOUT),
@@ -749,6 +776,7 @@ const CLAIMS = [
     name: "preview-default-ratio",
     about:
       "at the default ratio the preview is capped on a narrow screen and exactly its column on a wide one",
+    falsification: { injection: true },
     per: "page",
     only: (ctx) => ctx.page.layout === true,
     // The default ratio is a state this claim has to *be* in, not one it inherits:
@@ -788,6 +816,7 @@ const CLAIMS = [
     name: "preview-cap",
     about:
       "on 1:1 the preview is capped on a narrow screen and still fills its column on a wide one",
+    falsification: { injection: true },
     per: "page",
     only: (ctx) => ctx.page.layout === true,
     // The cap is measured on the ratio that can bind it: at the default 16:9 a narrow
@@ -830,6 +859,7 @@ const CLAIMS = [
   {
     name: "tab-row-pinned",
     about: "the tab row keeps its place while the page scrolls, and does not sit over the preview",
+    falsification: { injection: true },
     per: "page",
     only: (ctx) => ctx.page.layout === true,
     // The long panel is the one to read from — it is the panel a visitor scrolls
@@ -1076,14 +1106,36 @@ const FALSIFY = [
     selector: ".cover-tabs .mantine-Tabs-list",
     value: "static",
   },
+  {
+    case: { height: 900, width: 360 },
+    claim: "column-order",
+    note: "the canvas column's place above the editor at a narrow width — forcing it last breaks the rule",
+    property: "order",
+    selector: ".cover-canvas-column",
+    value: "2",
+  },
+  {
+    case: { height: 900, width: 1024 },
+    claim: "preview-default-ratio",
+    note: "the pane's width on the wide branch, where the default ratio's cap has slack and a style can still break it",
+    property: "max-width",
+    selector: ".cover-preview-pane",
+    value: "50%",
+  },
 ];
 
 /**
  * The page every entry above is measured on: the cover generator, whose geometry
- * these three properties are. The percentage pairs on the preview cap and the 46px
+ * these five properties are. The percentage pairs on the preview cap and the 46px
  * tab row are that Tool's own rules (`src/tools/cover-generator/rules.md`); the
  * other two pages have hit-area claims too, and an entry for one of them belongs
  * here the day it is worth a falsification run.
+ *
+ * Two of the five were written from the mechanism rather than from a run (#109):
+ * `order: 2` on the canvas column puts it after the editor whatever the narrow rule
+ * does, and `max-width: 50%` on the pane breaks the wide branch's "the pane is
+ * exactly its column" by construction. The other three have each been watched go
+ * red by hand, and every run is recorded in `apps/web/docs/design/log.md`.
  */
 const FALSIFY_PAGE = "cover";
 
@@ -1119,6 +1171,64 @@ const tally = (results) =>
 const red = (results) => results.filter((result) => !result.ok);
 
 /**
+ * How each claim says it can be shown to fail, in the order the registry reads it.
+ *
+ * Printed at the start of every falsification run, because "which of these guards
+ * has ever been red, and how" should be something the run says rather than something
+ * a reader assembles from the list below (#109).
+ */
+const falsificationRoster = () =>
+  CLAIMS.map((claim) => {
+    const route = claim.falsification;
+    const how =
+      route === undefined
+        ? "NOTHING DECLARED"
+        : route.injection === true
+          ? "injection"
+          : `source — ${route.source}`;
+    return `  ${claim.name}: ${how}`;
+  }).join("\n");
+
+/**
+ * Everything wrong with the claims' own declarations, as sentences a reader can act
+ * on. A claim that cannot say how it goes red is the gap #109 closes: it can be green
+ * for years with nobody able to tell whether it still guards anything.
+ *
+ * The rules are deliberately two-sided. A claim that says an injection proves it must
+ * have an entry in the list, because an unproven declaration is the same gap wearing
+ * a better word. A claim that says an injection cannot prove it must not have one,
+ * because an entry is what proves an injection and a claim cannot be proved by the
+ * thing it says cannot prove it.
+ */
+function coverageProblems() {
+  const problems = [];
+  for (const claim of CLAIMS) {
+    const route = claim.falsification;
+    const entries = FALSIFY.filter((entry) => entry.claim === claim.name);
+    if (route === undefined) {
+      problems.push(
+        `${claim.name}: no route is declared, so nothing says how it could ever go red`,
+      );
+      continue;
+    }
+    if (route.injection === true) {
+      if (entries.length === 0) {
+        problems.push(
+          `${claim.name}: declared provable by injection, and the list has no entry for it`,
+        );
+      }
+      continue;
+    }
+    if (typeof route.source !== "string" || route.source === "") {
+      problems.push(`${claim.name}: declares neither an injection nor a source route`);
+    } else if (entries.length > 0) {
+      problems.push(`${claim.name}: declares a source route, yet the list injects for it too`);
+    }
+  }
+  return problems;
+}
+
+/**
  * The falsification run: prove that each guard in the list above *can* fail, on the
  * page the sweep measures, without touching the source and without a second build.
  *
@@ -1134,15 +1244,28 @@ const red = (results) => results.filter((result) => !result.ok);
  */
 async function falsify(baseUrl) {
   const port = Number(process.env.CDP_PORT ?? 9333);
+  const problems = coverageProblems();
+  let failures = 0;
+
+  report("Falsification run — the Instrument's own guards, injected one at a time");
+  report(falsificationRoster());
+
+  // The declarations are checked before a browser is asked for: a claim that cannot
+  // say how it goes red is a source-level mistake, and finding it should not cost a
+  // connection, a navigation or thirty seconds.
+  if (problems.length > 0) {
+    for (const problem of problems) report(`  FAIL  ${problem}`);
+    report(`\n${problems.length} COVERAGE FAILURE(S) — nothing was injected`);
+    process.exitCode = 1;
+    return;
+  }
+
   const client = await connect(port);
   const page = PAGES.find((candidate) => candidate.name === FALSIFY_PAGE);
   const [pointer] = POINTERS;
   const [scheme] = SCHEMES;
-  let failures = 0;
 
   try {
-    report("Falsification run — the instrument's own guards, injected one at a time");
-
     for (const entry of FALSIFY) {
       const claim = CLAIMS.find((candidate) => candidate.name === entry.claim);
       if (claim === undefined) {
