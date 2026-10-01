@@ -47,10 +47,25 @@ Do not add a DOM or browser test dependency of your own: the repo already has on
 1. **Issue first.** When a candidate list exists, the candidates live in one roadmap issue until one is picked; the picked Tool gets its own GitHub issue, and `ready-for-agent` means it is specified enough to build. `docs/agents/issue-tracker.md` has the `gh` commands.
 2. **Branch** `feat/<slug>` off the default branch. Never work on the default branch.
 3. **Implement**, running `pnpm typecheck` and single test files as you go, and the full `pnpm test` at the end.
-4. **Run everything CI runs, locally, before pushing**: `pnpm fmt:check && pnpm check:readme && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e`. The pre-push hook covers only `lint` and `typecheck`, so "the hook passed" is not "the work is done".
-5. **Prove the claim the change makes.** If it is a move, capture the UI fingerprint before and after and compare (`pnpm --filter @toolbox/web fingerprint capture|compare`). If it is new UI, run the README's checklist against the **production build** (`pnpm build && pnpm start`) — `next dev` withholds hydration until its HMR socket connects, so a dev page renders and then ignores every click. A new browser behaviour owes the gate a spec in `apps/web/e2e/`, and a spec that has never gone red is not yet a gate: break the thing on purpose, watch it fail, put it back.
-6. **Update the docs in the same commit** as the change they describe: this file's neighbours in `apps/web/docs/`, and the Tool's own `README.md`.
-7. **Open the pull request** (`gh pr create --base main`), with what changed, how it was verified and what is still risky. Merging is the owner's call, not CI's.
+4. **Run what runs locally, before pushing**: `pnpm fmt:check && pnpm check:readme && pnpm lint && pnpm typecheck && pnpm test && pnpm build`. The pre-push hook covers only `lint` and `typecheck`, so "the hook passed" is not "the work is done".
+
+   **Both browser tiers are CI's.** The gate (`pnpm e2e`) and the hit-area instrument (`pnpm --filter @toolbox/web touch-targets`) run on every push to `main` and every pull request, in `.github/workflows/ci.yml`, against the build CI just made. Locally each needs two things a person starts by hand — a server and a Chrome on a debugging port — and starting them is the part that differs per machine, which is why the scripts connect to a browser rather than launching one. So a local browser run is evidence for a claim only a local run can make (the fingerprint's "before" is a file a person saved on the same machine; a measurement you are reading while you change the thing it measures), and never a precondition for pushing. The instrument's own numbers are the ones to read while working; its verdict is CI's.
+
+5. **Prove the claim the change makes.** If it is a move, capture the UI fingerprint before and after and compare (`pnpm --filter @toolbox/web fingerprint capture|compare`). If it is new UI, run the README's checklist against the **production build** (`pnpm build && pnpm start`) — `next dev` withholds hydration until its HMR socket connects, so a dev page renders and then ignores every click. A new browser behaviour owes the gate a spec in `apps/web/e2e/`, and a spec that has never gone red is not yet a gate: break the thing on purpose, watch it fail, put it back. When the thing that has to go red is the gate or the instrument, "watch it fail" is a CI run — three steps, and no browser of your own:
+
+6. Push the branch and open a **draft** pull request: `gh pr create --draft --base main`. A push to a non-`main` branch triggers nothing by itself; CI runs on `push: [main]` and on pull requests.
+7. Read the **step conclusions**, not the log:
+
+   ```bash
+   RUN=$(gh run list --branch "$(git branch --show-current)" --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run view "$RUN" --json jobs --jq '.jobs[].steps[] | "\(.name) → \(.conclusion)"'
+   ```
+
+   The step whose name says what it asserts (`Browser gate`, `Hit areas`) is the one to read — one job runs all the checks, so "the job failed" names nothing. The log is not the cheaper route: `gh run view --log-failed` needs a cache write outside the workspace, which a restricted shell refuses.
+
+8. Close the pull request and delete the branch: `gh pr close --delete-branch`. The evidence is the step that went red; the defect was the point of it, and `main` stays green.
+9. **Update the docs in the same commit** as the change they describe: this file's neighbours in `apps/web/docs/`, and the Tool's own `README.md`.
+10. **Open the pull request** (`gh pr create --base main`), with what changed, how it was verified and what is still risky. Merging is the owner's call, not CI's.
 
 ## 6. Anti-patterns, all of them already rejected here
 

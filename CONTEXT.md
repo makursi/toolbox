@@ -44,6 +44,10 @@ _Avoid_: probe, checker, browser test, snapshot test
 A check that asserts what the site does and whose failure blocks a pull request. It runs unattended, on every change, against the build that ships. A finding that is only written down in prose — however many times it has been reproduced by hand — is not one yet.
 _Avoid_: test, CI check, regression suite
 
+**Falsification run**:
+A deliberate break of the thing an assertion guards — its source changed, or a style injected into the live page — followed by a re-run of that same assertion, which has to go red. It is how a guard is shown to be able to fail at all, and it is done by hand, once, as recorded evidence. It is not mutation testing: nothing installs a mutation runner and nothing generates the breaks. The Chinese design docs write it 红一次 ("red once"), the way the instrument is 量具 and the gate is 门禁.
+_Avoid_: negative test, mutation test
+
 **Design doc set**:
 The App's design documentation, in two layers: `apps/web/docs/design.md` is the **entry** — the invariants that must never be missed, the directions already rejected, and the routing table from "what you are touching" to the file that owns the rule — and `apps/web/docs/design/` holds the **modules**, one per area, each owning its rules and their reasoning.
 _Avoid_: style guide, design guidelines, design system
