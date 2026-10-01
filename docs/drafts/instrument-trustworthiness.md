@@ -1,6 +1,6 @@
 # 量具可信度工作计划：让量具的失败不静默
 
-- **状态**：已确认，执行中（重要工作决策记录）。Q1–Q6 全部落定，spec 发在 [#102](https://github.com/makursi/toolbox/issues/102)，执行拆为八张工单（#103 T1 词汇 → #104 T2 共享层 → #105 T3 指纹 → #106 T4 命中区域类 → #107 T5 双向归属 → #108 T6 读数语义 → #109 T7 证伪覆盖 → #110 T8 轮次记录；阻塞边见第 5 节）。本文件是这一轮的登记、判据与逐条处置，**不是规则**；规则落入 `CONTEXT.md`、`apps/web/docs/adding-a-tool.md`、`apps/web/docs/design/components.md` 与新 ADR。
+- **状态**：已确认并存档（执行完成）。Q1–Q6 全部落定，spec 发在 [#102](https://github.com/makursi/toolbox/issues/102)，执行拆为八张工单（#103 T1 词汇 → #104 T2 共享层 → #105 T3 指纹 → #106 T4 命中区域类 → #107 T5 双向归属 → #108 T6 读数语义 → #109 T7 证伪覆盖 → #110 T8 轮次记录；阻塞边见第 5 节），**八张全部落地**，逐条证据在 `apps/web/docs/design/log.md` 第二十一轮。本文件是这一轮的登记、判据与逐条处置，**不是规则**；规则落入 `CONTEXT.md`、`apps/web/docs/adding-a-tool.md`、`apps/web/docs/design/components.md` 与新 ADR。
 - **寿命**：与决定共存留，随仓库保留（照 `decouple-tool-rules.md` 的 R2）。执行完成后状态改「已确认并存档」。
 - **分支**：`fix/instrument-trustworthiness`，从 `feat/verification-cost`（PR #101）上叠，因为两者动同一批文件。
 - **已读判定依据**：`CONTEXT.md`、`docs/adr/0001…0014`（含 0012 的更新段与 0014 全文）、`apps/web/docs/adding-a-tool.md`、`apps/web/docs/design/`（`components.md`、`checklist.md`、`log.md`）、`apps/web/scripts/` 三个文件全文、`apps/web/e2e/tool-page.ts` 与 `interaction.spec.ts`、`.github/workflows/ci.yml`、`apps/web/tsconfig.json` 与 `apps/web/vitest.config.ts` 与两份 `.oxlintrc.json`、issue #96 全文、PR #101、`docs/drafts/decouple-tool-rules.md`、全仓 `git log`。

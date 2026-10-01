@@ -200,8 +200,11 @@ const PREVIEW_MAX_SHARE = 0.45;
  * takes it in `fileInput`; `layout` asks for the cover generator's two-column
  * check (see `LAYOUT`); `sections` says the page's controls live in an editor that
  * shows one panel at a time, so each section names its own and each is visited
- * (#91). The page-level names still have to be there for every section — the shell,
- * and the tab row itself, which is the new must-carry control.
+ * (#91). A section declares two dimensions of "its own": `carriers` (selectors whose
+ * matches must carry the hit-area class) and `presence` (`.show` — the panel that
+ * must be showing — and `.hidden` — the ones that must not be). The page-level names
+ * still have to be there for every section — the shell, and the tab row itself,
+ * which is the new must-carry control.
  *
  * A control no name identifies cannot be checked by name at all, so a page — or one
  * of its sections — may declare `carriers`: selectors whose matches must carry the
@@ -372,23 +375,53 @@ const readCarriers = (selectors) => `(() => {
 })()`;
 
 /**
- * Which of a section's declared panels are on the page, and how many of each.
+ * Which of a section's declared panels are *showing*, and the height each one has.
+ *
+ * "Showing" rather than "in the DOM", because Mantine keeps every panel element
+ * mounted and hides the ones that are not picked with `display: none` — measured on
+ * the production build, all three panels are present with the same classes whatever
+ * the tab row says. What changes when a section is opened is visibility: the picked
+ * panel goes to `display: block` with a real height, and the others go to `none`
+ * with a height of 0. `keepMounted={false}` on the tabs decides whether a panel's
+ * *contents* are mounted, which is what an unnamed control leaking out would follow.
  *
  * The name check answers "are the controls this section names here"; this answers
- * the question a name cannot: "is what it owns here, and is anything else". Both
- * halves are read in one pass, and every declaration is counted, so a section whose
- * selectors all went stale reports zeroes rather than silence.
+ * the question a name cannot: "is this the section that is open, and is nothing else
+ * showing". Every declaration is counted, so a section whose selectors all went
+ * stale reports zeroes rather than silence.
  */
-const readPresence = (presence) => `(() => {
-  const count = (selectors) => ${JSON.stringify(selectors)}.map((selector) => ({
-    selector,
-    matched: document.querySelectorAll(selector).length,
-  }));
+const readPresence = (presence) => {
+  const expression = `(() => {
+  const count = (selectors) => selectors.map((selector) => {
+    const elements = [...document.querySelectorAll(selector)];
+    const showing = elements.filter((el) => {
+      const style = getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden' && el.getBoundingClientRect().height > 0;
+    });
+    return { selector, matched: elements.length, showing: showing.length };
+  });
   return JSON.stringify({
     absent: count(${JSON.stringify(presence.absent ?? [])}),
     present: count(${JSON.stringify(presence.present ?? [])}),
   });
 })()`;
+  assertNoDanglingInterpolation("readPresence", expression);
+  return expression;
+};
+
+/**
+ * A one-off guard over the emitters above, so the mistake that shipped once cannot
+ * ship twice: after every interpolation, the page-side source must contain no
+ * `${` at all. Run at load — it costs nothing and it fails before a browser is
+ * asked for, the way the coverage check does.
+ */
+function assertNoDanglingInterpolation(name, source) {
+  if (source.includes("${")) {
+    throw new Error(
+      `${name} still carries a \${...} after interpolation: the page would receive it as text`,
+    );
+  }
+}
 
 /**
  * The cover generator's two columns, which side of the breakpoint it is on, and
@@ -676,40 +709,35 @@ const CLAIMS = [
   },
   {
     name: "section-presence",
-    about: "the panels on the page are the ones this section owns, and no others",
+    about: "the section that is showing is this one, and nothing else is",
     falsification: {
       source:
-        "put keepMounted back on the tabs — the shape #94 proved red on the gate's panel claim",
+        "make another panel show while this one is open — a forced display, the way an injected style proves a geometry claim",
     },
     per: "section",
     only: (ctx) => ctx.presence !== undefined,
     read: (ctx) => ctx.read("presence", readPresence(ctx.presence)),
-    judge: (read, ctx) => {
+    judge: (read) => {
       const problems = [
         ...read.present
-          .filter((entry) => entry.matched === 0)
+          .filter((entry) => entry.showing === 0)
           .map((entry) => ({
             ok: false,
-            line: `  FAIL  nothing matches ${entry.selector} — this section's own panel is not on the page`,
+            line: `  FAIL  ${entry.selector} is not showing — this section's own panel is not the open one`,
           })),
         ...read.absent
-          .filter((entry) => entry.matched > 0)
+          .filter((entry) => entry.showing > 0)
           .map((entry) => ({
             ok: false,
-            line: `  FAIL  ${entry.selector} is on the page while the ${ctx.section.tab} section is open (${entry.matched} matched)`,
+            line: `  FAIL  ${entry.selector} is showing while another section is open (${entry.showing} of ${entry.matched} matched)`,
           })),
       ];
       if (problems.length > 0) return problems;
       const summary = [
-        ...read.present.map((entry) => `${entry.selector} present (${entry.matched})`),
-        ...read.absent.map((entry) => `${entry.selector} absent (${entry.matched})`),
+        ...read.present.map((entry) => `${entry.selector} showing`),
+        ...read.absent.map((entry) => `${entry.selector} hidden`),
       ].join(", ");
-      return [
-        {
-          ok: true,
-          line: `  PASS  the panels on the page are the ones this section owns — ${summary}`,
-        },
-      ];
+      return [{ ok: true, line: `  PASS  this is the section that is showing — ${summary}` }];
     },
   },
   {
