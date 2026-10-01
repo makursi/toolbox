@@ -299,7 +299,7 @@ const MEASURE = `(() => {
     return Boolean(hit) && (hit === el || el.contains(hit));
   };
   const span = (el, cx, cy, axis) => {
-    // The centre arrives fractional and only the probe points are rounded. Rounding
+    // The centre arrives fractional and only the sampling points are rounded. Rounding
     // the centre first biases every step by up to half a pixel, and a walk that
     // requires both sides turns that into a hit area two or three pixels smaller
     // than the one that is really there: the cover generator's tab row sits at a
@@ -360,7 +360,8 @@ const MEASURE = `(() => {
  * nothing fails rather than passes, for the reason #81 gives about a floor on a
  * count: a check that cannot see its own subject is not a check.
  */
-const readCarriers = (selectors) => `(() => {
+const readCarriers = (selectors) => {
+  const expression = `(() => {
   const label = ${LABEL};
   return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => {
     const matches = [...document.querySelectorAll(selector)];
@@ -373,6 +374,9 @@ const readCarriers = (selectors) => `(() => {
     };
   }));
 })()`;
+  assertNoDanglingInterpolation("readCarriers", expression);
+  return expression;
+};
 
 /**
  * Which of a section's declared panels are *showing*, and the height each one has.
@@ -410,10 +414,15 @@ const readPresence = (presence) => {
 };
 
 /**
- * A one-off guard over the emitters above, so the mistake that shipped once cannot
- * ship twice: after every interpolation, the page-side source must contain no
- * `${` at all. Run at load — it costs nothing and it fails before a browser is
- * asked for, the way the coverage check does.
+ * A guard over an emitter, so the mistake that shipped once cannot ship twice: after
+ * interpolation, the page-side source must contain no `${` at all.
+ *
+ * Called by the two emitters that interpolate — `readCarriers` and `readPresence` —
+ * at the moment they build their expression, which is when the mistake would be made.
+ * That is *not* "at load": `MEASURE`, `LAYOUT` and `STICKY` interpolate only
+ * `LABEL`, which is itself a literal, so they cannot carry a dangling one and are not
+ * wired to this. The cost is that a mistyped emitter is caught when a claim first
+ * reads it, not before the browser is asked for.
  */
 function assertNoDanglingInterpolation(name, source) {
   if (source.includes("${")) {
@@ -658,6 +667,10 @@ const CLAIMS = [
     per: "section",
     // Nothing declared means nothing to read: a page whose every control has a name
     // is already held by `named-controls`, and an empty walk would only add silence.
+    // The claim therefore says nothing on the home and image-converter pages, whose
+    // `.touch-target` controls all carry names (#106 review) — that is the intended
+    // division of labour, not a gap: `named-controls` catches a class lost from a
+    // named control, and this catches one lost from a control that has no name.
     only: (ctx) => ctx.carriers.length > 0,
     read: (ctx) => ctx.read("carriers", readCarriers(ctx.carriers)),
     judge: (read) =>
@@ -712,7 +725,7 @@ const CLAIMS = [
     about: "the section that is showing is this one, and nothing else is",
     falsification: {
       source:
-        "make another panel show while this one is open — a forced display, the way an injected style proves a geometry claim",
+        "put keepMounted back on the tabs and render a second panel's contents, the shape #94 proved red on the gate's panel claim — a style cannot do it: Mantine writes display:none inline on the unpicked panel, which an injected rule loses to (measured 2026-10-01, both 360 and 1024, where a forced display left the count at 0)",
     },
     per: "section",
     only: (ctx) => ctx.presence !== undefined,
@@ -1199,6 +1212,23 @@ const tally = (results) =>
 const red = (results) => results.filter((result) => !result.ok);
 
 /**
+ * What a claim's declaration says, in one place: the roster prints it and the
+ * coverage check judges it, and two readings of the same three-way union is exactly
+ * the kind of drift a second copy invites (#109 review).
+ *
+ * `kind` is the discriminant both readers switch on — `none` for a claim that has
+ * not said anything, `injection` for one an injected style proves, `source` for one
+ * only a source change can.
+ */
+const routeOf = (claim) => {
+  const route = claim.falsification;
+  if (route === undefined) return { kind: "none" };
+  if (route.injection === true) return { kind: "injection" };
+  if (typeof route.source !== "string" || route.source === "") return { kind: "none" };
+  return { kind: "source", source: route.source };
+};
+
+/**
  * How each claim says it can be shown to fail, in the order the registry reads it.
  *
  * Printed at the start of every falsification run, because "which of these guards
@@ -1207,11 +1237,11 @@ const red = (results) => results.filter((result) => !result.ok);
  */
 const falsificationRoster = () =>
   CLAIMS.map((claim) => {
-    const route = claim.falsification;
+    const route = routeOf(claim);
     const how =
-      route === undefined
+      route.kind === "none"
         ? "NOTHING DECLARED"
-        : route.injection === true
+        : route.kind === "injection"
           ? "injection"
           : `source — ${route.source}`;
     return `  ${claim.name}: ${how}`;
@@ -1231,15 +1261,15 @@ const falsificationRoster = () =>
 function coverageProblems() {
   const problems = [];
   for (const claim of CLAIMS) {
-    const route = claim.falsification;
+    const route = routeOf(claim);
     const entries = FALSIFY.filter((entry) => entry.claim === claim.name);
-    if (route === undefined) {
+    if (route.kind === "none") {
       problems.push(
         `${claim.name}: no route is declared, so nothing says how it could ever go red`,
       );
       continue;
     }
-    if (route.injection === true) {
+    if (route.kind === "injection") {
       if (entries.length === 0) {
         problems.push(
           `${claim.name}: declared provable by injection, and the list has no entry for it`,
@@ -1247,9 +1277,7 @@ function coverageProblems() {
       }
       continue;
     }
-    if (typeof route.source !== "string" || route.source === "") {
-      problems.push(`${claim.name}: declares neither an injection nor a source route`);
-    } else if (entries.length > 0) {
+    if (entries.length > 0) {
       problems.push(`${claim.name}: declares a source route, yet the list injects for it too`);
     }
   }

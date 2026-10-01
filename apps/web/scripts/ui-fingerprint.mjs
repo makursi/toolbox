@@ -28,7 +28,8 @@
  * loaded, one navigation per page rather than one per state: the scheme is set,
  * then the read waits out its budget. That is a race this site has never lost,
  * and it is the first suspect if a scheme pair ever differs with nothing else on
- * the page different.
+ * the page different. Each view state is given 350 ms to settle before its reading
+ * is taken.
  *
  * Usage — the Chrome has to be running already, because launching it is the part
  * that differs per machine:
