@@ -45,9 +45,9 @@
  * looks hydrated, and a click or a file dropped on it is silently lost.
  *
  * Every guarded property is a named **claim** (#98): a unit with its own reading,
- * its own predicate and the lines it prints, walked from `CLAIMS` below. Each one
- * can be called on its own, which is what makes a guard something other code can
- * re-run instead of a line inside this loop.
+ * its own predicate and the lines it prints, walked from `CLAIMS` below. Naming
+ * them is what lets `--falsify` re-run a guard on a page it has just broken, rather
+ * than writing a second version of the guard to test the first.
  *
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
@@ -55,6 +55,7 @@
  *   pnpm build && pnpm --filter @toolbox/web start -p 3111
  *   chrome --headless=new --remote-debugging-port=9333 --user-data-dir=<tmp dir>
  *   pnpm --filter @toolbox/web touch-targets [baseUrl]
+ *   pnpm --filter @toolbox/web touch-targets --falsify [baseUrl]
  *
  * CI does that launching for you: the `Hit areas` step in `.github/workflows/ci.yml`
  * starts the server and the Chrome `@playwright/test` pins, on the build the gate
@@ -62,12 +63,30 @@
  * item 3, 2026-09-30). The launching is duplicated on purpose, in three places (that
  * shell and the two script headers): it is the part that differs per machine.
  *
+ * `--falsify` is the in-place falsification run (#100): after a green pass it breaks
+ * each geometry property the claims below guard, one at a time, by injecting a style
+ * into the live page, re-runs **that claim** and requires it to go red. An injection
+ * that leaves its claim green exits 1 — an injection that changes nothing proves
+ * nothing. The injection is reliable because it is **unlayered**: this repository's
+ * layer order is `theme → base → mantine → components → utilities` (declared at the
+ * top of `apps/web/src/app/globals.css`) and an unlayered rule outranks every layer,
+ * so an injected rule wins whatever the stylesheet says.
+ *
+ * What `--falsify` cannot prove: anything structural or behavioural. Whether an
+ * unpicked panel is still mounted, whether the chosen section is written to the URL,
+ * the keyboard model — those are React props and event handlers rather than computed
+ * styles, so the only place to inject them is the source, on CI (prior art: putting
+ * `keepMounted` back and watching the gate's new assertion go red, PR #94). It proves
+ * the claims it names and nothing else: a page line it does not mention is untouched
+ * by the run.
+ *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
  * under 43, when a control the page says it must carry is missing, when a control
  * another section owns is on the page while a section is open, when the cover
  * generator's two columns are on the wrong side of the breakpoint, when its preview
  * is taller than the share its rule allows or no longer fills its column, when its
- * tab row has scrolled away, or on horizontal overflow, so it gates a shell chain.
+ * tab row has scrolled away, or on horizontal overflow — and, under `--falsify`,
+ * when an injection fails to turn its claim red — so it gates a shell chain.
  */
 import { fileURLToPath } from "node:url";
 
@@ -492,8 +511,8 @@ async function selectRatio(client, ratioKey) {
  * Each one is a named unit: `read` takes its reading off the page, `judge` is the
  * predicate and the lines it prints, and `per` says whether it is taken once per
  * editor section or once per page. `runClaim` is the only thing that evaluates one,
- * which is what lets a claim be called on its own, rather than only from inside this
- * sweep — a guard nothing else can call can be read, but not replayed.
+ * which is what lets the falsification mode below re-run a guard on a page it has
+ * just broken instead of writing a second copy of it.
  *
  * Readings are shared through `ctx.read`: several claims read the same measurement,
  * and taking it once is what keeps a full pass at the ~40 seconds it has always
@@ -735,8 +754,8 @@ function context(client, shape, pointer, scheme, page, section) {
 /**
  * Evaluate one claim: prepare the page, take its reading, apply its own predicate.
  * The single path any claim is ever evaluated by — the sweep below walks the
- * registry through it, and a caller holding a page can call it again and get the same
- * predicate's answer for whatever that page now says.
+ * registry through it, and the falsification mode calls it again on a page it has
+ * just broken, which is what makes that a replay of the guard rather than a copy.
  *
  * `judge` is synchronous and reads nothing but its reading and the context: a
  * predicate that measured something of its own could not be replayed this way.
@@ -829,5 +848,203 @@ async function probe(baseUrl) {
   process.exitCode = failures === 0 ? 0 : 1;
 }
 
-const [baseUrl = "http://127.0.0.1:3111"] = process.argv.slice(2);
-await probe(baseUrl);
+/**
+ * The in-place falsification list (#100): one entry per geometry property the claims
+ * above guard, and the claim that has to go red when it is broken.
+ *
+ * `case` is the viewport the injected property binds at, and it belongs to the entry
+ * rather than to the mode because that is what the property decides: the preview cap
+ * only exists below the breakpoint and only a *short* screen makes it bind (at
+ * 360×900 the same injection changes nothing), while the tab row's height reads
+ * exactly 43 — the threshold itself — at 375×667 and 41 at 360. An entry measured
+ * where its property does not bind would prove nothing and would be read as one.
+ *
+ * Every entry names three things and no more: what to break (a selector, a property,
+ * a value), which claim has to notice, and the case it binds at.
+ */
+const FALSIFY = [
+  {
+    case: { height: 667, width: 375 },
+    claim: "preview-cap",
+    note: "the cap, which only a short viewport makes bind",
+    property: "--cover-preview-max-height",
+    selector: ".cover-preview-pane",
+    value: "100dvh",
+  },
+  {
+    case: { height: 900, width: 360 },
+    claim: "hit-areas",
+    note: "the 46px the layout grants the row, on the width where it reads under the threshold",
+    property: "min-height",
+    selector: ".cover-tabs .mantine-Tabs-tab",
+    value: "30px",
+  },
+  {
+    case: { height: 667, width: 375 },
+    claim: "tab-row-pinned",
+    note: "the row's stickiness",
+    property: "position",
+    selector: ".cover-tabs .mantine-Tabs-list",
+    value: "static",
+  },
+];
+
+/**
+ * The page every entry above is measured on: the cover generator, whose geometry
+ * these three properties are. The percentage pairs on the preview cap and the 46px
+ * tab row are that Tool's own rules (`src/tools/cover-generator/rules.md`); the
+ * other two pages have hit-area claims too, and an entry for one of them belongs
+ * here the day it is worth a falsification run.
+ */
+const FALSIFY_PAGE = "cover";
+
+/**
+ * Put one rule in the live page, unlayered, and hand back the undo.
+ *
+ * Unlayered is what makes this reliable: every rule this site writes lives in one of
+ * `theme`/`base`/`mantine`/`components`/`utilities` (declared at the top of
+ * `apps/web/src/app/globals.css`), an unlayered rule outranks all of them, and a
+ * `<style>` appended at runtime is unlayered by definition. So the injection wins on
+ * layer order alone, with no `!important` and no specificity contest to keep in step
+ * with the stylesheet it is breaking.
+ *
+ * The element is removed again rather than overridden, so the next entry starts from
+ * the page as shipped.
+ */
+async function inject(client, entry) {
+  const id = `falsify-${entry.claim}`;
+  const css = `${entry.selector} { ${entry.property}: ${entry.value} }`;
+  await client.evaluate(`(() => {
+    const style = document.createElement('style');
+    style.id = ${JSON.stringify(id)};
+    style.textContent = ${JSON.stringify(css)};
+    document.head.append(style);
+    return true;
+  })()`);
+  return () => client.evaluate(`document.getElementById(${JSON.stringify(id)})?.remove()`);
+}
+
+/** How a claim's result set reads in one phrase. */
+const tally = (results) =>
+  `${results.length} line(s), ${results.filter((result) => !result.ok).length} red`;
+const red = (results) => results.filter((result) => !result.ok);
+
+/**
+ * The falsification run: prove that each guard in the list above *can* fail, on the
+ * page the sweep measures, without touching the source and without a second build.
+ *
+ * Per entry: measure the claim (it has to be green — on a page that is already red,
+ * an injection proves nothing), inject the rule, measure **the same claim** again
+ * through the same `runClaim`, require it to go red, remove the rule, and measure
+ * once more to show the page came back. Only the first of those is new work: the
+ * reading, the predicate and the report line are the ones the normal pass uses, which
+ * is the whole point — a parallel check would prove a copy of the guard.
+ *
+ * Exit code 1 if any claim stays green under its injection, if one was already red
+ * before it, or if the page does not come back green afterwards.
+ */
+async function falsify(baseUrl) {
+  const port = Number(process.env.CDP_PORT ?? 9333);
+  const client = await connect(port);
+  const page = PAGES.find((candidate) => candidate.name === FALSIFY_PAGE);
+  const [pointer] = POINTERS;
+  const [scheme] = SCHEMES;
+  let failures = 0;
+
+  try {
+    report("Falsification run — the instrument's own guards, injected one at a time");
+
+    for (const entry of FALSIFY) {
+      const claim = CLAIMS.find((candidate) => candidate.name === entry.claim);
+      if (claim === undefined) {
+        throw new Error(
+          `the falsification list names a claim that is not in the registry: ${entry.claim}`,
+        );
+      }
+      if (
+        !CASES.some(
+          (shape) => shape.width === entry.case.width && shape.height === entry.case.height,
+        )
+      ) {
+        throw new Error(
+          `the falsification list names a viewport the sweep does not measure: ${entry.case.width}×${entry.case.height}`,
+        );
+      }
+
+      // A fresh page per entry, prepared the way the sweep prepares it — a tab opened,
+      // a file dropped — so what is broken is the page the sweep actually measures.
+      await client.send("Emulation.setDeviceMetricsOverride", {
+        width: entry.case.width,
+        height: entry.case.height,
+        deviceScaleFactor: 1,
+        mobile: entry.case.width < NARROW_BELOW,
+      });
+      await client.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
+      });
+      await navigate(client, `${baseUrl}${page.path}`);
+      if (page.fileInput !== undefined) await addFile(client, page.fileInput);
+      // The *last* section, because that is where the sweep leaves the page when its
+      // page-level claims run: the ratio control the cap needs lives in 导出, and a
+      // mode that opened the first section instead would measure a page the sweep
+      // never measures — and throw on a ratio it cannot find.
+      const section = page.sections?.at(-1) ?? { controls: [], tab: null };
+      if (section.tab !== null) await selectTab(client, section.tab);
+      await waitForControls(client, [...page.controls, ...section.controls]);
+      const ctx = context(client, entry.case, pointer, scheme, page, section);
+
+      // Every measurement re-reads the page: the whole point is that the reading after
+      // the injection is the same expression against a page that has changed.
+      const measure = async () => {
+        ctx.reset();
+        return runClaim(claim, ctx);
+      };
+
+      report(`\n${claim.name} @${entry.case.width}×${entry.case.height} — ${claim.about}`);
+      report(
+        `  inject \`${entry.selector} { ${entry.property}: ${entry.value} }\` — ${entry.note}`,
+      );
+
+      const before = await measure();
+      const undo = await inject(client, entry);
+      const after = await measure();
+      await undo();
+      const restored = await measure();
+
+      const beforeRed = red(before);
+      const afterRed = red(after);
+      const restoredRed = red(restored);
+
+      report(`  before:   ${beforeRed.length === 0 ? "PASS" : "RED"} — ${tally(before)}`);
+      if (beforeRed.length > 0) {
+        failures++;
+        report("            (already failing before the injection, so this entry proves nothing)");
+        for (const result of beforeRed) report(`  ${result.line}`);
+      }
+      report(`  after:    ${afterRed.length === 0 ? "STILL GREEN" : "RED"} — ${tally(after)}`);
+      for (const result of afterRed) report(`  ${result.line}`);
+      if (beforeRed.length === 0 && afterRed.length === 0) failures++;
+      report(`  restored: ${restoredRed.length === 0 ? "PASS" : "RED"} — ${tally(restored)}`);
+      for (const result of restoredRed) report(`  ${result.line}`);
+      if (restoredRed.length > 0) failures++;
+    }
+  } finally {
+    client.close();
+  }
+
+  report(
+    failures === 0
+      ? `\nALL FALSIFIED — every injection turned its claim red, and every page came back green`
+      : `\n${failures} FALSIFICATION FAILURE(S)`,
+  );
+  process.exitCode = failures === 0 ? 0 : 1;
+}
+
+const argv = process.argv.slice(2);
+const [baseUrl = "http://127.0.0.1:3111"] = argv.filter((argument) => argument !== "--falsify");
+
+if (argv.includes("--falsify")) {
+  await falsify(baseUrl);
+} else {
+  await probe(baseUrl);
+}
