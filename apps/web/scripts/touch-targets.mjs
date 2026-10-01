@@ -61,7 +61,9 @@
  * starts the server and the Chrome `@playwright/test` pins, on the build the gate
  * just drove — a threshold nobody runs is not a check (`apps/web/docs/design/log.md`
  * item 3, 2026-09-30). The launching is duplicated on purpose, in three places (that
- * shell and the two script headers): it is the part that differs per machine.
+ * shell and the two script headers): it is the part that differs per machine. The
+ * command's *text* has a fourth copy, in `cdp.mjs`, where a browser that has gone is
+ * reported — a failure nobody can act on is not worth printing (#99).
  *
  * `--falsify` is the in-place falsification run (#100): after a green pass it breaks
  * each geometry property the claims below guard, one at a time, by injecting a style
@@ -649,10 +651,14 @@ const CLAIMS = [
     // The cap is measured on the ratio that can bind it: at the default 16:9 a narrow
     // pane is 211px of a 667px screen and sits well inside the cap, so a guard that
     // only looked at the default would pass without ever exercising the rule. 1:1 is
-    // the ratio that needs it — and the ratio control lives in 导出, which the section
-    // loop has just left open.
+    // the ratio that needs it — and the ratio control lives in 导出, which this claim
+    // opens itself rather than inheriting from the sweep's last section: a claim that
+    // only works when the loop happens to end where it needs to is not a unit anyone
+    // can call on its own (#98). In the sweep that click lands on the tab that is
+    // already selected, so it changes nothing the report can see.
     prepare: async (ctx) => {
       ctx.reset();
+      await selectTab(ctx.client, "导出");
       await selectRatio(ctx.client, "1:1");
     },
     read: (ctx) => ctx.read("layout", LAYOUT),
@@ -730,8 +736,12 @@ const CLAIMS = [
  * measurement, and paying for it three times would make the pass slower than it has
  * ever been. `reset` is how a caller says the page has moved on (a tab opened, a
  * ratio picked, a style injected) and the next `read` has to look again.
+ *
+ * Taken as one object rather than six positional arguments: `client`, `pointer`,
+ * `scheme` and `shape` travel together to every caller, and a context built with two
+ * of them swapped would measure the wrong thing silently.
  */
-function context(client, shape, pointer, scheme, page, section) {
+function context({ client, page, pointer, scheme, section, shape }) {
   const readings = new Map();
   return {
     client,
@@ -749,6 +759,21 @@ function context(client, shape, pointer, scheme, page, section) {
     section,
     width: shape.width,
   };
+}
+
+/**
+ * Walk the registry for one context: every claim of this scope, prepared, read,
+ * judged, printed, counted. The `per` check lives here rather than at the two call
+ * sites, so "which claims run now" is answered in one place.
+ */
+async function runClaims(scope, ctx) {
+  let failures = 0;
+  for (const claim of CLAIMS) {
+    if (claim.per !== scope) continue;
+    if (claim.only !== undefined && !claim.only(ctx)) continue;
+    failures += reportResults(await runClaim(claim, ctx));
+  }
+  return failures;
 }
 
 /**
@@ -775,6 +800,43 @@ function reportResults(results) {
   return failures;
 }
 
+/**
+ * Put the browser in one case: the viewport, and the two media features the site
+ * reads — the colour scheme and the pointer. Taken before a page is opened, because
+ * a page that is already loaded does not re-evaluate a media query the same way.
+ */
+async function applyCase(client, shape, pointer, scheme) {
+  await client.send("Emulation.setDeviceMetricsOverride", {
+    width: shape.width,
+    height: shape.height,
+    deviceScaleFactor: 1,
+    mobile: shape.width < NARROW_BELOW,
+  });
+  await client.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
+  });
+}
+
+/**
+ * Open one page: navigate, wait for React, and put the file in when the page's
+ * controls only exist after something has been dropped. Shared by the sweep and the
+ * falsification mode, so "the page as measured" is one definition rather than two
+ * that drift.
+ */
+async function openPage(client, baseUrl, page) {
+  await navigate(client, `${baseUrl}${page.path}`);
+  if (page.fileInput !== undefined) await addFile(client, page.fileInput);
+}
+
+/**
+ * Open one of a page's sections, and wait until every control the page and that
+ * section name is on the page — the state every claim is measured in.
+ */
+async function openSection(client, page, section) {
+  if (section.tab !== null) await selectTab(client, section.tab);
+  await waitForControls(client, [...page.controls, ...section.controls]);
+}
+
 async function probe(baseUrl) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
@@ -786,21 +848,10 @@ async function probe(baseUrl) {
         if (pointer.narrowOnly === true && shape.width >= NARROW_BELOW) continue;
 
         for (const scheme of SCHEMES) {
-          await client.send("Emulation.setDeviceMetricsOverride", {
-            width: shape.width,
-            height: shape.height,
-            deviceScaleFactor: 1,
-            mobile: shape.width < NARROW_BELOW,
-          });
-          await client.send("Emulation.setEmulatedMedia", {
-            features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
-          });
+          await applyCase(client, shape, pointer, scheme);
 
           for (const page of PAGES) {
-            await navigate(client, `${baseUrl}${page.path}`);
-            if (page.fileInput !== undefined) {
-              await addFile(client, page.fileInput);
-            }
+            await openPage(client, baseUrl, page);
 
             // A page with sections is visited one section at a time: the editor's
             // panels are unmounted when they are not picked (#91), so a flat list of
@@ -810,28 +861,23 @@ async function probe(baseUrl) {
             const sections = page.sections ?? [{ controls: [], tab: null }];
 
             for (const [index, section] of sections.entries()) {
-              if (section.tab !== null) await selectTab(client, section.tab);
-              await waitForControls(client, [...page.controls, ...section.controls]);
+              await openSection(client, page, section);
 
               if (index === 0) {
                 report(`\n${shape.width}×${shape.height} ${scheme}${pointer.label} — ${page.path}`);
               }
               if (section.tab !== null) report(`  [${section.tab}]`);
 
-              const ctx = context(client, shape, pointer, scheme, page, section);
-              for (const claim of CLAIMS) {
-                if (claim.per !== "section") continue;
-                if (claim.only !== undefined && !claim.only(ctx)) continue;
-                failures += reportResults(await runClaim(claim, ctx));
-              }
+              failures += await runClaims(
+                "section",
+                context({ client, page, pointer, scheme, section, shape }),
+              );
             }
 
-            const pageCtx = context(client, shape, pointer, scheme, page, null);
-            for (const claim of CLAIMS) {
-              if (claim.per !== "page") continue;
-              if (claim.only !== undefined && !claim.only(pageCtx)) continue;
-              failures += reportResults(await runClaim(claim, pageCtx));
-            }
+            failures += await runClaims(
+              "page",
+              context({ client, page, pointer, scheme, section: null, shape }),
+            );
           }
         }
       }
@@ -971,27 +1017,15 @@ async function falsify(baseUrl) {
         );
       }
 
-      // A fresh page per entry, prepared the way the sweep prepares it — a tab opened,
-      // a file dropped — so what is broken is the page the sweep actually measures.
-      await client.send("Emulation.setDeviceMetricsOverride", {
-        width: entry.case.width,
-        height: entry.case.height,
-        deviceScaleFactor: 1,
-        mobile: entry.case.width < NARROW_BELOW,
-      });
-      await client.send("Emulation.setEmulatedMedia", {
-        features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
-      });
-      await navigate(client, `${baseUrl}${page.path}`);
-      if (page.fileInput !== undefined) await addFile(client, page.fileInput);
-      // The *last* section, because that is where the sweep leaves the page when its
-      // page-level claims run: the ratio control the cap needs lives in 导出, and a
-      // mode that opened the first section instead would measure a page the sweep
-      // never measures — and throw on a ratio it cannot find.
-      const section = page.sections?.at(-1) ?? { controls: [], tab: null };
-      if (section.tab !== null) await selectTab(client, section.tab);
-      await waitForControls(client, [...page.controls, ...section.controls]);
-      const ctx = context(client, entry.case, pointer, scheme, page, section);
+      // A fresh page per entry, opened the way the sweep opens it — a tab, a file — so
+      // what is broken is the page the sweep actually measures. The page's *default*
+      // section, because that is the state the page is in before anything is picked;
+      // a claim that needs another one opens it in its own `prepare`.
+      await applyCase(client, entry.case, pointer, scheme);
+      await openPage(client, baseUrl, page);
+      const section = page.sections?.[0] ?? { controls: [], tab: null };
+      await openSection(client, page, section);
+      const ctx = context({ client, page, pointer, scheme, section, shape: entry.case });
 
       // Every measurement re-reads the page: the whole point is that the reading after
       // the injection is the same expression against a page that has changed.

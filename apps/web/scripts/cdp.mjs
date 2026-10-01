@@ -8,11 +8,11 @@
  * before every navigation it probes the debugging port, and a browser that has gone
  * fails the run in a sentence naming the port and the command that starts it again,
  * instead of a connection error that reads like a page that never rendered that
- * control. The rest stays in each script — which
- * pages to visit, how to size the viewport, how long to wait after a navigation,
- * how to report a result — because the two want different versions of all four,
- * and the one genuinely identical piece (a four-line console wrapper) is not
- * worth a module that would have to be named after nothing in particular.
+ * control. The rest stays in each script — which pages to visit, how to size the
+ * viewport, how long to wait after a navigation, how to report a result — because
+ * the two want different versions of all four, and the one genuinely identical piece
+ * (a four-line console wrapper) is not worth a module that would have to be named
+ * after nothing in particular.
  *
  * Deliberately no dependency: `WebSocket` and `fetch` are Node builtins from Node
  * 22 on, and a `node:`-only script is the point. This is an instrument — it

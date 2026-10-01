@@ -45,7 +45,7 @@ A check that asserts what the site does and whose failure blocks a pull request.
 _Avoid_: test, CI check, regression suite
 
 **Falsification run**:
-A deliberate break of the thing an assertion guards — its source changed, or a style injected into the live page — followed by a re-run of that same assertion, which has to go red. It is how a guard is shown to be able to fail at all, and it is done by hand, once, as recorded evidence. It is not mutation testing: nothing installs a mutation runner and nothing generates the breaks. The Chinese design docs write it 红一次 ("red once"), the way the instrument is 量具 and the gate is 门禁.
+A deliberate break of the thing an assertion guards — its source changed, or a style injected into the live page — followed by a re-run of that same assertion, which has to go red. It is how a guard is shown to be able to fail at all: done by hand, as evidence that goes in the log, and — for a geometry property — re-runnable by the instrument itself (`touch-targets --falsify`). It is not mutation testing: nothing installs a mutation runner and nothing generates the breaks, because the point is the one property the guard is about, chosen by a person. The Chinese design docs write it 红一次 ("red once"), the way the instrument is 量具 and the gate is 门禁.
 _Avoid_: negative test, mutation test
 
 **Design doc set**:
