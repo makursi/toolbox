@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The touch-target probe: the hit area of every `.touch-target` control, measured
+ * The touch-target instrument: the hit area of every `.touch-target` control, measured
  * in a real browser.
  *
  * `apps/web/docs/design/components.md` wants a 44px touch target, and the pre-flight
@@ -95,7 +95,7 @@ import { fileURLToPath } from "node:url";
 import { connect } from "./cdp.mjs";
 
 /**
- * The viewports this probe measures: the four widths the pre-flight checklist
+ * The viewports this instrument measures: the four widths the pre-flight checklist
  * names, plus the phone the owner actually holds — each with the height it is
  * measured at (#89).
  *
@@ -425,7 +425,7 @@ async function addFile(client, selector) {
  * Wait until the page carries every control it names, and let the name check
  * below report the one that never arrived. A control that appears a beat after a
  * file has been read would otherwise be measured as a control the page does not
- * have — the one failure this probe would report for the wrong reason.
+ * have — the one failure this instrument would report for the wrong reason.
  */
 async function waitForControls(client, names) {
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -837,7 +837,7 @@ async function openSection(client, page, section) {
   await waitForControls(client, [...page.controls, ...section.controls]);
 }
 
-async function probe(baseUrl) {
+async function sweep(baseUrl) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
   let failures = 0;
@@ -1080,5 +1080,5 @@ const [baseUrl = "http://127.0.0.1:3111"] = argv.filter((argument) => argument !
 if (argv.includes("--falsify")) {
   await falsify(baseUrl);
 } else {
-  await probe(baseUrl);
+  await sweep(baseUrl);
 }
