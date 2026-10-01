@@ -19,6 +19,17 @@
  * separate one-off scripts, and `apps/web/docs/design/log.md` records what they
  * found.
  *
+ * Two limits are written down here so that "identical" is never read as "nothing
+ * could have changed". The outline keeps Mantine's own classes (static
+ * `mantine-*` names and content-hashed `m_*` ones) and drops every Tailwind
+ * utility class, and it reads a fixed list of attributes — so a swap from one
+ * utility class to another with the same computed effect is invisible unless it
+ * moves something. And the view states are emulated on a page that is already
+ * loaded, one navigation per page rather than one per state: the scheme is set,
+ * then the read waits out its budget. That is a race this site has never lost,
+ * and it is the first suspect if a scheme pair ever differs with nothing else on
+ * the page different.
+ *
  * Usage — the Chrome has to be running already, because launching it is the part
  * that differs per machine:
  *
@@ -67,8 +78,13 @@ const OUTLINE = `(() => {
   const lines = [];
   const walk = (el, depth) => {
     if (skip.has(el.tagName)) return;
+    // Mantine's module class names are content-hashed and stable across builds, but
+    // the hash is seven *or* eight hex characters depending on the component
+    // (measured against the installed build: 28 of its 407 are seven), so both
+    // lengths are kept. An eight-only pattern dropped those classes from the outline
+    // in silence. React's per-instance names are not stable and stay out.
     const classes = [...el.classList]
-      .filter((c) => c.startsWith('mantine-') || /^m_[0-9a-f]{8}$/.test(c))
+      .filter((c) => c.startsWith('mantine-') || /^m_[0-9a-f]{7,8}$/.test(c))
       .sort();
     const own = [...el.childNodes]
       .filter((n) => n.nodeType === 3)
@@ -120,17 +136,24 @@ async function capture(baseUrl, outFile) {
 
   try {
     for (const [name, path] of PAGES) {
-      // The page-level outline is taken at a fixed viewport: it used to inherit
-      // whatever the previous run left behind, which read as a difference in the
-      // first comparison that ran after a mobile-width pass.
+      // The page-level outline is taken at a fixed viewport *and* a fixed colour
+      // scheme. Both halves used to be inherited: the viewport read as a difference
+      // in the first comparison that ran after a mobile-width pass, and the scheme
+      // was still inherited from the page before, because the loop below sets its
+      // media after a page has loaded (#105).
       await client.send("Emulation.setDeviceMetricsOverride", {
         width: 1280,
         height: 900,
         deviceScaleFactor: 1,
         mobile: false,
       });
-      await client.send("Page.navigate", { url: `${baseUrl}${path}` });
-      await new Promise((resolve) => setTimeout(resolve, 1800));
+      await client.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-color-scheme", value: SCHEMES[0] }],
+      });
+      // Navigating through the shared connection layer is what refuses a page that
+      // never arrived — and what replaces the 1800 ms sleep that used to be the only
+      // thing between a dead server and a fingerprint of its error page (ADR-0015).
+      await client.navigate(`${baseUrl}${path}`);
 
       const page = { path, views: {}, outline: await client.evaluate(OUTLINE) };
 
@@ -207,10 +230,13 @@ function compare(beforeFile, afterFile) {
       firstDifference(b.outline, a.outline),
     );
 
-    for (const view of Object.keys(b.views)) {
+    // Both files' view states, not only the "before" file's: a state that exists in
+    // "after" alone used to be skipped in silence (#105).
+    const views = [...new Set([...Object.keys(b.views), ...Object.keys(a.views)])].sort();
+    for (const view of views) {
       const bv = b.views[view];
       const av = a.views[view];
-      if (!av) {
+      if (!bv || !av) {
         check(`${page} @${view}: captured in both files`, false);
         continue;
       }
