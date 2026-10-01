@@ -28,6 +28,17 @@
  * remove cross, and the cover generator's 清除) get one through CDP, the
  * technique `apps/web/docs/design/log.md` already records.
  *
+ * Four things about the reading itself, so that a number can be read without
+ * reverse-engineering the walk. The walk stops at 120 steps each way, so a control
+ * larger than 241px on an axis reads as 241 — far past the threshold this exists
+ * for. A point counts as a hit when `elementFromPoint` returns the control **or
+ * anything inside it**, which is deliberate: a target that grew over a neighbour
+ * fails here rather than passing. A control is landed on whole pixels before it is
+ * measured, because the walk answers in whole pixels while a row's top is a
+ * fraction (#91). And horizontal overflow is read from the page's own
+ * `documentElement`: a nested scroller is not searched, because a legitimately
+ * scrollable list would then be reported as a defect.
+ *
  * It grew more claims, all about the rendered page and none of them about a hit
  * area: every page names the controls it has to carry (#81 — a floor on the count
  * cannot tell 清除 from the ~50 icon rows that arrive on their own), the cover
@@ -260,6 +271,12 @@ const FIXTURE = fileURLToPath(
  * have arrived. `aria-label` first (an icon-only control has no text), the
  * visible text otherwise. A name is matched as a *substring*, which is what lets
  * one expected name cover the colour switch's two labels (切换到深色 / 浅色).
+ *
+ * The expressions below — `LABEL` through `STICKY` — are JavaScript **inside**
+ * template literals. None of them may contain a backtick — not even inside a
+ * comment, because that is where the outer template ends: a `45dvh` written in a
+ * comment here broke the whole file, and the way it fails (`Invalid or unexpected
+ * token`, hundreds of lines below) names nothing (#108).
  */
 const LABEL = `(el) => (el.getAttribute('aria-label') || el.innerText || '').replace(/\\s+/g, ' ').trim()`;
 
@@ -400,6 +417,9 @@ const LAYOUT = `(() => {
     direction: getComputedStyle(flex).flexDirection,
     editor: box(editor),
     preview: paneBox,
+    // The height the page has, not the height that was asked for: the cap this is
+    // compared against is 45dvh, whose basis is the page's own viewport (#108).
+    viewport: window.innerHeight,
   });
 })()`;
 
@@ -731,15 +751,24 @@ const CLAIMS = [
       "at the default ratio the preview is capped on a narrow screen and exactly its column on a wide one",
     per: "page",
     only: (ctx) => ctx.page.layout === true,
+    // The default ratio is a state this claim has to *be* in, not one it inherits:
+    // it used to be whatever the walk left behind, which made its verdict depend on
+    // running before the claim that picks 1:1 — the principle this registry's own
+    // comments write down for its sibling (#98, #108). 16:9 is the Tool's default,
+    // and the claim names it rather than reading it back: a guard that follows the
+    // implementation it guards cannot fail.
+    prepare: async (ctx) => {
+      ctx.reset();
+      await selectTab(ctx.client, "导出");
+      await selectRatio(ctx.client, "16:9");
+    },
     read: (ctx) => ctx.read("layout", LAYOUT),
-    // Read before any ratio is picked, because the cap is narrow-only: on a wide
-    // screen the pane has to be exactly its column at 16:9 too, and this is the only
-    // reading taken at the default (the cap's own reading is at 1:1, the ratio that
-    // can bind it).
+    // The cap is narrow-only: on a wide screen the pane has to be exactly its column
+    // at 16:9 too.
     judge: (layout, ctx) => {
       if (layout.missing === true || layout.preview === null) return [];
       const share = Math.round(PREVIEW_MAX_SHARE * 100);
-      const ceiling = Math.round(ctx.height * PREVIEW_MAX_SHARE);
+      const ceiling = Math.round(layout.viewport * PREVIEW_MAX_SHARE);
       const ok = ctx.narrow
         ? layout.preview.height <= ceiling + 1
         : Math.abs(layout.preview.width - layout.canvas.width) <= 1;
@@ -750,7 +779,7 @@ const CLAIMS = [
             ctx.narrow
               ? `at the default ratio the preview is no taller than ${share}% of the viewport`
               : "at the default ratio the preview is exactly its column"
-          } — pane ${layout.preview.width}x${layout.preview.height}, column ${layout.canvas.width}px, ceiling ${ceiling}px of ${ctx.height}px`,
+          } — pane ${layout.preview.width}x${layout.preview.height}, column ${layout.canvas.width}px, ceiling ${ceiling}px of ${layout.viewport}px`,
         },
       ];
     },
@@ -782,7 +811,7 @@ const CLAIMS = [
         ];
       }
       const share = Math.round(PREVIEW_MAX_SHARE * 100);
-      const ceiling = Math.round(ctx.height * PREVIEW_MAX_SHARE);
+      const ceiling = Math.round(capped.viewport * PREVIEW_MAX_SHARE);
       const ok = ctx.narrow
         ? capped.preview.height <= ceiling + 1
         : Math.abs(capped.preview.width - capped.canvas.width) <= 1;
@@ -793,7 +822,7 @@ const CLAIMS = [
             ctx.narrow
               ? `on 1:1 the preview is no taller than ${share}% of the viewport`
               : "on 1:1 the preview still fills its column"
-          } — pane ${capped.preview.width}x${capped.preview.height}, ceiling ${ceiling}px of ${ctx.height}px, column ${capped.canvas.width}px`,
+          } — pane ${capped.preview.width}x${capped.preview.height}, ceiling ${ceiling}px of ${capped.viewport}px, column ${capped.canvas.width}px`,
         },
       ];
     },
@@ -859,7 +888,6 @@ function context({ client, page, pointer, scheme, section, shape }) {
   return {
     carriers: [...(page.carriers ?? []), ...(section?.carriers ?? [])],
     client,
-    height: shape.height,
     narrow: shape.width < NARROW_BELOW,
     names: [...page.controls, ...(section?.controls ?? [])],
     page,
@@ -872,7 +900,6 @@ function context({ client, page, pointer, scheme, section, shape }) {
     reset: () => readings.clear(),
     scheme,
     section,
-    width: shape.width,
   };
 }
 
