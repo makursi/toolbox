@@ -84,8 +84,9 @@
  *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
  * under 43, when a control the page says it must carry is missing, when a control
- * matching a declared selector has lost the hit-area class, when a control
- * another section owns is on the page while a section is open, when the cover
+ * matching a declared selector has lost the hit-area class, when a control or a
+ * panel another section owns is on the page while a section is open — or when a
+ * section's own panel is not — when the cover
  * generator's two columns are on the wrong side of the breakpoint, when its preview
  * is taller than the share its rule allows or no longer fills its column, when its
  * tab row has scrolled away, or on horizontal overflow — and, under `--falsify`,
@@ -211,13 +212,33 @@ const PAGES = [
         // without moving a pixel (#106).
         carriers: [".cover-icon-option"],
         controls: ["获取系统字体", "清除"],
+        presence: {
+          absent: [".cover-panel-style", ".cover-panel-export"],
+          present: [".cover-panel-content"],
+        },
         tab: "内容",
       },
       // The 样式 panel holds no `.touch-target` control — its controls are sliders
-      // and switches — but it is still visited: the point of naming it is that
-      // nothing from the other sections may be on the page while it is open.
-      { controls: [], tab: "样式" },
-      { controls: ["下载 16:9"], tab: "导出" },
+      // and switches — so no name can hold it. `presence` holds it instead: a section
+      // declares the panel DOM it owns, which is the side a name check can never see,
+      // a panel leaking *in* rather than out (#107). That the absence is real is
+      // `keepMounted={false}` on the tabs.
+      {
+        controls: [],
+        presence: {
+          absent: [".cover-panel-content", ".cover-panel-export"],
+          present: [".cover-panel-style"],
+        },
+        tab: "样式",
+      },
+      {
+        controls: ["下载 16:9"],
+        presence: {
+          absent: [".cover-panel-content", ".cover-panel-style"],
+          present: [".cover-panel-export"],
+        },
+        tab: "导出",
+      },
     ],
   },
 ];
@@ -322,6 +343,25 @@ const readCarriers = (selectors) => `(() => {
         .map((el) => el.tagName.toLowerCase() + (label(el) ? ' "' + label(el).slice(0, 24) + '"' : '')),
     };
   }));
+})()`;
+
+/**
+ * Which of a section's declared panels are on the page, and how many of each.
+ *
+ * The name check answers "are the controls this section names here"; this answers
+ * the question a name cannot: "is what it owns here, and is anything else". Both
+ * halves are read in one pass, and every declaration is counted, so a section whose
+ * selectors all went stale reports zeroes rather than silence.
+ */
+const readPresence = (presence) => `(() => {
+  const count = (selectors) => ${JSON.stringify(selectors)}.map((selector) => ({
+    selector,
+    matched: document.querySelectorAll(selector).length,
+  }));
+  return JSON.stringify({
+    absent: count(${JSON.stringify(presence.absent ?? [])}),
+    present: count(${JSON.stringify(presence.present ?? [])}),
+  });
 })()`;
 
 /**
@@ -597,6 +637,40 @@ const CLAIMS = [
     },
   },
   {
+    name: "section-presence",
+    about: "the panels on the page are the ones this section owns, and no others",
+    per: "section",
+    only: (ctx) => ctx.presence !== undefined,
+    read: (ctx) => ctx.read("presence", readPresence(ctx.presence)),
+    judge: (read, ctx) => {
+      const problems = [
+        ...read.present
+          .filter((entry) => entry.matched === 0)
+          .map((entry) => ({
+            ok: false,
+            line: `  FAIL  nothing matches ${entry.selector} — this section's own panel is not on the page`,
+          })),
+        ...read.absent
+          .filter((entry) => entry.matched > 0)
+          .map((entry) => ({
+            ok: false,
+            line: `  FAIL  ${entry.selector} is on the page while the ${ctx.section.tab} section is open (${entry.matched} matched)`,
+          })),
+      ];
+      if (problems.length > 0) return problems;
+      const summary = [
+        ...read.present.map((entry) => `${entry.selector} present (${entry.matched})`),
+        ...read.absent.map((entry) => `${entry.selector} absent (${entry.matched})`),
+      ].join(", ");
+      return [
+        {
+          ok: true,
+          line: `  PASS  the panels on the page are the ones this section owns — ${summary}`,
+        },
+      ];
+    },
+  },
+  {
     name: "horizontal-overflow",
     about: "the page does not scroll sideways",
     per: "section",
@@ -790,6 +864,7 @@ function context({ client, page, pointer, scheme, section, shape }) {
     names: [...page.controls, ...(section?.controls ?? [])],
     page,
     pointer,
+    presence: section?.presence,
     read: async (key, expression) => {
       if (!readings.has(key)) readings.set(key, JSON.parse(await client.evaluate(expression)));
       return readings.get(key);
