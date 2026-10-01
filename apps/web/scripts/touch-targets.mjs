@@ -44,24 +44,51 @@
  * hydration signal rather than for a sleep — a control in the prerendered HTML
  * looks hydrated, and a click or a file dropped on it is silently lost.
  *
+ * Every guarded property is a named **claim** (#98): a unit with its own reading,
+ * its own predicate and the lines it prints, walked from `CLAIMS` below. Naming
+ * them is what lets `--falsify` re-run a guard on a page it has just broken, rather
+ * than writing a second version of the guard to test the first.
+ *
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
  *
  *   pnpm build && pnpm --filter @toolbox/web start -p 3111
  *   chrome --headless=new --remote-debugging-port=9333 --user-data-dir=<tmp dir>
  *   pnpm --filter @toolbox/web touch-targets [baseUrl]
+ *   pnpm --filter @toolbox/web touch-targets --falsify [baseUrl]
  *
  * CI does that launching for you: the `Hit areas` step in `.github/workflows/ci.yml`
  * starts the server and the Chrome `@playwright/test` pins, on the build the gate
  * just drove — a threshold nobody runs is not a check (`apps/web/docs/design/log.md`
- * item 3, 2026-09-30).
+ * item 3, 2026-09-30). The launching is duplicated on purpose, in three places (that
+ * shell and the two script headers): it is the part that differs per machine. The
+ * command's *text* has a fourth copy, in `cdp.mjs`, where a browser that has gone is
+ * reported — a failure nobody can act on is not worth printing (#99).
+ *
+ * `--falsify` is the in-place falsification run (#100): after a green pass it breaks
+ * each geometry property the claims below guard, one at a time, by injecting a style
+ * into the live page, re-runs **that claim** and requires it to go red. An injection
+ * that leaves its claim green exits 1 — an injection that changes nothing proves
+ * nothing. The injection is reliable because it is **unlayered**: this repository's
+ * layer order is `theme → base → mantine → components → utilities` (declared at the
+ * top of `apps/web/src/app/globals.css`) and an unlayered rule outranks every layer,
+ * so an injected rule wins whatever the stylesheet says.
+ *
+ * What `--falsify` cannot prove: anything structural or behavioural. Whether an
+ * unpicked panel is still mounted, whether the chosen section is written to the URL,
+ * the keyboard model — those are React props and event handlers rather than computed
+ * styles, so the only place to inject them is the source, on CI (prior art: putting
+ * `keepMounted` back and watching the gate's new assertion go red, PR #94). It proves
+ * the claims it names and nothing else: a page line it does not mention is untouched
+ * by the run.
  *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
  * under 43, when a control the page says it must carry is missing, when a control
  * another section owns is on the page while a section is open, when the cover
  * generator's two columns are on the wrong side of the breakpoint, when its preview
  * is taller than the share its rule allows or no longer fills its column, when its
- * tab row has scrolled away, or on horizontal overflow, so it gates a shell chain.
+ * tab row has scrolled away, or on horizontal overflow — and, under `--falsify`,
+ * when an injection fails to turn its claim red — so it gates a shell chain.
  */
 import { fileURLToPath } from "node:url";
 
@@ -480,32 +507,351 @@ async function selectRatio(client, ratioKey) {
   throw new Error(`the download button never came to say 下载 ${ratioKey}`);
 }
 
+/**
+ * The claims, in the order the report reads them.
+ *
+ * Each one is a named unit: `read` takes its reading off the page, `judge` is the
+ * predicate and the lines it prints, and `per` says whether it is taken once per
+ * editor section or once per page. `runClaim` is the only thing that evaluates one,
+ * which is what lets the falsification mode below re-run a guard on a page it has
+ * just broken instead of writing a second copy of it.
+ *
+ * Readings are shared through `ctx.read`: several claims read the same measurement,
+ * and taking it once is what keeps a full pass at the ~40 seconds it has always
+ * been. A claim whose `prepare` changes the page resets that cache, because the old
+ * reading is no longer what the page says.
+ */
+const CLAIMS = [
+  {
+    name: "named-controls",
+    about: "every control the page says it must carry is on the page",
+    per: "section",
+    read: (ctx) => ctx.read("measure", MEASURE),
+    judge: (measured, ctx) =>
+      ctx.names.map((name) => {
+        const found = measured.controls.some((control) => control.label.includes(name));
+        return { ok: found, line: `  ${found ? "PASS" : "FAIL"}  ${name}` };
+      }),
+  },
+  {
+    name: "section-isolation",
+    about: "nothing another section owns is on the page while a section is open",
+    per: "section",
+    only: (ctx) => ctx.page.sections !== undefined,
+    read: (ctx) => ctx.read("measure", MEASURE),
+    judge: (measured, ctx) => {
+      // The other sections' controls have to be gone, not merely hidden: a section
+      // left on the page would let the row look switched while the old panel is
+      // still what a pointer reaches.
+      const leaked = ctx.page.sections
+        .filter((other) => other.tab !== ctx.section.tab)
+        .flatMap((other) => other.controls)
+        .filter((name) => measured.controls.some((control) => control.label.includes(name)));
+      return [
+        {
+          ok: leaked.length === 0,
+          line: `  ${leaked.length === 0 ? "PASS" : "FAIL"}  nothing from the other sections is on the page${
+            leaked.length === 0 ? "" : ` — found ${leaked.join(", ")}`
+          }`,
+        },
+      ];
+    },
+  },
+  {
+    name: "horizontal-overflow",
+    about: "the page does not scroll sideways",
+    per: "section",
+    read: (ctx) => ctx.read("measure", MEASURE),
+    // Only the failure has a line: a page that does not overflow has nothing to say,
+    // and that silence is part of the report this must not change.
+    judge: (measured) =>
+      measured.overflow > 0
+        ? [{ line: `  FAIL  horizontal overflow: ${measured.overflow}px`, ok: false }]
+        : [],
+  },
+  {
+    name: "hit-areas",
+    about: `every .touch-target control answers at ${MIN}+ on both axes`,
+    per: "section",
+    read: (ctx) => ctx.read("measure", MEASURE),
+    judge: (measured) =>
+      measured.controls.map((control) => {
+        const ok = control.x >= MIN && control.y >= MIN;
+        return {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
+        };
+      }),
+  },
+  {
+    name: "column-order",
+    about: "the cover generator's two columns are on the side of the breakpoint its rule names",
+    per: "page",
+    only: (ctx) => ctx.page.layout === true,
+    read: (ctx) => ctx.read("layout", LAYOUT),
+    judge: (layout, ctx) => {
+      if (layout.missing === true) {
+        return [
+          { line: "  FAIL  the cover generator's two columns are not on the page", ok: false },
+        ];
+      }
+      const ok = ctx.narrow
+        ? layout.canvas.top < layout.editor.top &&
+          Math.abs(layout.canvas.width - layout.editor.width) <= 1
+        : layout.editor.left < layout.canvas.left &&
+          Math.abs(layout.canvas.top - layout.editor.top) <= 1;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  ${
+            ctx.narrow
+              ? "the canvas column comes before the editor's"
+              : "the editor and the canvas are side by side"
+          } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}; the page's own direction is ${layout.direction}`,
+        },
+      ];
+    },
+  },
+  {
+    name: "preview-default-ratio",
+    about:
+      "at the default ratio the preview is capped on a narrow screen and exactly its column on a wide one",
+    per: "page",
+    only: (ctx) => ctx.page.layout === true,
+    read: (ctx) => ctx.read("layout", LAYOUT),
+    // Read before any ratio is picked, because the cap is narrow-only: on a wide
+    // screen the pane has to be exactly its column at 16:9 too, and this is the only
+    // reading taken at the default (the cap's own reading is at 1:1, the ratio that
+    // can bind it).
+    judge: (layout, ctx) => {
+      if (layout.missing === true || layout.preview === null) return [];
+      const share = Math.round(PREVIEW_MAX_SHARE * 100);
+      const ceiling = Math.round(ctx.height * PREVIEW_MAX_SHARE);
+      const ok = ctx.narrow
+        ? layout.preview.height <= ceiling + 1
+        : Math.abs(layout.preview.width - layout.canvas.width) <= 1;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  ${
+            ctx.narrow
+              ? `at the default ratio the preview is no taller than ${share}% of the viewport`
+              : "at the default ratio the preview is exactly its column"
+          } — pane ${layout.preview.width}x${layout.preview.height}, column ${layout.canvas.width}px, ceiling ${ceiling}px of ${ctx.height}px`,
+        },
+      ];
+    },
+  },
+  {
+    name: "preview-cap",
+    about:
+      "on 1:1 the preview is capped on a narrow screen and still fills its column on a wide one",
+    per: "page",
+    only: (ctx) => ctx.page.layout === true,
+    // The cap is measured on the ratio that can bind it: at the default 16:9 a narrow
+    // pane is 211px of a 667px screen and sits well inside the cap, so a guard that
+    // only looked at the default would pass without ever exercising the rule. 1:1 is
+    // the ratio that needs it — and the ratio control lives in 导出, which this claim
+    // opens itself rather than inheriting from the sweep's last section: a claim that
+    // only works when the loop happens to end where it needs to is not a unit anyone
+    // can call on its own (#98). In the sweep that click lands on the tab that is
+    // already selected, so it changes nothing the report can see.
+    prepare: async (ctx) => {
+      ctx.reset();
+      await selectTab(ctx.client, "导出");
+      await selectRatio(ctx.client, "1:1");
+    },
+    read: (ctx) => ctx.read("layout", LAYOUT),
+    judge: (capped, ctx) => {
+      if (capped.missing === true || capped.preview === null) {
+        return [
+          { line: "  FAIL  the cover generator's preview pane is not on the page", ok: false },
+        ];
+      }
+      const share = Math.round(PREVIEW_MAX_SHARE * 100);
+      const ceiling = Math.round(ctx.height * PREVIEW_MAX_SHARE);
+      const ok = ctx.narrow
+        ? capped.preview.height <= ceiling + 1
+        : Math.abs(capped.preview.width - capped.canvas.width) <= 1;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  ${
+            ctx.narrow
+              ? `on 1:1 the preview is no taller than ${share}% of the viewport`
+              : "on 1:1 the preview still fills its column"
+          } — pane ${capped.preview.width}x${capped.preview.height}, ceiling ${ceiling}px of ${ctx.height}px, column ${capped.canvas.width}px`,
+        },
+      ];
+    },
+  },
+  {
+    name: "tab-row-pinned",
+    about: "the tab row keeps its place while the page scrolls, and does not sit over the preview",
+    per: "page",
+    only: (ctx) => ctx.page.layout === true,
+    // The long panel is the one to read from — it is the panel a visitor scrolls
+    // through, and the only one long enough for the preview to reach the offset it
+    // pins at.
+    prepare: async (ctx) => {
+      ctx.reset();
+      await selectTab(ctx.client, "内容");
+    },
+    read: (ctx) => ctx.read("sticky", STICKY),
+    judge: (sticky, ctx) => {
+      if (sticky.missing === true) {
+        return [{ line: "  FAIL  the cover generator's tab row is not on the page", ok: false }];
+      }
+      const endOk = sticky.end.row.top >= 0 && sticky.end.row.bottom <= sticky.end.viewport;
+      const pane = sticky.middle.pane;
+      // The preview has to be pinned once the scroll has carried its static
+      // position above the offset it pins at — that is the box the visitor is
+      // editing, and the row's own offset below the breakpoint is computed
+      // from its height. A page too short to get there proves the clearance
+      // instead, not the pinning.
+      const shouldPin =
+        pane !== null &&
+        sticky.paneStaticTop !== null &&
+        sticky.paneStaticTop - sticky.middle.scrollY <= 18;
+      const pinned = !shouldPin || Math.abs(pane.top - 16) <= 2;
+      const clears = !ctx.narrow || pane === null || sticky.middle.row.top >= pane.bottom - 1;
+      const midOk = !sticky.scrollable || (pinned && clears && sticky.middle.row.top >= 0);
+      const ok = endOk && midOk;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  the row keeps its place while the page scrolls — halfway: row ${sticky.middle.row.top}..${sticky.middle.row.bottom}, preview ${
+            pane === null ? "none" : `${pane.top}..${pane.bottom}`
+          } of a ${sticky.middle.viewport}px viewport at scroll ${sticky.middle.scrollY}${shouldPin ? " (pinned is required here)" : " (too short to reach the pin)"}; at the end: row ${sticky.end.row.top}..${sticky.end.row.bottom}${sticky.scrollable ? "" : " (the page does not scroll)"}`,
+        },
+      ];
+    },
+  },
+];
+
+/**
+ * One claim's context: what is being measured, and the readings it has asked for.
+ *
+ * `read` takes each expression at most once per context — three claims share the one
+ * measurement, and paying for it three times would make the pass slower than it has
+ * ever been. `reset` is how a caller says the page has moved on (a tab opened, a
+ * ratio picked, a style injected) and the next `read` has to look again.
+ *
+ * Taken as one object rather than six positional arguments: `client`, `pointer`,
+ * `scheme` and `shape` travel together to every caller, and a context built with two
+ * of them swapped would measure the wrong thing silently.
+ */
+function context({ client, page, pointer, scheme, section, shape }) {
+  const readings = new Map();
+  return {
+    client,
+    height: shape.height,
+    narrow: shape.width < NARROW_BELOW,
+    names: [...page.controls, ...(section?.controls ?? [])],
+    page,
+    pointer,
+    read: async (key, expression) => {
+      if (!readings.has(key)) readings.set(key, JSON.parse(await client.evaluate(expression)));
+      return readings.get(key);
+    },
+    reset: () => readings.clear(),
+    scheme,
+    section,
+    width: shape.width,
+  };
+}
+
+/**
+ * Walk the registry for one context: every claim of this scope, prepared, read,
+ * judged, printed, counted. The `per` check lives here rather than at the two call
+ * sites, so "which claims run now" is answered in one place.
+ */
+async function runClaims(scope, ctx) {
+  let failures = 0;
+  for (const claim of CLAIMS) {
+    if (claim.per !== scope) continue;
+    if (claim.only !== undefined && !claim.only(ctx)) continue;
+    failures += reportResults(await runClaim(claim, ctx));
+  }
+  return failures;
+}
+
+/**
+ * Evaluate one claim: prepare the page, take its reading, apply its own predicate.
+ * The single path any claim is ever evaluated by — the sweep below walks the
+ * registry through it, and the falsification mode calls it again on a page it has
+ * just broken, which is what makes that a replay of the guard rather than a copy.
+ *
+ * `judge` is synchronous and reads nothing but its reading and the context: a
+ * predicate that measured something of its own could not be replayed this way.
+ */
+async function runClaim(claim, ctx) {
+  if (claim.prepare !== undefined) await claim.prepare(ctx);
+  return claim.judge(await claim.read(ctx), ctx);
+}
+
+/** Print a claim's lines and count what failed. */
+function reportResults(results) {
+  let failures = 0;
+  for (const result of results) {
+    if (!result.ok) failures++;
+    report(result.line);
+  }
+  return failures;
+}
+
+/**
+ * Put the browser in one case: the viewport, and the two media features the site
+ * reads — the colour scheme and the pointer. Taken before a page is opened, because
+ * a page that is already loaded does not re-evaluate a media query the same way.
+ */
+async function applyCase(client, shape, pointer, scheme) {
+  await client.send("Emulation.setDeviceMetricsOverride", {
+    width: shape.width,
+    height: shape.height,
+    deviceScaleFactor: 1,
+    mobile: shape.width < NARROW_BELOW,
+  });
+  await client.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
+  });
+}
+
+/**
+ * Open one page: navigate, wait for React, and put the file in when the page's
+ * controls only exist after something has been dropped. Shared by the sweep and the
+ * falsification mode, so "the page as measured" is one definition rather than two
+ * that drift.
+ */
+async function openPage(client, baseUrl, page) {
+  await navigate(client, `${baseUrl}${page.path}`);
+  if (page.fileInput !== undefined) await addFile(client, page.fileInput);
+}
+
+/**
+ * Open one of a page's sections, and wait until every control the page and that
+ * section name is on the page — the state every claim is measured in.
+ */
+async function openSection(client, page, section) {
+  if (section.tab !== null) await selectTab(client, section.tab);
+  await waitForControls(client, [...page.controls, ...section.controls]);
+}
+
 async function probe(baseUrl) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
   let failures = 0;
 
   try {
-    for (const { height, width } of CASES) {
+    for (const shape of CASES) {
       for (const pointer of POINTERS) {
-        if (pointer.narrowOnly === true && width >= NARROW_BELOW) continue;
+        if (pointer.narrowOnly === true && shape.width >= NARROW_BELOW) continue;
 
         for (const scheme of SCHEMES) {
-          await client.send("Emulation.setDeviceMetricsOverride", {
-            width,
-            height,
-            deviceScaleFactor: 1,
-            mobile: width < NARROW_BELOW,
-          });
-          await client.send("Emulation.setEmulatedMedia", {
-            features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
-          });
+          await applyCase(client, shape, pointer, scheme);
 
           for (const page of PAGES) {
-            await navigate(client, `${baseUrl}${page.path}`);
-            if (page.fileInput !== undefined) {
-              await addFile(client, page.fileInput);
-            }
+            await openPage(client, baseUrl, page);
 
             // A page with sections is visited one section at a time: the editor's
             // panels are unmounted when they are not picked (#91), so a flat list of
@@ -515,159 +861,23 @@ async function probe(baseUrl) {
             const sections = page.sections ?? [{ controls: [], tab: null }];
 
             for (const [index, section] of sections.entries()) {
-              if (section.tab !== null) await selectTab(client, section.tab);
-              await waitForControls(client, [...page.controls, ...section.controls]);
+              await openSection(client, page, section);
 
-              const measured = JSON.parse(await client.evaluate(MEASURE));
               if (index === 0) {
-                report(`\n${width}×${height} ${scheme}${pointer.label} — ${page.path}`);
+                report(`\n${shape.width}×${shape.height} ${scheme}${pointer.label} — ${page.path}`);
               }
               if (section.tab !== null) report(`  [${section.tab}]`);
 
-              for (const name of [...page.controls, ...section.controls]) {
-                const found = measured.controls.some((control) => control.label.includes(name));
-                if (!found) failures++;
-                report(`  ${found ? "PASS" : "FAIL"}  ${name}`);
-              }
-
-              // The other sections' controls have to be gone, not merely hidden: a
-              // section left on the page would let the row look switched while the
-              // old panel is still what a pointer reaches.
-              if (page.sections !== undefined) {
-                const leaked = page.sections
-                  .filter((other) => other.tab !== section.tab)
-                  .flatMap((other) => other.controls)
-                  .filter((name) =>
-                    measured.controls.some((control) => control.label.includes(name)),
-                  );
-                if (leaked.length > 0) failures++;
-                report(
-                  `  ${leaked.length === 0 ? "PASS" : "FAIL"}  nothing from the other sections is on the page${
-                    leaked.length === 0 ? "" : ` — found ${leaked.join(", ")}`
-                  }`,
-                );
-              }
-
-              if (measured.overflow > 0) {
-                failures++;
-                report(`  FAIL  horizontal overflow: ${measured.overflow}px`);
-              }
-
-              for (const control of measured.controls) {
-                const ok = control.x >= MIN && control.y >= MIN;
-                if (!ok) failures++;
-                report(
-                  `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
-                );
-              }
+              failures += await runClaims(
+                "section",
+                context({ client, page, pointer, scheme, section, shape }),
+              );
             }
 
-            if (page.layout === true) {
-              const layout = JSON.parse(await client.evaluate(LAYOUT));
-              if (layout.missing === true) {
-                failures++;
-                report("  FAIL  the cover generator's two columns are not on the page");
-              } else {
-                const narrow = width < NARROW_BELOW;
-                const ok = narrow
-                  ? layout.canvas.top < layout.editor.top &&
-                    Math.abs(layout.canvas.width - layout.editor.width) <= 1
-                  : layout.editor.left < layout.canvas.left &&
-                    Math.abs(layout.canvas.top - layout.editor.top) <= 1;
-                if (!ok) failures++;
-                report(
-                  `  ${ok ? "PASS" : "FAIL"}  ${
-                    narrow
-                      ? "the canvas column comes before the editor's"
-                      : "the editor and the canvas are side by side"
-                  } — editor ${layout.editor.width}px at ${layout.editor.left},${layout.editor.top}; canvas ${layout.canvas.width}px at ${layout.canvas.left},${layout.canvas.top}; the page's own direction is ${layout.direction}`,
-                );
-              }
-
-              // The default ratio's pane as well, because the cap is narrow-only: on a
-              // wide screen the pane has to be exactly its column at 16:9 too, and this
-              // is the only reading taken before the ratio changes (the cap's own
-              // reading is at 1:1, the ratio that can bind it).
-              if (layout.preview !== null) {
-                const share = Math.round(PREVIEW_MAX_SHARE * 100);
-                const ceiling = Math.round(height * PREVIEW_MAX_SHARE);
-                const ok =
-                  width < NARROW_BELOW
-                    ? layout.preview.height <= ceiling + 1
-                    : Math.abs(layout.preview.width - layout.canvas.width) <= 1;
-                if (!ok) failures++;
-                report(
-                  `  ${ok ? "PASS" : "FAIL"}  ${
-                    width < NARROW_BELOW
-                      ? `at the default ratio the preview is no taller than ${share}% of the viewport`
-                      : "at the default ratio the preview is exactly its column"
-                  } — pane ${layout.preview.width}x${layout.preview.height}, column ${layout.canvas.width}px, ceiling ${ceiling}px of ${height}px`,
-                );
-              }
-
-              // Then the cap, measured on the ratio that can bind it: at the default
-              // 16:9 a narrow pane is 211px of a 667px screen and sits well inside
-              // the cap, so a guard that only looked at the default would pass
-              // without ever exercising the rule. 1:1 is the ratio that needs it —
-              // and the ratio control lives in 导出, which the section loop above
-              // has just left open.
-              await selectRatio(client, "1:1");
-              const capped = JSON.parse(await client.evaluate(LAYOUT));
-              if (capped.missing === true || capped.preview === null) {
-                failures++;
-                report("  FAIL  the cover generator's preview pane is not on the page");
-              } else {
-                const narrow = width < NARROW_BELOW;
-                const share = Math.round(PREVIEW_MAX_SHARE * 100);
-                const ceiling = Math.round(height * PREVIEW_MAX_SHARE);
-                const ok = narrow
-                  ? capped.preview.height <= ceiling + 1
-                  : Math.abs(capped.preview.width - capped.canvas.width) <= 1;
-                if (!ok) failures++;
-                report(
-                  `  ${ok ? "PASS" : "FAIL"}  ${
-                    narrow
-                      ? `on 1:1 the preview is no taller than ${share}% of the viewport`
-                      : "on 1:1 the preview still fills its column"
-                  } — pane ${capped.preview.width}x${capped.preview.height}, ceiling ${ceiling}px of ${height}px, column ${capped.canvas.width}px`,
-                );
-              }
-
-              // And the row keeps its place: read halfway down the page, where the
-              // claim is testable, and again at the end, where the row must not have
-              // gone anywhere. The long panel is the one to read from — it is the panel
-              // a visitor scrolls through, and it is the only one long enough for the
-              // preview to reach the offset it pins at.
-              await selectTab(client, "内容");
-              const sticky = JSON.parse(await client.evaluate(STICKY));
-              if (sticky.missing === true) {
-                failures++;
-                report("  FAIL  the cover generator's tab row is not on the page");
-              } else {
-                const narrow = width < NARROW_BELOW;
-                const endOk =
-                  sticky.end.row.top >= 0 && sticky.end.row.bottom <= sticky.end.viewport;
-                const pane = sticky.middle.pane;
-                // The preview has to be pinned once the scroll has carried its static
-                // position above the offset it pins at — that is the box the visitor is
-                // editing, and the row's own offset below the breakpoint is computed
-                // from its height. A page too short to get there proves the clearance
-                // instead, not the pinning.
-                const shouldPin =
-                  pane !== null &&
-                  sticky.paneStaticTop !== null &&
-                  sticky.paneStaticTop - sticky.middle.scrollY <= 18;
-                const pinned = !shouldPin || Math.abs(pane.top - 16) <= 2;
-                const clears = !narrow || pane === null || sticky.middle.row.top >= pane.bottom - 1;
-                const midOk =
-                  !sticky.scrollable || (pinned && clears && sticky.middle.row.top >= 0);
-                const ok = endOk && midOk;
-                if (!ok) failures++;
-                report(
-                  `  ${ok ? "PASS" : "FAIL"}  the row keeps its place while the page scrolls — halfway: row ${sticky.middle.row.top}..${sticky.middle.row.bottom}, preview ${pane === null ? "none" : `${pane.top}..${pane.bottom}`} of a ${sticky.middle.viewport}px viewport at scroll ${sticky.middle.scrollY}${shouldPin ? " (pinned is required here)" : " (too short to reach the pin)"}; at the end: row ${sticky.end.row.top}..${sticky.end.row.bottom}${sticky.scrollable ? "" : " (the page does not scroll)"}`,
-                );
-              }
-            }
+            failures += await runClaims(
+              "page",
+              context({ client, page, pointer, scheme, section: null, shape }),
+            );
           }
         }
       }
@@ -684,5 +894,191 @@ async function probe(baseUrl) {
   process.exitCode = failures === 0 ? 0 : 1;
 }
 
-const [baseUrl = "http://127.0.0.1:3111"] = process.argv.slice(2);
-await probe(baseUrl);
+/**
+ * The in-place falsification list (#100): one entry per geometry property the claims
+ * above guard, and the claim that has to go red when it is broken.
+ *
+ * `case` is the viewport the injected property binds at, and it belongs to the entry
+ * rather than to the mode because that is what the property decides: the preview cap
+ * only exists below the breakpoint and only a *short* screen makes it bind (at
+ * 360×900 the same injection changes nothing), while the tab row's height reads
+ * exactly 43 — the threshold itself — at 375×667 and 41 at 360. An entry measured
+ * where its property does not bind would prove nothing and would be read as one.
+ *
+ * Every entry names three things and no more: what to break (a selector, a property,
+ * a value), which claim has to notice, and the case it binds at.
+ */
+const FALSIFY = [
+  {
+    case: { height: 667, width: 375 },
+    claim: "preview-cap",
+    note: "the cap, which only a short viewport makes bind",
+    property: "--cover-preview-max-height",
+    selector: ".cover-preview-pane",
+    value: "100dvh",
+  },
+  {
+    case: { height: 900, width: 360 },
+    claim: "hit-areas",
+    note: "the 46px the layout grants the row, on the width where it reads under the threshold",
+    property: "min-height",
+    selector: ".cover-tabs .mantine-Tabs-tab",
+    value: "30px",
+  },
+  {
+    case: { height: 667, width: 375 },
+    claim: "tab-row-pinned",
+    note: "the row's stickiness",
+    property: "position",
+    selector: ".cover-tabs .mantine-Tabs-list",
+    value: "static",
+  },
+];
+
+/**
+ * The page every entry above is measured on: the cover generator, whose geometry
+ * these three properties are. The percentage pairs on the preview cap and the 46px
+ * tab row are that Tool's own rules (`src/tools/cover-generator/rules.md`); the
+ * other two pages have hit-area claims too, and an entry for one of them belongs
+ * here the day it is worth a falsification run.
+ */
+const FALSIFY_PAGE = "cover";
+
+/**
+ * Put one rule in the live page, unlayered, and hand back the undo.
+ *
+ * Unlayered is what makes this reliable: every rule this site writes lives in one of
+ * `theme`/`base`/`mantine`/`components`/`utilities` (declared at the top of
+ * `apps/web/src/app/globals.css`), an unlayered rule outranks all of them, and a
+ * `<style>` appended at runtime is unlayered by definition. So the injection wins on
+ * layer order alone, with no `!important` and no specificity contest to keep in step
+ * with the stylesheet it is breaking.
+ *
+ * The element is removed again rather than overridden, so the next entry starts from
+ * the page as shipped.
+ */
+async function inject(client, entry) {
+  const id = `falsify-${entry.claim}`;
+  const css = `${entry.selector} { ${entry.property}: ${entry.value} }`;
+  await client.evaluate(`(() => {
+    const style = document.createElement('style');
+    style.id = ${JSON.stringify(id)};
+    style.textContent = ${JSON.stringify(css)};
+    document.head.append(style);
+    return true;
+  })()`);
+  return () => client.evaluate(`document.getElementById(${JSON.stringify(id)})?.remove()`);
+}
+
+/** How a claim's result set reads in one phrase. */
+const tally = (results) =>
+  `${results.length} line(s), ${results.filter((result) => !result.ok).length} red`;
+const red = (results) => results.filter((result) => !result.ok);
+
+/**
+ * The falsification run: prove that each guard in the list above *can* fail, on the
+ * page the sweep measures, without touching the source and without a second build.
+ *
+ * Per entry: measure the claim (it has to be green — on a page that is already red,
+ * an injection proves nothing), inject the rule, measure **the same claim** again
+ * through the same `runClaim`, require it to go red, remove the rule, and measure
+ * once more to show the page came back. Only the first of those is new work: the
+ * reading, the predicate and the report line are the ones the normal pass uses, which
+ * is the whole point — a parallel check would prove a copy of the guard.
+ *
+ * Exit code 1 if any claim stays green under its injection, if one was already red
+ * before it, or if the page does not come back green afterwards.
+ */
+async function falsify(baseUrl) {
+  const port = Number(process.env.CDP_PORT ?? 9333);
+  const client = await connect(port);
+  const page = PAGES.find((candidate) => candidate.name === FALSIFY_PAGE);
+  const [pointer] = POINTERS;
+  const [scheme] = SCHEMES;
+  let failures = 0;
+
+  try {
+    report("Falsification run — the instrument's own guards, injected one at a time");
+
+    for (const entry of FALSIFY) {
+      const claim = CLAIMS.find((candidate) => candidate.name === entry.claim);
+      if (claim === undefined) {
+        throw new Error(
+          `the falsification list names a claim that is not in the registry: ${entry.claim}`,
+        );
+      }
+      if (
+        !CASES.some(
+          (shape) => shape.width === entry.case.width && shape.height === entry.case.height,
+        )
+      ) {
+        throw new Error(
+          `the falsification list names a viewport the sweep does not measure: ${entry.case.width}×${entry.case.height}`,
+        );
+      }
+
+      // A fresh page per entry, opened the way the sweep opens it — a tab, a file — so
+      // what is broken is the page the sweep actually measures. The page's *default*
+      // section, because that is the state the page is in before anything is picked;
+      // a claim that needs another one opens it in its own `prepare`.
+      await applyCase(client, entry.case, pointer, scheme);
+      await openPage(client, baseUrl, page);
+      const section = page.sections?.[0] ?? { controls: [], tab: null };
+      await openSection(client, page, section);
+      const ctx = context({ client, page, pointer, scheme, section, shape: entry.case });
+
+      // Every measurement re-reads the page: the whole point is that the reading after
+      // the injection is the same expression against a page that has changed.
+      const measure = async () => {
+        ctx.reset();
+        return runClaim(claim, ctx);
+      };
+
+      report(`\n${claim.name} @${entry.case.width}×${entry.case.height} — ${claim.about}`);
+      report(
+        `  inject \`${entry.selector} { ${entry.property}: ${entry.value} }\` — ${entry.note}`,
+      );
+
+      const before = await measure();
+      const undo = await inject(client, entry);
+      const after = await measure();
+      await undo();
+      const restored = await measure();
+
+      const beforeRed = red(before);
+      const afterRed = red(after);
+      const restoredRed = red(restored);
+
+      report(`  before:   ${beforeRed.length === 0 ? "PASS" : "RED"} — ${tally(before)}`);
+      if (beforeRed.length > 0) {
+        failures++;
+        report("            (already failing before the injection, so this entry proves nothing)");
+        for (const result of beforeRed) report(`  ${result.line}`);
+      }
+      report(`  after:    ${afterRed.length === 0 ? "STILL GREEN" : "RED"} — ${tally(after)}`);
+      for (const result of afterRed) report(`  ${result.line}`);
+      if (beforeRed.length === 0 && afterRed.length === 0) failures++;
+      report(`  restored: ${restoredRed.length === 0 ? "PASS" : "RED"} — ${tally(restored)}`);
+      for (const result of restoredRed) report(`  ${result.line}`);
+      if (restoredRed.length > 0) failures++;
+    }
+  } finally {
+    client.close();
+  }
+
+  report(
+    failures === 0
+      ? `\nALL FALSIFIED — every injection turned its claim red, and every page came back green`
+      : `\n${failures} FALSIFICATION FAILURE(S)`,
+  );
+  process.exitCode = failures === 0 ? 0 : 1;
+}
+
+const argv = process.argv.slice(2);
+const [baseUrl = "http://127.0.0.1:3111"] = argv.filter((argument) => argument !== "--falsify");
+
+if (argv.includes("--falsify")) {
+  await falsify(baseUrl);
+} else {
+  await probe(baseUrl);
+}
