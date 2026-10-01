@@ -369,36 +369,6 @@ function report(line) {
   console.log(line);
 }
 
-async function navigate(client, url) {
-  await client.send("Page.navigate", { url });
-  await waitForHydration(client);
-}
-
-/**
- * Wait for React to claim the page, rather than sleeping and hoping.
- *
- * The server sends prerendered HTML first, and a control in it looks exactly like
- * a hydrated one — but a click or a file dropped on the un-hydrated copy is
- * silently lost, which reads here as "the page never rendered that control". The
- * signal is React's own bookkeeping on a host element (`__reactFiber…`, attached
- * during hydration, impossible in server HTML); the gate's page helper waits on
- * the same one (`apps/web/e2e/tool-page.ts`). It is React's detail rather than
- * this site's, which is what makes it acceptable as a wait — and not as an
- * assertion. The 1800 ms this replaced was wrong in both directions.
- */
-async function waitForHydration(client) {
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const hydrated = await client.evaluate(
-      `[...document.querySelectorAll('body *')].some((element) =>
-        Object.keys(element).some((key) => key.startsWith('__reactFiber')),
-      )`,
-    );
-    if (hydrated === true) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("the page never hydrated: React's bookkeeping never appeared");
-}
-
 /**
  * Put a file into the page's file input. React does receive this: the input keeps
  * its own change event and CDP sets the files on it. See item 2 of `apps/web/docs/design/log.md` — headless Chrome can do this, and the claim that it could not was
@@ -818,13 +788,14 @@ async function applyCase(client, shape, pointer, scheme) {
 }
 
 /**
- * Open one page: navigate, wait for React, and put the file in when the page's
- * controls only exist after something has been dropped. Shared by the sweep and the
- * falsification mode, so "the page as measured" is one definition rather than two
- * that drift.
+ * Open one page: navigate (through the shared connection layer, which owns both the
+ * arrival check and the wait for React — ADR-0015), and put the file in when the
+ * page's controls only exist after something has been dropped. Shared by the sweep
+ * and the falsification mode, so "the page as measured" is one definition rather than
+ * two that drift.
  */
 async function openPage(client, baseUrl, page) {
-  await navigate(client, `${baseUrl}${page.path}`);
+  await client.navigate(`${baseUrl}${page.path}`);
   if (page.fileInput !== undefined) await addFile(client, page.fileInput);
 }
 
