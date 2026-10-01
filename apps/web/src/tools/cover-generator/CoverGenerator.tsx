@@ -164,7 +164,7 @@ export function CoverGenerator() {
                       composition.icon?.source === "lucide" && composition.icon.name === name;
                     return (
                       <Button
-                        className="touch-target shrink-0"
+                        className="cover-icon-option touch-target shrink-0"
                         color="gray"
                         h={44}
                         justify="flex-start"

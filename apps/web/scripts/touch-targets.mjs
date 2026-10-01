@@ -84,6 +84,7 @@
  *
  * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
  * under 43, when a control the page says it must carry is missing, when a control
+ * matching a declared selector has lost the hit-area class, when a control
  * another section owns is on the page while a section is open, when the cover
  * generator's two columns are on the wrong side of the breakpoint, when its preview
  * is taller than the share its rule allows or no longer fills its column, when its
@@ -180,6 +181,13 @@ const PREVIEW_MAX_SHARE = 0.45;
  * shows one panel at a time, so each section names its own and each is visited
  * (#91). The page-level names still have to be there for every section — the shell,
  * and the tab row itself, which is the new must-carry control.
+ *
+ * A control no name identifies cannot be checked by name at all, so a page — or one
+ * of its sections — may declare `carriers`: selectors whose matches must carry the
+ * hit-area class (#106). That class is what makes a control visible to this
+ * Instrument, so losing it is a failure rather than an absence — and each declared
+ * selector must match at least one element, because a selector that matches nothing
+ * would guard nothing and tell nobody.
  */
 const PAGES = [
   { controls: ["切换到"], name: "home", path: "/" },
@@ -196,7 +204,15 @@ const PAGES = [
     name: "cover",
     path: "/tools/cover-generator",
     sections: [
-      { controls: ["获取系统字体", "清除"], tab: "内容" },
+      {
+        // The icon result rows are this page's only controls that no name identifies
+        // (~50 of them, one per lucide result), so they are declared by their hook
+        // class: losing it would take the whole list out of this Instrument's sight
+        // without moving a pixel (#106).
+        carriers: [".cover-icon-option"],
+        controls: ["获取系统字体", "清除"],
+        tab: "内容",
+      },
       // The 样式 panel holds no `.touch-target` control — its controls are sliders
       // and switches — but it is still visited: the point of naming it is that
       // nothing from the other sections may be on the page while it is open.
@@ -281,6 +297,31 @@ const MEASURE = `(() => {
     controls,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   });
+})()`;
+
+/**
+ * What the page's declared selectors match, and whether each match carries the
+ * hit-area class.
+ *
+ * `MEASURE` walks what *does* carry the class; this walks what *should*. The class
+ * is the only thing that makes a control visible to this Instrument, so a control
+ * that lost it draws exactly as it did and, when nothing else names it, leaves the
+ * report in silence — which is the gap #106 is about. A declaration that matches
+ * nothing fails rather than passes, for the reason #81 gives about a floor on a
+ * count: a check that cannot see its own subject is not a check.
+ */
+const readCarriers = (selectors) => `(() => {
+  const label = ${LABEL};
+  return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => {
+    const matches = [...document.querySelectorAll(selector)];
+    return {
+      selector,
+      matched: matches.length,
+      missing: matches
+        .filter((el) => !el.classList.contains('touch-target'))
+        .map((el) => el.tagName.toLowerCase() + (label(el) ? ' "' + label(el).slice(0, 24) + '"' : '')),
+    };
+  }));
 })()`;
 
 /**
@@ -504,6 +545,34 @@ const CLAIMS = [
       }),
   },
   {
+    name: "class-carriers",
+    about: "every control matching a declared selector carries the hit-area class",
+    per: "section",
+    // Nothing declared means nothing to read: a page whose every control has a name
+    // is already held by `named-controls`, and an empty walk would only add silence.
+    only: (ctx) => ctx.carriers.length > 0,
+    read: (ctx) => ctx.read("carriers", readCarriers(ctx.carriers)),
+    judge: (read) =>
+      read.map((entry) => {
+        if (entry.matched === 0) {
+          return {
+            ok: false,
+            line: `  FAIL  nothing matches ${entry.selector} — a declaration that matches nothing guards nothing`,
+          };
+        }
+        if (entry.missing.length > 0) {
+          return {
+            ok: false,
+            line: `  FAIL  ${entry.missing.length} of ${entry.matched} matching ${entry.selector} do not carry the hit-area class: ${entry.missing.join(", ")}`,
+          };
+        }
+        return {
+          ok: true,
+          line: `  PASS  every control matching ${entry.selector} carries the hit-area class — ${entry.matched} matched`,
+        };
+      }),
+  },
+  {
     name: "section-isolation",
     about: "nothing another section owns is on the page while a section is open",
     per: "section",
@@ -714,6 +783,7 @@ const CLAIMS = [
 function context({ client, page, pointer, scheme, section, shape }) {
   const readings = new Map();
   return {
+    carriers: [...(page.carriers ?? []), ...(section?.carriers ?? [])],
     client,
     height: shape.height,
     narrow: shape.width < NARROW_BELOW,
