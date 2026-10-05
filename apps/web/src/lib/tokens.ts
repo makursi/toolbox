@@ -119,12 +119,13 @@ function luminance(hex: string): number {
           .join("")
       : digits;
 
-  const channels = [0, 2, 4].map(
-    (offset) => Number.parseInt(full.slice(offset, offset + 2), 16) / 255,
-  );
-  const [red, green, blue] = channels.map((channel) =>
-    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-  ) as [number, number, number];
+  // Destructured with defaults rather than cast to a tuple: the map returns an
+  // array, and an assertion here would be a claim about its length rather than a
+  // use of it.
+  const [red = 0, green = 0, blue = 0] = [0, 2, 4].map((offset) => {
+    const channel = Number.parseInt(full.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
 
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
@@ -133,14 +134,15 @@ function luminance(hex: string): number {
  * The contrast ratio between two colours, 1:1 to 21:1.
  *
  * Symmetric: the lighter colour is the numerator whichever way round the pair is
- * given, so a caller cannot get the reciprocal by accident.
+ * given, so a caller cannot get the reciprocal by accident. `Math.max` rather than
+ * a sort of two values, which is also why this file earns no `no-array-sort`
+ * warning for the privilege (`Array#toSorted` is above this project's `lib`
+ * target).
  */
 export function contrastRatio(one: string, other: string): number {
-  const [lighter, darker] = [luminance(one), luminance(other)].sort((a, b) => b - a) as [
-    number,
-    number,
-  ];
-  return (lighter + 0.05) / (darker + 0.05);
+  const first = luminance(one);
+  const second = luminance(other);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
 /**

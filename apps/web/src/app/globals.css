@@ -124,6 +124,34 @@
 }
 
 /*
+ * A control smaller than the floor needs its overlay to clear it by a margin.
+ *
+ * `.touch-target` declares 44px, and the Instrument measures 43 for a 44px span
+ * because whole pixels hold 43 interior sample points. That arithmetic only holds
+ * when the overlay's edges land on whole pixels: the cover generator's tab row
+ * measured 41 at one width and 43 at the others until the layout gave it 46px
+ * (#91), and the export panel's switch — a 32x18 box — has the same problem twice
+ * over, because its overlay's top and bottom both fall on fractions. Measured at
+ * 1280: the switch's overlay reaches 21 sample points each way where a 36px
+ * control's reaches 22, and the walk requires *both* sides.
+ *
+ * So the new layer's overlays are 46px rather than 44. It is scoped to
+ * `[data-layer="primitive"]` because that is what marks a region drawn by the
+ * incoming layer, and it is a re-expression of #91's remedy rather than a second
+ * threshold: the site's floor is still 43, and the two extra pixels are what keep
+ * the *measured* area above it wherever a control lands.
+ *
+ * A replaced element is the other half of this: an `<input>` paints no `::after`
+ * at all, so the class there is only how the Instrument sees the control and the
+ * 44px has to come from the layout (`h-11` on the export panel's filename field,
+ * measured at 35 with the registry's 36px box and no overlay to grow).
+ */
+[data-layer="primitive"] .touch-target::after {
+  height: max(100%, 46px);
+  width: max(100%, 46px);
+}
+
+/*
  * Icons, from Phosphor, compiled in at build time.
  *
  * The plugin turns a class like `icon-[ph--sun-bold]` into one rule holding the
@@ -465,8 +493,17 @@
  * guard and why they cannot move yet.
  */
 @layer components {
-  [data-slot="cover-tabs"] {
-    --tab-border-color: var(--site-hairline);
+  /*
+   * The hairline under the row, drawn here rather than by the library.
+   *
+   * It used to be `--tab-border-color`, a variable of the outgoing layer's tab
+   * list — one of the overrides #126 said to check before deleting, and it guarded
+   * a *site* rule: the row needs a line under it. So it is re-expressed against the
+   * row's own anchor, where it survives the swap, and it reads this site's token
+   * instead of the library's variable.
+   */
+  [data-slot="cover-tab-row"] {
+    border-bottom: 1px solid var(--site-hairline);
   }
 
   /*

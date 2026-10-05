@@ -146,9 +146,18 @@ const PAGES = [
       "cover-tabs",
       "cover-tab-row",
       "cover-tab",
+      // One panel, not three. The three sections are mutually exclusive by design —
+      // the row shows exactly one at a time — so only the default one exists in the
+      // state this captures, and since #117 the other two are **unmounted** rather
+      // than hidden: `cover-panel-style` at 1280 in a light scheme is not a panel
+      // that is hidden, it is a panel that is not there. Declaring all three was
+      // right while the outgoing library kept every panel element in the DOM, and
+      // it would now fail the run on two anchors that cannot be present — which is
+      // the rule working, not a hole to fill: an anchor that matches nothing
+      // guards nothing, and the two missing ones are covered where they can be,
+      // by the Instrument opening each section and asserting its panel is the
+      // showing one (`touch-targets.mjs`).
       "cover-panel-content",
-      "cover-panel-style",
-      "cover-panel-export",
     ],
     name: "cover",
     path: "/tools/cover-generator",
