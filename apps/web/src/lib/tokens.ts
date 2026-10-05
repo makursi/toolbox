@@ -25,7 +25,19 @@
  * colour. The interface has only ever borrowed Mantine's red (`Alert color="red"`
  * on the image converter), so there is no measured value of ours to move; the
  * palette is re-derived and measured in #116, and that is where an error value
- * gets its name and its number.
+ * gets its name and its number. That number arrived in #116, and it is the one
+ * value here that had to be *chosen* rather than moved: no single red clears AA
+ * as a filled control's background in both schemes, measured, so the error colour
+ * is two values — `#c92a2a` at 5.05:1 against the light paper and `#ff8787` at
+ * 7.81:1 against the dark ink. Both also clear AA as error *text* on their own
+ * canvas, which is the other way this value gets used.
+ *
+ * What is deliberately **not** here: nothing from the incoming layer's own
+ * palette. #116 read its defaults before deciding anything and replaced every
+ * value they touched, and the reading is recorded with its source in
+ * `apps/web/docs/design/colour.md` — including the one that settled it, since the
+ * incoming light canvas is `oklch(1 0 0)`, a pure white that ADR-0007 had already
+ * measured and rejected.
  */
 
 export type Scheme = "light" | "dark";
@@ -39,6 +51,7 @@ export const tokenNames = [
   "dimmed",
   "placeholder",
   "hairline",
+  "error",
 ] as const;
 
 export type TokenName = (typeof tokenNames)[number];
@@ -54,9 +67,11 @@ export type TokenName = (typeof tokenNames)[number];
 export const tokens: Record<Scheme, Record<TokenName, string>> = {
   light: {
     // Body text on the canvas is 17.47:1, the muted tone 5.14:1, the placeholder
-    // 4.61:1 against the surface it sits on.
+    // 4.61:1 against the surface it sits on, and the error colour 5.05:1 both as
+    // text on the canvas and as a filled control under this scheme's paper.
     canvas: "#f7f6f3",
     dimmed: "#6b6862",
+    error: "#c92a2a",
     hairline: "#eaeaea",
     placeholder: "#75726a",
     surface: "#fbfaf8",
@@ -64,9 +79,12 @@ export const tokens: Record<Scheme, Record<TokenName, string>> = {
     text: "#111111",
   },
   dark: {
-    // 15.20:1, 6.48:1 and 5.65:1 — the muted margin kept above AA on purpose.
+    // 15.20:1, 7.03:1 on the canvas and 5.65:1 — the muted margin kept above AA
+    // on purpose. The error colour is a *lighter* red here for the same reason
+    // the ink is lighter: it has to hold 7.81:1 against this scheme's ink.
     canvas: "#171614",
     dimmed: "#a5a19a",
+    error: "#ff8787",
     hairline: "#313030",
     placeholder: "#9a968e",
     surface: "#1f1e1c",
