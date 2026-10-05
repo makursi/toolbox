@@ -8,11 +8,16 @@
  * before every navigation it probes the debugging port, and a browser that has gone
  * fails the run in a sentence naming the port and the command that starts it again,
  * instead of a connection error that reads like a page that never rendered that
- * control. The rest stays in each script — which pages to visit, how to size the
- * viewport, how long to wait after a navigation, how to report a result — because
- * the two want different versions of all four, and the one genuinely identical piece
- * (a four-line console wrapper) is not worth a module that would have to be named
- * after nothing in particular.
+ * control. And since #104 it owns "the navigation succeeded" as well: one call
+ * navigates and resolves only once React has claimed the page, a navigation whose
+ * result reports a failure throws rather than returning, and what one response means
+ * is decided by a pure function instead of being read off the socket. The rest stays
+ * in each script — which pages to visit, how to size the viewport and which media
+ * features to emulate, how to report a result — because the two want different
+ * versions of all three, and the one genuinely identical piece (a four-line console
+ * wrapper) is not worth a module that would have to be named after nothing in
+ * particular. That the list went from four to three is
+ * `docs/adr/0015-the-shared-connection-layer-owns-the-navigation.md`.
  *
  * Deliberately no dependency: `WebSocket` and `fetch` are Node builtins from Node
  * 22 on, and a `node:`-only script is the point. This is an instrument — it
@@ -21,6 +26,8 @@
  * item 3. The half that does assert runs on a test runner, in `apps/web/e2e/`
  * (`docs/adr/0012-playwright-for-the-browser-gate.md`).
  */
+import { classify } from "./cdp-response.mjs";
+
 /** How long the handshake — the target listing and the socket opening — may take. */
 const CONNECT_TIMEOUT_MS = 10_000;
 
@@ -65,10 +72,31 @@ export async function connect(port) {
     throw new Error("This check needs Node 22+ (global WebSocket). `node --version` first.");
   }
 
-  const listing = await fetch(`http://127.0.0.1:${port}/json/list`, {
-    signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
-  });
-  const targets = await listing.json();
+  // A browser that was never started is the commonest first mistake, and it is the
+  // same event as one that went away mid-run: it gets the same sentence, rather than
+  // the runtime's own "fetch failed" with nothing in it to act on.
+  let targets;
+  try {
+    const listing = await fetch(`http://127.0.0.1:${port}/json/list`, {
+      signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+    });
+    targets = await listing.json();
+  } catch (cause) {
+    throw new Error(
+      gone(
+        port,
+        `nothing answered http://127.0.0.1:${port}/json/list (${
+          cause instanceof Error ? cause.message : String(cause)
+        })`,
+      ),
+      { cause: cause },
+    );
+  }
+  if (!Array.isArray(targets)) {
+    throw new Error(
+      `http://127.0.0.1:${port}/json/list answered, but not with a list of targets — something else is on that port`,
+    );
+  }
   const page = targets.find((target) => target.type === "page");
   if (!page)
     throw new Error(
@@ -125,8 +153,14 @@ export async function connect(port) {
   };
 
   socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
-    if (message.id) settle(message.id, (entry) => entry.resolve(message));
+    const response = JSON.parse(event.data);
+    // No `id` is an event, not an answer to anything this module sent.
+    if (response.id === undefined) return;
+    settle(response.id, (entry) => {
+      const verdict = classify(response);
+      if (verdict.ok) entry.resolve(response);
+      else entry.reject(new Error(`${entry.method}: ${verdict.reason}`));
+    });
   });
   socket.addEventListener("close", () => abandon("the DevTools socket closed"));
   socket.addEventListener("error", () => abandon("the DevTools socket errored"));
@@ -141,7 +175,7 @@ export async function connect(port) {
           ),
         COMMAND_TIMEOUT_MS,
       );
-      pending.set(next, { reject, resolve, timer });
+      pending.set(next, { method, reject, resolve, timer });
       socket.send(JSON.stringify({ id: next, method, params }));
     });
 
@@ -175,7 +209,15 @@ export async function connect(port) {
   /** Every command leaves through here, so the probe is one line and cannot be forgotten. */
   const send = async (method, params = {}) => {
     if (method === "Page.navigate") await alive();
-    return command(method, params);
+    const response = await command(method, params);
+    // A navigation that failed is *answered*, not rejected: the failure travels in
+    // the result. A caller that ignores it measures whatever the browser happens to
+    // be showing, which is a page no server ever served.
+    const failure = response.result?.errorText;
+    if (method === "Page.navigate" && typeof failure === "string" && failure !== "") {
+      throw new Error(`the page did not load: ${failure} (${params.url})`);
+    }
+    return response;
   };
 
   const evaluate = async (expression) => {
@@ -190,7 +232,44 @@ export async function connect(port) {
     return response.result?.result?.value;
   };
 
+  /**
+   * Wait for React to claim the page, rather than sleeping and hoping.
+   *
+   * The server sends prerendered HTML first, and a control in it looks exactly like
+   * a hydrated one — but a click or a file dropped on the un-hydrated copy is
+   * silently lost, which reads as "the page never rendered that control". The signal
+   * is React's own bookkeeping on a host element (`__reactFiber…`, attached during
+   * hydration, impossible in server HTML); the browser gate's page helper waits on
+   * the same one. It is React's detail rather than this site's, which is what makes
+   * it acceptable as a wait — and not as an assertion. The 1800 ms it replaced in the
+   * fingerprint was wrong in both directions.
+   *
+   * It moved here from the hit-area Instrument (#104), so "ready to measure" has one
+   * definition rather than two that drift.
+   */
+  const waitForHydration = async () => {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const hydrated = await evaluate(
+        `[...document.querySelectorAll('body *')].some((element) =>
+          Object.keys(element).some((key) => key.startsWith('__reactFiber')),
+        )`,
+      );
+      if (hydrated === true) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("the page never hydrated: React's bookkeeping never appeared");
+  };
+
+  /**
+   * Go to a page and come back only once it can be measured: the navigation must
+   * have arrived (see `send`) and React must have claimed the document.
+   */
+  const navigate = async (url) => {
+    await send("Page.navigate", { url });
+    await waitForHydration();
+  };
+
   await send("Page.enable");
   await send("Runtime.enable");
-  return { send, evaluate, close: () => socket.close() };
+  return { close: () => socket.close(), evaluate, navigate, send };
 }

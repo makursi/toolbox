@@ -105,7 +105,7 @@ export function CoverGenerator() {
             </Tabs.Tab>
           </Tabs.List>
 
-          <Tabs.Panel value="content">
+          <Tabs.Panel className="cover-panel-content" value="content">
             <Stack gap="md">
               <Flex
                 gap="md"
@@ -164,7 +164,7 @@ export function CoverGenerator() {
                       composition.icon?.source === "lucide" && composition.icon.name === name;
                     return (
                       <Button
-                        className="touch-target shrink-0"
+                        className="cover-icon-option touch-target shrink-0"
                         color="gray"
                         h={44}
                         justify="flex-start"
@@ -272,7 +272,7 @@ export function CoverGenerator() {
             </Stack>
           </Tabs.Panel>
 
-          <Tabs.Panel value="style">
+          <Tabs.Panel className="cover-panel-style" value="style">
             <Stack gap="md">
               <Slider
                 label="字体大小"
@@ -393,7 +393,7 @@ export function CoverGenerator() {
             </Stack>
           </Tabs.Panel>
 
-          <Tabs.Panel value="export">
+          <Tabs.Panel className="cover-panel-export" value="export">
             <Flex gap="md" direction="column" align="stretch">
               <TextInput
                 label="文件名"
