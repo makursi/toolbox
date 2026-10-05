@@ -17,6 +17,7 @@ export function SiteHeader() {
   return (
     <Box
       component="header"
+      data-slot="site-header"
       style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}
     >
       <Container py="md" size="md">

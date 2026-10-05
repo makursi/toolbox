@@ -223,6 +223,7 @@ export function ImageConverter() {
               <Paper
                 className="format-card"
                 data-checked={enabled[format] || undefined}
+                data-slot="format-card"
                 key={format}
                 p="lg"
                 withBorder

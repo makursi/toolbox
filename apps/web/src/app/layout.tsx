@@ -58,11 +58,23 @@ export default function RootLayout({ children }: { children: ReactNode }) {
            * of floating halfway up it. `min-h` rather than a fixed height: the
            * Tool page is taller than the viewport and has to keep scrolling.
            */}
-          <Box className="flex min-h-[100dvh] flex-col">
+          {/*
+           * `data-slot` is an anchor, not a style and not behaviour: it names the
+           * region so `apps/web/scripts/ui-fingerprint.mjs` can address this page
+           * by an attribute of ours instead of by the component library's class
+           * names and content-hashed module classes, which a change of component
+           * layer moves by construction (#114). The vocabulary is the incoming
+           * layer's own — it stamps `data-slot` on everything it renders — so the
+           * two ends of the migration speak the same language and no translation
+           * table is needed. Every anchor the fingerprint reads is declared, per
+           * page, in that script; a slot added here and not declared there is not
+           * read.
+           */}
+          <Box className="flex min-h-[100dvh] flex-col" data-slot="page-shell">
             <SiteHeader />
             {/* A `<main>` landmark, so the one thing a screen reader is asked to
                 jump to is the content and not the chrome around it. */}
-            <Box component="main" style={{ flex: 1 }}>
+            <Box component="main" data-slot="site-main" style={{ flex: 1 }}>
               {children}
             </Box>
             <SiteFooter />

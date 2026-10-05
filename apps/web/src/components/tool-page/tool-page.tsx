@@ -35,7 +35,7 @@ export function toolMetadata(meta: ToolMeta): Metadata {
 
 export function ToolPage({ meta, children }: { meta: ToolMeta; children: ReactNode }) {
   return (
-    <Container className="py-10 sm:py-16" size="md">
+    <Container className="py-10 sm:py-16" data-slot="tool-page" size="md">
       <Stack className="reveal" gap="xs">
         {/*
           A way back that is not the browser's back button. The wordmark in the

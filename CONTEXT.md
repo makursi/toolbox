@@ -52,6 +52,10 @@ _Avoid_: negative test, mutation test
 One guarded property of the rendered page, named: a unit with its own reading, its own predicate, and the report lines only it prints — so that a Falsification run can re-run _that_ claim rather than a copy of it. The Chinese docs keep the English word, the way they write 红一次 for a Falsification run.
 _Avoid_: assertion, check, guard (a Claim is the named unit; a Falsification run is what proves it can go red)
 
+**Anchor**:
+The `data-slot` attribute our own components carry, which is how the fingerprint addresses a region of the rendered page. It is a name that survives a change of component layer, where the outgoing library's class names and content-hashed module classes do not — a swap moves every one of those by construction. Each page declares the anchors it must carry, and a declared anchor that matches no element fails the run: a selector matching nothing guards nothing, and "nothing moved" and "nothing was measured" would otherwise print the same word.
+_Avoid_: id, hook class, test id; and "selector" for the Anchor itself (the selector is derived from the name)
+
 **Design doc set**:
 The App's design documentation, in two layers: `apps/web/docs/design.md` is the **entry** — the invariants that must never be missed, the directions already rejected, and the routing table from "what you are touching" to the file that owns the rule — and `apps/web/docs/design/` holds the **modules**, one per area, each owning its rules and their reasoning.
 _Avoid_: style guide, design guidelines, design system

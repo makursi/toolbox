@@ -12,6 +12,7 @@ export function SiteFooter() {
   return (
     <Box
       component="footer"
+      data-slot="site-footer"
       mt="xl"
       style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}
     >
