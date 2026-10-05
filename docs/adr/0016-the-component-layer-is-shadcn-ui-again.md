@@ -4,7 +4,7 @@ This supersedes [ADR-0006](0006-mantine-for-components.md), because the premise 
 
 **ADR-0006's reasoning is not being overturned, and one of its rejected options stays rejected.** The registry ships aliased imports — the returned `button.tsx` opens with `import { cn } from "cn"` — and only the generator rewrites those to the project's alias as it writes the file. Hand-vendoring the registry is therefore still vendoring a build step: you would own a generated style layer and hand-rewrite imports on every component addition. What the wrapper buys is narrower than "the network works now", and it is the only thing that changed: the correct path became available. A reader who stops at the previous paragraph and concludes the earlier decision was a mistake has read it backwards — the premise moved, the judgement did not.
 
-What arrives is a **vendored component layer**, which this repository now has a word for: a **Primitive** (`CONTEXT.md`), one directory the generator owns, regenerated rather than hand-edited, and therefore deliberately exempt from the file rules that govern code a person writes. The registry's own design language is the *starting point* of that work rather than its answer: the aesthetic invariants ADR-0007 recorded are re-opened so the palette, the type scale and the radii can be re-derived and measured here, while the enforced invariants — hit areas, self-hosted assets, icons compiled at build time, no invented data, and the ban on pure black and pure white that a measurement settled — carry over untouched.
+What arrives is a **vendored component layer**, which this repository now has a word for: a **Primitive** (`CONTEXT.md`), one directory the generator owns, regenerated rather than hand-edited, and therefore deliberately exempt from the file rules that govern code a person writes. The registry's own design language is the _starting point_ of that work rather than its answer: the aesthetic invariants ADR-0007 recorded are re-opened so the palette, the type scale and the radii can be re-derived and measured here, while the enforced invariants — hit areas, self-hosted assets, icons compiled at build time, no invented data, and the ban on pure black and pure white that a measurement settled — carry over untouched.
 
 Two things this decision rests on, written down so they cannot rot silently:
 
@@ -18,7 +18,7 @@ Two things this decision rests on, written down so they cannot rot silently:
 - The Instruments that read the rendered page were addressed to the outgoing library and are unbound from it **before** the page moves (`#114`, `#124`, `#125`), because a swap moves every reading taken through that library's class names by construction.
 - The outgoing library stays a dependency of the App for the length of the pilot. Nothing else in the site moves with the first page, and no Tool's logic, worker or unit tests move at all.
 - The site keeps making no outbound requests at runtime (`docs/adr/0005-no-outbound-requests.md`): the registry is reached while generating code, never by the page.
-- ADR-0007's aesthetic conclusions are re-opened; its *method* — measure every value in both schemes, keep the bans a measurement settled — is not.
+- ADR-0007's aesthetic conclusions are re-opened; its _method_ — measure every value in both schemes, keep the bans a measurement settled — is not.
 
 ## Considered Options
 
