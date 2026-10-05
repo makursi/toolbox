@@ -243,13 +243,19 @@ const PAGES = [
         },
         tab: "内容",
       },
-      // The 样式 panel holds no `.touch-target` control — its controls are sliders
-      // and switches — so no name can hold it. `presence` holds it instead: a section
-      // declares the panel DOM it owns, which is the side a name check can never see,
-      // a panel leaking *in* rather than out (#107). That the absence is real is
-      // `keepMounted={false}` on the tabs.
+      // Since #128 this section is drawn by the incoming layer too, and it is the
+      // one that shows the *presence* dimension still means something: its controls
+      // are seven sliders, four colour fields and two switches, and this Instrument
+      // can name none of them — a field's name is its `<label for>`, which the label
+      // helper does not read, and a slider's name is on the element the platform
+      // names it on. They are declared as carriers by one hook class instead, and
+      // `controls` names the four shadow-scope buttons, which do carry their own
+      // text. `presence` still holds the section in both directions, which is the
+      // side a name can never see: a panel leaking *in* rather than out (#107). That
+      // the absence is real is the tabs unmounting the unpicked panel, since #117.
       {
-        controls: [],
+        carriers: [".cover-field"],
+        controls: ["全部", "文字", "图标", "无"],
         presence: {
           absent: [".cover-panel-content", ".cover-panel-export"],
           present: [".cover-panel-style"],
