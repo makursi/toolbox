@@ -3,11 +3,9 @@
 import {
   Box,
   Button,
-  ColorInput,
   Divider,
   FileInput,
   Flex,
-  SegmentedControl,
   Select,
   Slider,
   Stack,
@@ -16,7 +14,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
-import { useRef, type CSSProperties } from "react";
+import { useRef, type CSSProperties, type ReactNode } from "react";
 
 /*
  * The incoming component layer's parts of this page (#117). `Button` and `Switch`
@@ -54,6 +52,43 @@ import { readAsDataUrl } from "./read-data-url";
  * hooks to the controls and bridges the read-side hooks back into the
  * composition through `set`.
  */
+/**
+ * A label and the control it names, in the arrangement the 样式 panel uses.
+ *
+ * Every control in that panel is a **native element rather than a Primitive**, and
+ * the reason is measured rather than preferred (#128). The incoming layer's
+ * `Slider` renders its own thumb and passes it no props, and Radix's thumb falls
+ * back to `getLabel(index, totalValues)` — which returns `undefined` for a single
+ * thumb, so a one-value slider ships with **no accessible name at all**
+ * (`@radix-ui/react-slider`'s `SliderThumbTrigger`, read on 2026-10-05). This repo
+ * already decided once that a slider's name has to be supplied explicitly; the
+ * platform takes it from a `<label for>`, which is this Tool's own visible copy,
+ * and it also supplies the keyboard, the pointer drag and the disabled state
+ * without a second implementation of any of them. The Primitive generated for the
+ * job was removed rather than left standing unused.
+ *
+ * `input[type=range]` and `input[type=color]` are replaced elements and paint no
+ * `::after`, so their 44px comes from `h-11` and the hit-area class on them is the
+ * Instrument's marker rather than an overlay — the same finding the export panel's
+ * filename field carries (`apps/web/docs/design/components.md`).
+ */
+function Field({
+  children,
+  htmlFor,
+  label,
+}: {
+  children: ReactNode;
+  htmlFor: string;
+  label: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={htmlFor}>{label}</Label>
+      {children}
+    </div>
+  );
+}
+
 export function CoverGenerator() {
   const { composition, set, bgRefusal, uploadBackground, clearBackground } = useCoverComposition();
   const { iconSet, iconQuery, setIconQuery, results: iconResults } = useLucideIcons();
@@ -319,125 +354,190 @@ export function CoverGenerator() {
             </Stack>
           </TabsContent>
 
-          <TabsContent className="cover-panel-style" data-slot="cover-panel-style" value="style">
-            <Stack gap="md">
-              <Slider
-                label="字体大小"
-                max={256}
-                min={16}
-                onChange={(fontSize) =>
-                  set(
-                    composition.proportional
-                      ? { fontSize, ...proportionalSizes(fontSize) }
-                      : { fontSize },
-                  )
-                }
-                thumbLabel="字体大小"
-                value={composition.fontSize}
-              />
-              <Slider
-                label="图标大小"
-                max={256}
-                min={16}
-                onChange={(iconSize) => set({ iconSize })}
-                thumbLabel="图标大小"
-                value={composition.iconSize}
-              />
-              <Slider
-                label="图标圆角"
-                max={50}
-                min={0}
-                onChange={(iconRadius) => set({ iconRadius })}
-                thumbLabel="图标圆角"
-                value={composition.iconRadius}
-              />
-              <Slider
-                label="间距"
-                max={120}
-                min={0}
-                onChange={(spacing) => set({ spacing })}
-                thumbLabel="间距"
-                value={composition.spacing}
-              />
-              <Switch
-                checked={composition.proportional}
-                label="等比缩放"
-                onChange={(event) => set({ proportional: event.currentTarget.checked })}
-              />
+          <TabsContent
+            className="cover-panel-style"
+            data-layer="primitive"
+            data-slot="cover-panel-style"
+            value="style"
+          >
+            {/* `gap-6` for the reason 导出 spells out: a `.touch-target` overlay
+                reaches beyond its own box, and the 18px switch needs 18.8px between
+                itself and the next control or the walk reads the smaller of the two
+                (`apps/web/src/app/globals.css`). */}
+            <div className="flex flex-col gap-6">
+              <Field htmlFor="cover-font-size" label="字体大小">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  id="cover-font-size"
+                  max={256}
+                  min={16}
+                  onChange={(event) => {
+                    const fontSize = Number(event.currentTarget.value);
+                    set(
+                      composition.proportional
+                        ? { fontSize, ...proportionalSizes(fontSize) }
+                        : { fontSize },
+                    );
+                  }}
+                  type="range"
+                  value={composition.fontSize}
+                />
+              </Field>
+              <Field htmlFor="cover-icon-size" label="图标大小">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  id="cover-icon-size"
+                  max={256}
+                  min={16}
+                  onChange={(event) => set({ iconSize: Number(event.currentTarget.value) })}
+                  type="range"
+                  value={composition.iconSize}
+                />
+              </Field>
+              <Field htmlFor="cover-icon-radius" label="图标圆角">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  id="cover-icon-radius"
+                  max={50}
+                  min={0}
+                  onChange={(event) => set({ iconRadius: Number(event.currentTarget.value) })}
+                  type="range"
+                  value={composition.iconRadius}
+                />
+              </Field>
+              <Field htmlFor="cover-spacing" label="间距">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  id="cover-spacing"
+                  max={120}
+                  min={0}
+                  onChange={(event) => set({ spacing: Number(event.currentTarget.value) })}
+                  type="range"
+                  value={composition.spacing}
+                />
+              </Field>
+              <div className="flex items-center gap-2">
+                <PrimitiveSwitch
+                  checked={composition.proportional}
+                  className="cover-field touch-target"
+                  id="cover-proportional"
+                  onCheckedChange={(proportional) => set({ proportional })}
+                />
+                <Label htmlFor="cover-proportional">等比缩放</Label>
+              </div>
 
-              <Divider />
-              <Slider
-                label="背景不透明度"
-                max={100}
-                min={0}
-                onChange={(percent) => set({ backgroundOpacity: percent / 100 })}
-                thumbLabel="背景不透明度"
-                value={Math.round(composition.backgroundOpacity * 100)}
-              />
-              <Slider
-                disabled={composition.backgroundImage === null || composition.transparent}
-                label="背景模糊"
-                max={100}
-                min={0}
-                onChange={(backgroundBlur) => set({ backgroundBlur })}
-                step={1}
-                thumbLabel="背景模糊"
-                value={composition.backgroundBlur}
-              />
-              <Slider
-                disabled={composition.backgroundImage === null || composition.transparent}
-                label="背景灰度"
-                max={100}
-                min={0}
-                onChange={(backgroundGrayscale) => set({ backgroundGrayscale })}
-                step={1}
-                thumbLabel="背景灰度"
-                value={composition.backgroundGrayscale}
-              />
-              <Switch
-                checked={composition.colorSync}
-                label="颜色同步"
-                onChange={(event) => set({ colorSync: event.currentTarget.checked })}
-              />
-              <ColorInput
-                format="hex"
-                label="文字颜色"
-                onChange={(textColor) => set({ textColor })}
-                value={composition.textColor}
-              />
-              <ColorInput
-                disabled={composition.colorSync}
-                format="hex"
-                label="图标颜色"
-                onChange={(value) => set({ iconColor: value })}
-                value={composition.iconColor}
-              />
-              <ColorInput
-                format="hex"
-                label="背景颜色"
-                onChange={(bgColor) => set({ bgColor })}
-                value={composition.bgColor}
-              />
+              <hr className="border-t border-[var(--site-hairline)]" />
+              <Field htmlFor="cover-background-opacity" label="背景不透明度">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  id="cover-background-opacity"
+                  max={100}
+                  min={0}
+                  onChange={(event) =>
+                    set({ backgroundOpacity: Number(event.currentTarget.value) / 100 })
+                  }
+                  type="range"
+                  value={Math.round(composition.backgroundOpacity * 100)}
+                />
+              </Field>
+              <Field htmlFor="cover-background-blur" label="背景模糊">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  disabled={composition.backgroundImage === null || composition.transparent}
+                  id="cover-background-blur"
+                  max={100}
+                  min={0}
+                  onChange={(event) => set({ backgroundBlur: Number(event.currentTarget.value) })}
+                  step={1}
+                  type="range"
+                  value={composition.backgroundBlur}
+                />
+              </Field>
+              <Field htmlFor="cover-background-grayscale" label="背景灰度">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  disabled={composition.backgroundImage === null || composition.transparent}
+                  id="cover-background-grayscale"
+                  max={100}
+                  min={0}
+                  onChange={(event) =>
+                    set({ backgroundGrayscale: Number(event.currentTarget.value) })
+                  }
+                  step={1}
+                  type="range"
+                  value={composition.backgroundGrayscale}
+                />
+              </Field>
+              <div className="flex items-center gap-2">
+                <PrimitiveSwitch
+                  checked={composition.colorSync}
+                  className="cover-field touch-target"
+                  id="cover-color-sync"
+                  onCheckedChange={(colorSync) => set({ colorSync })}
+                />
+                <Label htmlFor="cover-color-sync">颜色同步</Label>
+              </div>
+              {/* A colour field is the composed cover's own colour, not the
+                  interface's, so the swatch is allowed to be any colour at all —
+                  the same exception the cover frames and the thumbnails already
+                  have (`apps/web/docs/design/colour.md`). */}
+              <Field htmlFor="cover-text-color" label="文字颜色">
+                <input
+                  className="cover-field touch-target h-11 w-full"
+                  id="cover-text-color"
+                  onChange={(event) => set({ textColor: event.currentTarget.value })}
+                  type="color"
+                  value={composition.textColor}
+                />
+              </Field>
+              <Field htmlFor="cover-icon-color" label="图标颜色">
+                <input
+                  className="cover-field touch-target h-11 w-full"
+                  disabled={composition.colorSync}
+                  id="cover-icon-color"
+                  onChange={(event) => set({ iconColor: event.currentTarget.value })}
+                  type="color"
+                  value={composition.iconColor}
+                />
+              </Field>
+              <Field htmlFor="cover-background-color" label="背景颜色">
+                <input
+                  className="cover-field touch-target h-11 w-full"
+                  id="cover-background-color"
+                  onChange={(event) => set({ bgColor: event.currentTarget.value })}
+                  type="color"
+                  value={composition.bgColor}
+                />
+              </Field>
 
-              <Divider />
-              <SegmentedControl
-                data={SHADOW_SCOPES.map((scope) => ({
-                  label: SHADOW_LABELS[scope],
-                  value: scope,
-                }))}
-                onChange={(value) => {
+              <hr className="border-t border-[var(--site-hairline)]" />
+              <ToggleGroup
+                aria-label="阴影范围"
+                className="w-full"
+                onValueChange={(value) => {
                   const scope = SHADOW_SCOPES.find((one) => one === value);
                   if (scope !== undefined) set({ shadowScope: scope });
                 }}
+                type="single"
                 value={composition.shadowScope}
-              />
-              <ColorInput
-                format="hex"
-                label="阴影颜色"
-                onChange={(shadowColor) => set({ shadowColor })}
-                value={composition.shadowColor}
-              />
-            </Stack>
+                variant="outline"
+              >
+                {SHADOW_SCOPES.map((scope) => (
+                  <ToggleGroupItem className="touch-target flex-1" key={scope} value={scope}>
+                    {SHADOW_LABELS[scope]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              <Field htmlFor="cover-shadow-color" label="阴影颜色">
+                <input
+                  className="cover-field touch-target h-11 w-full"
+                  id="cover-shadow-color"
+                  onChange={(event) => set({ shadowColor: event.currentTarget.value })}
+                  type="color"
+                  value={composition.shadowColor}
+                />
+              </Field>
+            </div>
           </TabsContent>
 
           <TabsContent

@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream";
 
-import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 import { open } from "./tool-page";
 
@@ -132,7 +132,9 @@ test.describe("the cover generator", () => {
     await blur.focus();
     await blur.press("ArrowRight");
     await blur.press("ArrowRight");
-    await expect(blur).toHaveAttribute("aria-valuenow", "2");
+    // A native range carries its own value rather than an ARIA mirror of it, so
+    // this reads the value since #128.
+    await expect(blur).toHaveValue("2");
 
     // 清除 is 内容's, so the tab goes back before it can be pressed.
     await showSection(page, "内容");
@@ -147,14 +149,61 @@ test.describe("the cover generator", () => {
     // which switching tabs does not touch.
     await showSection(page, "样式");
 
-    // Mantine takes a disabled slider's thumb out of the layout (`display: none`
-    // in its own stylesheet), so the `slider` role leaves with it and a role query
-    // can no longer name the control. `sliderNode` is the element itself, still
-    // carrying the aria state, with its track left visible and greyed.
-    const disabledBlur = sliderNode(page, "背景模糊");
-    await expect(disabledBlur).toBeHidden();
-    await expect(disabledBlur).toHaveAttribute("aria-disabled", "true");
-    await expect(disabledBlur).toHaveAttribute("aria-valuenow", "0");
+    // Since #128 the slider is the platform's range input, and it behaves the
+    // opposite way to the outgoing layer at exactly this point: a disabled range
+    // keeps its place in the accessibility tree, so the role query still names it
+    // and the element stays visible — greyed, not gone. The `sliderNode` helper the
+    // old assertions needed (a direct selector, because a hidden thumb took the
+    // `slider` role out of the tree with it) is gone with the mechanism.
+    const disabledBlur = page.getByRole("slider", { name: "背景模糊" });
+    await expect(disabledBlur).toBeVisible();
+    await expect(disabledBlur).toBeDisabled();
+    await expect(disabledBlur).toHaveValue("0");
+  });
+
+  /*
+   * #128: a switch's pointer behaviour, proved at coordinates rather than with the
+   * keyboard.
+   *
+   * The trap this guards is the shape this repo already paid for once — a control
+   * whose toggle lives on an inner input, with an inert wrapper between it and the
+   * row. `.touch-target`'s overlay belongs to the element it is generated on, so
+   * the class on such a wrapper eats the pointer while the keyboard keeps working,
+   * and a keyboard-only check cannot see it. The press is therefore aimed *inside
+   * the overlay and outside the switch's own box*: only an overlay that belongs to
+   * the element owning the click can answer there. The point is measured after
+   * scrolling the control into view and asserted to be inside the viewport,
+   * because `page.mouse.click` drops a coordinate outside it without a word.
+   */
+  test("the 样式 section's switches answer a pointer, not only a key", async ({ page }) => {
+    await open(page, COVER_PATH);
+    await showSection(page, "样式");
+
+    const sync = page.getByRole("switch", { name: "颜色同步" });
+    const iconColor = page.getByLabel("图标颜色");
+    await expect(sync).toBeChecked();
+    await expect(iconColor).toBeDisabled();
+
+    await sync.scrollIntoViewIfNeeded();
+    const box = await sync.boundingBox();
+    if (box === null) throw new Error("the 颜色同步 switch has no geometry to press");
+
+    // Twelve pixels above the centre: the switch is 18px tall, the overlay is 46.
+    const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 - 12 };
+    const viewport = page.viewportSize();
+    if (
+      viewport !== null &&
+      (point.x < 0 || point.y < 0 || point.x >= viewport.width || point.y >= viewport.height)
+    ) {
+      throw new Error(
+        `the switch is at ${Math.round(point.x)},${Math.round(point.y)}, outside the ${viewport.width}×${viewport.height} viewport — a press there would be dropped, not failed`,
+      );
+    }
+
+    await page.mouse.click(point.x, point.y);
+
+    await expect(sync).not.toBeChecked();
+    await expect(iconColor).toBeEnabled();
   });
 
   /*
@@ -304,14 +353,4 @@ async function readPngHeader(stream: Readable) {
  */
 async function showSection(page: Page, name: "内容" | "样式" | "导出") {
   await page.getByRole("tab", { name }).click();
-}
-
-/**
- * A slider's thumb, in whatever state it is in. The role query cannot reach a
- * disabled one — Mantine hides the thumb with `display: none`, which takes it out
- * of the accessibility tree together with its role — so the element is named
- * directly, the way the probe names the controls it measures.
- */
-function sliderNode(page: Page, name: string): Locator {
-  return page.locator(`[role=slider][aria-label="${name}"]`);
 }
