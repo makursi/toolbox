@@ -8,20 +8,27 @@
 
 ## 不变量
 
-每条一行、不写理由，规则本身与它的例外在箭头指向的文件里：
+**分两类，分法本身就是组件层迁移这一轮的结论（#122）。** **美学项**是选择，所以随组件层一起重新打开，由 #116 重新定并重新量过；**强制项**是原样带过的，因为它们各自被某个**能变红的东西**或者一条谁都逃不掉的策略盯着——门禁、量具、单测、CSP，或 `apps/web/docs/design/checklist.md` 里那条要人过的手过项——所以换组件层不是动它们的理由。纯黑与纯白在强制项那一组，因为它是**量出来的结论**而不是口味（`docs/adr/0007-warm-monochrome-design-language.md`）。每条一行、不写理由，规则本身与它的例外在箭头指向的文件里。
+
+**美学项——本次工作重新打开：**
 
 - **没有强调色**：颜色只用来表达语义，也就是错误。→ `apps/web/docs/design/colour.md`
-- **没有纯 `#000000` 与纯 `#ffffff`**：浅色画布是暖白，深色也不是纯黑。→ `apps/web/docs/design/colour.md`
+- **暖单色**，以及「容器一个圆角、控件一个更小的圆角」这套尺度：同属这一组，规则与它们的理由在 `apps/web/docs/design/colour.md` 与 `apps/web/docs/design/components.md`。
+
+**强制项——原样带过：**
+
+- **没有纯 `#000000` 与纯 `#ffffff`**：浅色画布是暖白，深色也不是纯黑（**导出的图片像素不算**：JPEG 的压平底色就是纯白）。→ `apps/web/docs/design/colour.md`
 - **用户能读到的文案零 `—`（em dash）与零 `——`（中文破折号）**，标点用全角。→ `apps/web/docs/design/copy.md`
 - **可点控件的命中区域 ≥44px**：视觉尺寸不算数，声明尺寸也不算数。→ `apps/web/docs/design/components.md`
 - **一切资源自本站提供**：不引第三方图片、字体或图标，CSP 会拦掉。→ `apps/web/docs/design/assets.md`
+- **图标只用 Phosphor，写字面量类名，在构建期编进 CSS**：拼出来的名字不会被编译，图标测试会拦下这种写法。→ `apps/web/docs/design/components.md`
 - **不编造图形与数据**：不放替代图形、不放占位数据、不放假名字。→ 图形 `apps/web/docs/design/assets.md`；句子与数据 `apps/web/docs/design/copy.md`
 
 ## 从哪里改
 
 | 你在动什么                                            | 规则在哪                                                                                                   | 代码在哪                                                                                                                                                                                          |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 颜色与明暗模式                                        | `apps/web/docs/design/colour.md`                                                                           | `apps/web/src/app/theme.ts`（注意是 resolver，不是 `globals.css`）                                                                                                                                |
+| 颜色与明暗模式                                        | `apps/web/docs/design/colour.md`                                                                           | **站点自己的 token 层**：一个与组件引擎无关的值模块加一个对比度纯函数——`#126` 把它落成唯一入口，`#116` 定值。值**不**写在 `globals.css` 里，那里的 `@layer` 顺序仍然要守                          |
 | 字体、字号层级、圆角、按钮默认值                      | `apps/web/docs/design/typography.md`（字体与字号层级）、`apps/web/docs/design/components.md`（圆角与按钮） | 同一个 `createTheme` 调用里（`apps/web/src/app/theme.ts`）                                                                                                                                        |
 | 布局与页面节奏                                        | `apps/web/docs/design/layout.md`                                                                           | 页面组件里；Mantine 的属性不接受断点对象时，用 Tailwind 工具类                                                                                                                                    |
 | 组件外观、触控目标                                    | `apps/web/docs/design/components.md`                                                                       | 组件本体；`.touch-target` 本身、以及给 Mantine `Button` 那条放开裁切的覆盖，都在 `apps/web/src/app/globals.css`（量它跑 `pnpm --filter @toolbox/web touch-targets`）                              |
@@ -60,3 +67,5 @@ UI 改动由两套 skill 协议共同约束，两者在动手前都已被完整�
 写在这里是为了不再被重新讨论：
 
 双层嵌套卡片外壳（Double-Bezel）；药丸形主按钮；渐变、霓虹、玻璃拟态；强调色；衬线大标题；手搓 SVG 图标、Phosphor 之外的图标集、运行期取图标（见 `docs/adr/0009-phosphor-icons-through-iconify.md`）；远程图片与字体；页面中途的分节反色；在只占一屏的页面上做滚动驱动入场；滚动劫持；用 `h-screen` 而不是 `min-h-[100dvh]`；Tailwind 的重阴影；纯黑与纯白（**导出的图片像素不算**：JPEG 的压平底色就是纯白）。
+
+**把「站点同时存在两个组件层」当成常态**，也写在这里——它和上面那串不同，因为它**不是一个可以顺手捡起来的做法，而是一个有期限的状态**：#111 这一轮**故意**造出两层，但只在试点的一页上、且带明确的退出条件——试点页上旧层彻底退场（`#132`）、指纹恢复完整比对并重新基线化（`#133`）、设计语言定稿后由新的 ADR 取代 `docs/adr/0016-the-component-layer-is-shadcn-ui-again.md`。那之后两层态就结束了，任何「再留一层也无妨」的提议都要当作新决定重新论证，而不是当作既有事实。
