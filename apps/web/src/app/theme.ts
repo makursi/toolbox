@@ -1,29 +1,24 @@
 import { createTheme, type CSSVariablesResolver } from "@mantine/core";
 
-/**
- * The site's design tokens: a warm monochrome.
- *
- * The canvas is an off-white bone rather than `#ffffff` and the dark scheme is an
- * off-black rather than `#000000`, because neither pure value holds depth. Every
- * pair below was measured with a WCAG contrast calculator rather than judged by
- * eye: body text is 17.47:1 on the light canvas and 15.20:1 in dark, and the muted
- * tone is 5.14:1 and 7.03:1. AA wants 4.5:1 — the muted value the design reference
- * suggested measured 4.14:1 and was replaced.
- *
- * There is no accent colour on purpose. The only colour in the interface is the
- * one thing that carries meaning (an error), which is what keeps the page quiet.
- */
-const lightCanvas = "#f7f6f3";
-const lightSurface = "#fbfaf8";
-const lightText = "#111111";
-const lightDimmed = "#6b6862";
-const lightHairline = "#eaeaea";
+import { tokens } from "@/lib/tokens";
 
-const darkCanvas = "#171614";
-const darkSurface = "#1f1e1c";
-const darkText = "#edebe8";
-const darkDimmed = "#a5a19a";
-const darkHairline = "#313030";
+/**
+ * Mantine's view of the site's tokens — the outgoing layer's end of the single
+ * source in `src/lib/tokens.ts`.
+ *
+ * Nothing here declares a colour. The values used to live in this file, and the
+ * reason they are read from a plain module instead is #111: the incoming
+ * component layer needs the same values, and two owners of colour cannot coexist.
+ * `apps/web/docs/design/colour.md` records the decision and what each value is
+ * for; ADR-0016 records why the layer changed.
+ *
+ * The one thing here that is still Mantine-shaped is the `ink` ramp: a
+ * ten-stop palette is what Mantine's `colors` wants, so it is derived from this
+ * site's ink and paper and disappears with the library. It is not a second
+ * palette — every stop is a step between `tokens.light.text` and its canvas.
+ */
+const light = tokens.light;
+const dark = tokens.dark;
 
 /**
  * Geist covers Latin; the Chinese copy needs a CJK fallback behind it.
@@ -46,8 +41,8 @@ const sansStack = [
 
 export const theme = createTheme({
   colors: {
-    // Used for primary buttons and checked controls. Shade 9 is the
-    // ink of the light scheme and shade 0 the paper of the dark one.
+    // Used for primary buttons and checked controls. Shade 9 is the ink of the
+    // light scheme and shade 0 the paper of the dark one.
     ink: [
       "#f6f5f3",
       "#e9e7e4",
@@ -58,7 +53,7 @@ export const theme = createTheme({
       "#63605a",
       "#4a4843",
       "#2c2b29",
-      "#111111",
+      light.text,
     ],
   },
   primaryColor: "ink",
@@ -79,7 +74,11 @@ export const theme = createTheme({
 });
 
 /** Mantine reads its canvas, text and hairline from these, so they are set here
- * rather than fought with in a stylesheet. */
+ * rather than fought with in a stylesheet. The `colorScheme` blocks are named for
+ * *this site's* values, not Mantine's, and the resolver is the one place they are
+ * written into CSS — which is why a plain `globals.css` override loses the
+ * cascade and why this end of the source is TypeScript.
+ */
 export const cssVariables: CSSVariablesResolver = () => ({
   variables: {
     // 1.7 rather than 1.6: Chinese needs more leading than Latin at the same size.
@@ -88,29 +87,25 @@ export const cssVariables: CSSVariablesResolver = () => ({
     "--mantine-moz-font-smoothing": "grayscale",
   },
   light: {
-    "--mantine-color-body": lightCanvas,
-    "--mantine-color-text": lightText,
-    "--mantine-color-dimmed": lightDimmed,
-    "--mantine-color-anchor": lightText,
-    "--mantine-color-default": lightSurface,
-    "--mantine-color-default-hover": "#f2f1ed",
-    "--mantine-color-default-color": lightText,
-    "--mantine-color-default-border": lightHairline,
-    // Measured, not guessed: the first value here was #8a877f, which is 3.44:1 on
-    // the input surface and fails AA. AA for text wants 4.5:1.
-    "--mantine-color-placeholder": "#75726a",
+    "--mantine-color-body": light.canvas,
+    "--mantine-color-text": light.text,
+    "--mantine-color-dimmed": light.dimmed,
+    "--mantine-color-anchor": light.text,
+    "--mantine-color-default": light.surface,
+    "--mantine-color-default-hover": light.surfaceHover,
+    "--mantine-color-default-color": light.text,
+    "--mantine-color-default-border": light.hairline,
+    "--mantine-color-placeholder": light.placeholder,
   },
   dark: {
-    "--mantine-color-body": darkCanvas,
-    "--mantine-color-text": darkText,
-    "--mantine-color-dimmed": darkDimmed,
-    "--mantine-color-anchor": darkText,
-    "--mantine-color-default": darkSurface,
-    "--mantine-color-default-hover": "#262523",
-    "--mantine-color-default-color": darkText,
-    "--mantine-color-default-border": darkHairline,
-    // 5.65:1 on the dark input surface, matching the margin the light scheme
-    // keeps above AA rather than sitting just over the line.
-    "--mantine-color-placeholder": "#9a968e",
+    "--mantine-color-body": dark.canvas,
+    "--mantine-color-text": dark.text,
+    "--mantine-color-dimmed": dark.dimmed,
+    "--mantine-color-anchor": dark.text,
+    "--mantine-color-default": dark.surface,
+    "--mantine-color-default-hover": dark.surfaceHover,
+    "--mantine-color-default-color": dark.text,
+    "--mantine-color-default-border": dark.hairline,
+    "--mantine-color-placeholder": dark.placeholder,
   },
 });
