@@ -157,17 +157,19 @@ const NARROW_BELOW = 768;
  * a phone and fail as a narrow desktop window. The narrow widths are then measured
  * again as the phone, because that is the device the rule is written for and no
  * other check looks at it.
+ *
+ * **`touch` is the whole of how the phone is emulated, and that was measured rather
+ * than assumed (#130).** Until then this list carried `{ name: "hover", value:
+ * "none" }` and `{ name: "pointer", value: "coarse" }` for `setEmulatedMedia` — and
+ * those two features are *not* in the protocol's emulatable list: with both sent,
+ * the page still reports `matchMedia('(hover: none)').matches === false`, so no
+ * claim in this file had ever read a phone. `Emulation.setTouchEmulationEnabled`,
+ * which is what DevTools' own device mode flips, does move them, and it is turned
+ * back off for the desktop pass rather than left on for the next case.
  */
 const POINTERS = [
-  { label: "", media: [] },
-  {
-    label: " (touch)",
-    media: [
-      { name: "hover", value: "none" },
-      { name: "pointer", value: "coarse" },
-    ],
-    narrowOnly: true,
-  },
+  { label: "", touch: false },
+  { label: " (touch)", narrowOnly: true, touch: true },
 ];
 
 /**
@@ -225,7 +227,11 @@ const PAGES = [
   },
   {
     controls: ["切换到", "返回首页", "内容", "样式", "导出"],
-    fileInput: ".mantine-Dropzone-root input[type=file]",
+    // The background image's file input, named by this site's own hook class. It used
+    // to be `.mantine-Dropzone-root input[type=file]` — a selector written against the
+    // outgoing library's markup, which #130 moved the drop zone out of, and a selector
+    // that matches nothing guards nothing while the file it drops would never arrive.
+    fileInput: ".cover-background-input",
     layout: true,
     name: "cover",
     path: "/tools/cover-generator",
@@ -352,13 +358,22 @@ const MEASURE = `(() => {
     const cy = rect.top + rect.height / 2;
     const after = getComputedStyle(el, '::after');
     const name = label(el);
+    // A disabled control is not hit-testable *by construction* in the incoming layer
+    // (its disabled variant sets pointer-events to none), so the walk below would read
+    // 1x1 off a box that is 44px tall and report a control nobody can reach as a
+    // control that is too small. It is reported rather than walked, and the claim says
+    // so out loud instead of leaving it out of the list (#130, first seen on the font
+    // picker — and no backticks in this comment: the expression is a template literal,
+    // and one would end it here rather than at the closing brace, #108).
+    const disabled = el.disabled === true;
     return {
       control: el.tagName.toLowerCase() + (name ? ' "' + name.slice(0, 24) + '"' : ''),
+      disabled,
       label: name,
       drawn: Math.round(rect.width) + 'x' + Math.round(rect.height),
       declared: after.width + ' x ' + after.height,
-      x: span(el, cx, cy, 'x'),
-      y: span(el, cx, cy, 'y'),
+      x: disabled ? 0 : span(el, cx, cy, 'x'),
+      y: disabled ? 0 : span(el, cx, cy, 'y'),
     };
   });
   return JSON.stringify({
@@ -493,6 +508,41 @@ const LAYOUT = `(() => {
     // The height the page has, not the height that was asked for: the cap this is
     // compared against is 45dvh, whose basis is the page's own viewport (#108).
     viewport: window.innerHeight,
+  });
+})()`;
+
+/**
+ * The cover generator's background drop zone, read as the one thing a pointer
+ * changes about it (#130).
+ *
+ * The site already decided this shape for the Image Converter's drop zone
+ * (`apps/web/src/app/globals.css`): with a pointer the dashed box is the drop target
+ * and the hint says so, and on a touch pointer there is nothing to drag with, so the
+ * box and its hint go and the file button inside is the whole of "add files", grown
+ * to a thumb target. Two of those are drawing rather than hit areas — a border and a
+ * `display` — so they are read here rather than inferred from the button's size, and
+ * the button's own thumb size is the `hit-areas` claim's business in the same pass.
+ *
+ * **The pointer is read off the page, not off the pass.** Which of the two shapes is
+ * right is the *environment's* answer, and a runner without a mouse answers "none":
+ * the first CI run of this claim (2026-10-05) reported the touch shape on the desktop
+ * pass at every width, because Chromium takes `hover` and `pointer` from the platform
+ * and that platform has neither. `matchMedia` is therefore part of the reading and the
+ * judgement follows it, so the claim says what the page does with the pointer it has
+ * rather than what this file assumed the pass meant.
+ */
+const DROPZONE = `(() => {
+  const box = document.querySelector('.cover-dropzone');
+  if (box === null) return JSON.stringify({ missing: true });
+  const hint = box.querySelector('.drag-hint');
+  const input = box.querySelector('.cover-background-input');
+  const style = getComputedStyle(box);
+  return JSON.stringify({
+    borderStyle: style.borderTopStyle,
+    borderWidth: style.borderTopWidth,
+    hintDisplay: hint === null ? null : getComputedStyle(hint).display,
+    hoverNone: matchMedia('(hover: none)').matches,
+    inputHeight: input === null ? null : Math.round(input.getBoundingClientRect().height),
   });
 })()`;
 
@@ -815,12 +865,69 @@ const CLAIMS = [
     read: (ctx) => ctx.read("measure", MEASURE),
     judge: (measured) =>
       measured.controls.map((control) => {
+        // A disabled control is left in the report by name rather than measured: the
+        // incoming layer gives it `pointer-events: none`, so no pointer can reach it
+        // and there is no hit area to require. The class is still required of it by
+        // the carriers above, so this is a recorded exception rather than a control
+        // outside the Instrument's sight (#130).
+        if (control.disabled === true) {
+          return {
+            ok: true,
+            line: `  SKIP  ${control.control} — disabled, so no pointer can reach it; drawn ${control.drawn}`,
+          };
+        }
         const ok = control.x >= MIN && control.y >= MIN;
         return {
           ok,
           line: `  ${ok ? "PASS" : "FAIL"}  ${control.control} — drawn ${control.drawn}, declared ::after ${control.declared}, hit-testable ${control.x}x${control.y}`,
         };
       }),
+  },
+  {
+    name: "drop-zone-pointer",
+    about:
+      "the background drop zone is a dashed box for a pointer and only a file button for a finger",
+    falsification: { injection: true },
+    per: "page",
+    only: (ctx) => ctx.page.layout === true,
+    // The drop zone lives in 内容, and the page-scope claims run after the section
+    // sweep has walked to its last tab — so this claim opens its own section rather
+    // than inheriting whatever the loop left behind (#98). It names 内容's own panel
+    // to do it, because that is what makes it callable on its own.
+    prepare: async (ctx) => {
+      ctx.reset();
+      const section = ctx.page.sections?.find((one) => one.tab === "内容");
+      if (section === undefined) return;
+      await openSection(ctx.client, ctx.page, section);
+    },
+    read: (ctx) => ctx.read("dropzone", DROPZONE),
+    judge: (drop) => {
+      if (drop.missing === true) {
+        return [{ ok: false, line: "  FAIL  the background drop zone is not on the page" }];
+      }
+      // The pointer the *page* reports, not the one this pass was asked for: a runner
+      // with no mouse answers `hover: none` on every pass, and the shape follows the
+      // environment rather than the sweep (see the reading's header).
+      const touch = drop.hoverNone === true;
+      const boxGone = drop.borderStyle === "none" && drop.borderWidth === "0px";
+      const hintGone = drop.hintDisplay === "none";
+      const boxDrawn = drop.borderStyle === "dashed" && drop.hintDisplay !== "none";
+      // 50 is the stylesheet's own thumb height for this button (`.add-files-button`),
+      // and 44 is the `h-11` the box's own copy of it carries.
+      const ok = touch
+        ? boxGone && hintGone && (drop.inputHeight ?? 0) >= 50
+        : boxDrawn && (drop.inputHeight ?? 0) >= 44;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  ${
+            touch
+              ? 'the browser reports no hover, and the box and its drag hint are gone, leaving the file button as the whole of "add files"'
+              : "with a pointer the drop zone still draws its dashed box and its drag hint"
+          } — border ${drop.borderWidth} ${drop.borderStyle}, hint ${drop.hintDisplay}, file button ${drop.inputHeight}px`,
+        },
+      ];
+    },
   },
   {
     name: "column-order",
@@ -1053,9 +1160,14 @@ function reportResults(results) {
 }
 
 /**
- * Put the browser in one case: the viewport, and the two media features the site
- * reads — the colour scheme and the pointer. Taken before a page is opened, because
- * a page that is already loaded does not re-evaluate a media query the same way.
+ * Put the browser in one case: the viewport, the pointer, and the colour scheme the
+ * site reads. Taken before a page is opened, because a page that is already loaded
+ * does not re-evaluate a media query the same way.
+ *
+ * The pointer is emulated with touch emulation rather than with media *features*,
+ * for the reason `POINTERS` records: `hover` and `pointer` are not emulatable
+ * through `setEmulatedMedia` in this Chrome, and sending them anyway is how this
+ * file measured a desktop for months while calling it a phone.
  */
 async function applyCase(client, shape, pointer, scheme) {
   await client.send("Emulation.setDeviceMetricsOverride", {
@@ -1064,8 +1176,16 @@ async function applyCase(client, shape, pointer, scheme) {
     deviceScaleFactor: 1,
     mobile: shape.width < NARROW_BELOW,
   });
+  // `maxTouchPoints` is sent only when touch is being switched *on*: the protocol
+  // refuses the pair `enabled: false, maxTouchPoints: 0` ("Touch points must be
+  // between 1 and 16"), and leaving it off is the same request without the argument
+  // it would have rejected.
+  await client.send("Emulation.setTouchEmulationEnabled", {
+    enabled: pointer.touch,
+    ...(pointer.touch ? { maxTouchPoints: 5 } : {}),
+  });
   await client.send("Emulation.setEmulatedMedia", {
-    features: [{ name: "prefers-color-scheme", value: scheme }, ...pointer.media],
+    features: [{ name: "prefers-color-scheme", value: scheme }],
   });
 }
 
@@ -1158,8 +1278,10 @@ async function sweep(baseUrl) {
  * exactly 43 — the threshold itself — at 375×667 and 41 at 360. An entry measured
  * where its property does not bind would prove nothing and would be read as one.
  *
- * Every entry names three things and no more: what to break (a selector, a property,
- * a value), which claim has to notice, and the case it binds at.
+ * Every entry names what to break (a selector, a property, a value), which claim has
+ * to notice, and the case it binds at — plus, when the property only binds for one of
+ * the two pointers, `touch: true` to say so, because the desktop pass is the default
+ * and a claim about what `hover: none` does cannot be proved from it.
  */
 const FALSIFY = [
   {
@@ -1200,6 +1322,15 @@ const FALSIFY = [
     property: "position",
     selector: '[data-slot="cover-tab-row"]',
     value: "static",
+  },
+  {
+    case: { height: 667, width: 375 },
+    claim: "drop-zone-pointer",
+    note: "the touch half of the rule, which only the phone pass can see: with a finger there is nothing to drag with, so a dashed box put back is exactly what must not be there — and the injected rule is unlayered, so it wins over the media query that removes it",
+    property: "border",
+    selector: ".cover-dropzone",
+    touch: true,
+    value: "2px dashed var(--site-hairline)",
   },
   {
     case: { height: 900, width: 360 },
@@ -1372,7 +1503,6 @@ async function falsify(baseUrl) {
 
   const client = await connect(port);
   const page = PAGES.find((candidate) => candidate.name === FALSIFY_PAGE);
-  const [pointer] = POINTERS;
   const [scheme] = SCHEMES;
 
   try {
@@ -1390,6 +1520,16 @@ async function falsify(baseUrl) {
       ) {
         throw new Error(
           `the falsification list names a viewport the sweep does not measure: ${entry.case.width}×${entry.case.height}`,
+        );
+      }
+
+      // Which pointer the entry binds on. The desktop pass is the default — it is the
+      // strict case for the 44px floor — and an entry that guards what `hover: none`
+      // does asks for the touch pass by name.
+      const pointer = entry.touch ? POINTERS.find((candidate) => candidate.touch) : POINTERS[0];
+      if (pointer === undefined) {
+        throw new Error(
+          "a falsification entry asks for the touch pointer, and POINTERS declares none",
         );
       }
 

@@ -1,30 +1,28 @@
 "use client";
 
-import {
-  Box,
-  Button,
-  Divider,
-  FileInput,
-  Flex,
-  Select,
-  Stack,
-  Text,
-  TextInput,
-} from "@mantine/core";
-import { Dropzone } from "@mantine/dropzone";
-import { useRef, type CSSProperties, type ReactNode } from "react";
+import { Box, Button, Divider, Flex, Stack } from "@mantine/core";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 /*
  * The incoming component layer's parts of this page (#117). `Button` is aliased
  * because the outgoing layer's `Button` is still used by the parts of 内容 that have
- * not moved — the icon rows, the background drop zone's clear action and the font
- * controls — so during the two-layer state the alias is what makes it obvious which
- * layer a line belongs to, and it disappears with the last of them. `Switch` was
- * aliased for the same reason until #129 moved the last one this page had.
+ * not moved — the icon result rows and the background's 清除 — so during the
+ * two-layer state the alias is what makes it obvious which layer a line belongs to,
+ * and it disappears with the last of them. `Switch` was aliased for the same reason
+ * until #129 moved the last one this page had, and `FileInput`, `TextInput`,
+ * `Select` and `Dropzone` left the import list with #130.
  */
 import { Button as PrimitiveButton } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Switch as PrimitiveSwitch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -127,6 +125,21 @@ export function CoverGenerator() {
   const iconColorReason = composition.colorSync
     ? "「颜色同步」打开时，图标颜色跟随文字颜色。"
     : null;
+
+  /*
+   * The font picker's own state: whether its list is open, and the query the Tool's
+   * pure filter (`matchesFont`, `core/fonts.ts`) reads. The filter is deliberately
+   * ours rather than the registry's fuzzy match — the rule for what "matches" means
+   * is this Tool's, and it is unit-tested there.
+   */
+  const [fontPickerOpen, setFontPickerOpen] = useState(false);
+  const [fontQuery, setFontQuery] = useState("");
+  const fontSearchRef = useRef<HTMLInputElement | null>(null);
+  const chosenFont =
+    composition.fontFamily !== null && sysFonts.includes(composition.fontFamily)
+      ? composition.fontFamily
+      : null;
+  const filteredFonts = sysFonts.filter((family) => matchesFont(family, fontQuery));
 
   async function uploadIcon(file: File | null) {
     if (file === null) return;
@@ -285,18 +298,42 @@ export function CoverGenerator() {
                   <Label htmlFor="cover-icon-background">图标背景</Label>
                 </div>
               </div>
-              <FileInput
-                accept="image/*"
-                label="上传图标"
-                onChange={uploadIcon}
-                placeholder="选择图标文件"
-              />
-              <TextInput
-                label="搜索图标"
-                placeholder="例如 image"
-                value={iconQuery}
-                onChange={(event) => setIconQuery(event.currentTarget.value)}
-              />
+              {/* A file input is the registry's `Input` with `type="file"`, and the
+                  reason is #128's, applied to the second and third of them on this
+                  page: a file input is a replaced element, so it paints no `::after`
+                  and its 44px is its own `h-11` — the hit-area class on it is the
+                  Instrument's marker rather than an overlay. Its name comes from the
+                  `<label for>` `Field` draws. */}
+              <Field htmlFor="cover-icon-upload" label="上传图标">
+                <Input
+                  accept="image/*"
+                  className="cover-field touch-target h-11"
+                  id="cover-icon-upload"
+                  onChange={(event) => {
+                    void uploadIcon(event.currentTarget.files?.[0] ?? null);
+                    // Picking the same file again has to fire again: the input would
+                    // otherwise keep its value and report nothing.
+                    event.currentTarget.value = "";
+                  }}
+                  type="file"
+                />
+              </Field>
+              {/* The search is a synchronous filter over the bundled icon index, so
+                  there is no debounce to preserve here — what the ticket's sentence
+                  protects is the *gate's* waiting discipline, and that is what the
+                  re-derived test does: it waits for a matching row (a state
+                  transition) before it asserts anything about a query that matches
+                  nothing. Waiting for the absence of rows passes before the lazily
+                  imported icon set has landed, which is the recorded failure mode. */}
+              <Field htmlFor="cover-icon-search" label="搜索图标">
+                <Input
+                  className="cover-field touch-target h-11"
+                  id="cover-icon-search"
+                  onChange={(event) => setIconQuery(event.currentTarget.value)}
+                  placeholder="例如 image"
+                  value={iconQuery}
+                />
+              </Field>
               {iconSet !== null && iconResults.length > 0 && (
                 <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
                   {iconResults.map((name) => {
@@ -329,28 +366,49 @@ export function CoverGenerator() {
                   })}
                 </Stack>
               )}
-              {iconQuery.trim() !== "" && iconResults.length === 0 && (
-                <Text c="dimmed" size="sm">
-                  没有匹配的图标。
-                </Text>
-              )}
+              {iconQuery.trim() !== "" &&
+                iconResults.length === 0 && (
+                  // The search's own empty state, so it moves with the search field
+                  // rather than with the grid #131 takes.
+                  <p className="text-sm text-muted-foreground">没有匹配的图标。</p>
+                )}
 
               <Divider />
-              <Dropzone
-                accept={["image/*"]}
-                onDrop={(files) => uploadBackground(files[0] ?? null)}
-                p="sm"
-                radius="md"
+              {/* The background image, in the shape the Image Converter's drop zone
+                  already uses (`apps/web/src/app/globals.css`): the dashed box is the
+                  drop target while there is a pointer to drag with, and on a touch
+                  pointer the box goes — `.dropzone-touch-flat` and `.drag-hint` are
+                  the site's own rules for exactly that, written before this page had
+                  a drop zone of its own — which leaves the file button inside it as
+                  the whole of "add files", grown to a thumb target. */}
+              <div
+                className="cover-dropzone dropzone-touch-flat flex flex-col gap-3 rounded-lg border border-dashed border-input p-4"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  void uploadBackground(event.dataTransfer.files[0] ?? null);
+                }}
               >
-                <Text c="dimmed" size="sm" ta="center">
-                  拖拽背景图到此处，或点击选择
-                </Text>
-              </Dropzone>
-              {bgRefusal !== null && (
-                <Text c="red" size="sm">
-                  {bgRefusal}
-                </Text>
-              )}
+                <p className="drag-hint text-center text-sm text-muted-foreground">
+                  拖拽背景图到此处，或用下面的按钮选择
+                </p>
+                {/* The element `touch-targets.mjs` takes the file in, declared by
+                    this hook class rather than by the outgoing library's markup: the
+                    drop zone it used to live in was Mantine's. */}
+                <Field htmlFor="cover-background-image" label="背景图">
+                  <Input
+                    accept="image/*"
+                    className="add-files-button cover-background-input cover-field touch-target h-11"
+                    id="cover-background-image"
+                    onChange={(event) => {
+                      void uploadBackground(event.currentTarget.files?.[0] ?? null);
+                      event.currentTarget.value = "";
+                    }}
+                    type="file"
+                  />
+                </Field>
+              </div>
+              {bgRefusal !== null && <p className="text-sm text-destructive">{bgRefusal}</p>}
               {composition.backgroundImage !== null && (
                 <Button
                   className="touch-target"
@@ -363,53 +421,133 @@ export function CoverGenerator() {
               )}
 
               <Divider />
-              <FileInput
-                accept=".woff2,.woff,.ttf,.otf"
-                label="上传字体"
-                onChange={onUploadFont}
-                placeholder="选择字体文件"
-              />
-              {fontRefusal !== null && (
-                <Text c="red" size="sm">
-                  {fontRefusal}
-                </Text>
-              )}
-              <Button
-                className="touch-target"
-                color="gray"
-                justify="flex-start"
-                onClick={fetchSystemFonts}
-                variant="subtle"
+              <Field htmlFor="cover-font-upload" label="上传字体">
+                <Input
+                  accept=".woff2,.woff,.ttf,.otf"
+                  className="cover-field touch-target h-11"
+                  id="cover-font-upload"
+                  onChange={(event) => {
+                    void onUploadFont(event.currentTarget.files?.[0] ?? null);
+                    event.currentTarget.value = "";
+                  }}
+                  type="file"
+                />
+              </Field>
+              {fontRefusal !== null && <p className="text-sm text-destructive">{fontRefusal}</p>}
+              <PrimitiveButton
+                className="touch-target h-11 self-start"
+                onClick={() => void fetchSystemFonts()}
+                variant="outline"
               >
                 获取系统字体
-              </Button>
-              {sysHint !== null && (
-                <Text c="dimmed" size="sm">
-                  {sysHint}
-                </Text>
-              )}
-              <Select
-                searchable
-                data={sysFonts}
-                disabled={sysFonts.length === 0}
-                filter={(input) =>
-                  input.options.filter(
-                    (option) => "value" in option && matchesFont(option.value, input.search),
-                  )
-                }
-                label="系统字体"
-                maxDropdownHeight={220}
-                nothingFoundMessage="没有匹配的字体"
-                onChange={(family) => {
-                  if (family !== null) set({ fontFamily: family });
-                }}
-                placeholder={sysFonts.length === 0 ? "先获取系统字体" : "搜索字体"}
-                value={
-                  composition.fontFamily !== null && sysFonts.includes(composition.fontFamily)
-                    ? composition.fontFamily
-                    : null
-                }
-              />
+              </PrimitiveButton>
+              {sysHint !== null && <p className="text-sm text-muted-foreground">{sysHint}</p>}
+              {/* The picker is the registry's own searchable list — `Popover` + the
+                  `Command` generated for it — rather than the outgoing layer's
+                  `Select`, because the rule is a *substring* filter with an empty
+                  state (`rules.md`: 默认折叠、按子串、大小写不敏感、无匹配时给出文案)
+                  and a Radix select filters by typeahead rather than by query. The
+                  filter itself stays this Tool's pure `matchesFont`, so `shouldFilter`
+                  is off and the library's own fuzzy match is not consulted.
+
+                  The name is the `<label for>` `Field` draws, and the trigger is a
+                  real form element for the same reason: `role="combobox"` on an input
+                  is the shape the accessibility rules here accept and the shape the
+                  Radix select this replaces had. A read-only input that opens the list
+                  on click, Enter or ArrowDown is the select-only combobox of the ARIA
+                  authoring practices, and the typing happens in the search field
+                  inside. */}
+              <Field htmlFor="cover-font" label="系统字体">
+                <Popover onOpenChange={setFontPickerOpen} open={fontPickerOpen}>
+                  <PopoverAnchor asChild>
+                    <div className="relative">
+                      {/* `role="combobox"` is what this control *is*, and the a11y rule
+                          that prefers a native tag cannot see through the Primitive
+                          (`Input` renders a real `<input>`), so the rule is disabled
+                          for this one element rather than the semantics dropped. */}
+                      {/* oxlint-disable jsx-a11y/prefer-tag-over-role -- see above. */}
+                      <Input
+                        aria-controls={fontPickerOpen ? "cover-font-list" : undefined}
+                        aria-expanded={fontPickerOpen}
+                        className="cover-field touch-target h-11 cursor-pointer pr-9"
+                        disabled={sysFonts.length === 0}
+                        id="cover-font"
+                        onClick={() => setFontPickerOpen(true)}
+                        onKeyDown={(event) => {
+                          if (event.key === "ArrowDown" || event.key === "Enter") {
+                            event.preventDefault();
+                            setFontPickerOpen(true);
+                          }
+                        }}
+                        placeholder={sysFonts.length === 0 ? "先获取系统字体" : "选择字体"}
+                        readOnly
+                        role="combobox"
+                        value={chosenFont ?? ""}
+                      />
+                      {/* oxlint-enable jsx-a11y/prefer-tag-over-role */}
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute top-1/2 right-3 icon-[ph--caret-down-bold] -translate-y-1/2 opacity-60"
+                      />
+                    </div>
+                  </PopoverAnchor>
+                  <PopoverContent
+                    align="start"
+                    className="w-[var(--radix-popover-trigger-width)] p-1"
+                    id="cover-font-list"
+                    // The search field is what gets typed into, so it takes the focus
+                    // the popover would otherwise give the list itself — by ref rather
+                    // than by `autoFocus`, which the accessibility rules here refuse.
+                    onOpenAutoFocus={(event) => {
+                      event.preventDefault();
+                      fontSearchRef.current?.focus();
+                    }}
+                  >
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        onValueChange={setFontQuery}
+                        placeholder="搜索字体"
+                        ref={fontSearchRef}
+                        value={fontQuery}
+                      />
+                      <CommandList>
+                        <CommandEmpty>没有匹配的字体</CommandEmpty>
+                        {filteredFonts.map((family) => (
+                          <CommandItem
+                            key={family}
+                            onSelect={() => {
+                              set({ fontFamily: family });
+                              setFontPickerOpen(false);
+                            }}
+                            value={family}
+                          >
+                            {family}
+                          </CommandItem>
+                        ))}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                {/* A disabled control says which step is missing
+                    (`apps/web/docs/design/components.md`), and the sentence changes
+                    with the state: while the list has not been read the trigger
+                    itself says 先获取系统字体, and this says where to press. When the
+                    machine's list is *unavailable* the hint above already carries the
+                    reason, so this stays silent rather than competing with it. The
+                    copy is inline for #129's recorded reason: this round's scope
+                    forbids touching `core/`, so the copy module the rule asks for is
+                    owed to #119's consistency pass.
+
+                    It fits one line at the editor column's own 320px, which is
+                    measured rather than hoped: the first wording ran two characters
+                    long and wrapped inside the 「获取系统字体」 it names, which is what
+                    the look at both colour schemes caught. */}
+                {sysFonts.length === 0 && sysHint === null && (
+                  <p className="text-sm text-muted-foreground">
+                    还没读取系统字体，先按「获取系统字体」。
+                  </p>
+                )}
+              </Field>
             </Stack>
           </TabsContent>
 

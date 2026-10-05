@@ -31,6 +31,7 @@
 ## 背景后处理
 
 - **作用对象是背景图**，不是纯色：模糊/灰度对纯色无可见内容可处理，所以无背景图时控件禁用；「背景透明」打开时同样禁用（透明 PNG 没有承托，`backdropFilter` 会退化为无效果）。
+- **背景图有两条进来的路，按指针分开**（#130）：有指针时是虚线的拖放区（拖进来，或按里面的按钮选文件），触屏上没有东西可拖，于是框与拖拽提示一起退场、文件按钮成为「添加文件」的全部并长到拇指尺寸。形状本身是站点规则（`apps/web/src/app/globals.css` 的 `.dropzone-touch-flat` / `.drag-hint` / `.add-files-button`，image-converter 的拖放区早就是这个做法），量具按 `drop-zone-pointer` 两个方向都守；本工具只是不再借旧组件库的 `Dropzone` 画它。
 - **清除把背景连同后处理一起归零**：`清除` 只在有背景图时出现，按下后 `backgroundImage` 归 `null`、模糊与灰度同时回到 0（`useCoverComposition.clearBackground`），不留"图没了但强度还在"的半套状态。
 - **实现是 `backdropFilter` 覆盖层**，套在背景图与文字/图标之间（不是直接 `filter` 背景图）：文字和图标保持清晰，只有它们后面的背景被糊/去色——这是 ThisCover 的做法，也天然避免 `filter` 的边缘羽化。
 - **模糊是非线性映射**：0–100 强度经二次缓动映射到 0–50px（`50×(v/100)²`），小值几乎无感、拉满才 50px；灰度是线性的 `grayscale(v%)`。两个都是 0–100 强度，映射收敛在 `core/background.ts`，渲染层只拼 CSS。
@@ -48,7 +49,7 @@
 - **导出图里的字形取决于导出机器**：系统回退 + 访客自带。README 写明"同一份设计在两台不同系统的机器上导出，字形不一样"；不进站点 `design/typography.md`。
 - 字体上传走 `new FontFace(family, ArrayBuffer)`（规格层面不经 `font-src`）；生产构建录一次基线（accentance，见 #57）。
 - 系统字体（Local Font Access）仅 Chromium 桌面可用：「不支持时会提示」，回退文案进 `core/hints.ts`；不引入 polyfill。
-- **系统字体列表是可搜索的下拉**（issue #78）：默认折叠，按子串、大小写不敏感过滤（规则在纯层 `core/fonts.ts` 的 `matchesFont`），未点「获取系统字体」前禁用，无匹配时显示「没有匹配的字体」。上传字体是另一条路径，不写进这个下拉的值。
+- **系统字体列表是可搜索的下拉**（issue #78）：默认折叠，按子串、大小写不敏感过滤（规则在纯层 `core/fonts.ts` 的 `matchesFont`），未点「获取系统字体」前禁用，无匹配时显示「没有匹配的字体」。上传字体是另一条路径，不写进这个下拉的值。**#130 起这个下拉是注册表的 `Popover` + `Command`**：过滤仍然是本工具自己的 `matchesFont`（`shouldFilter={false}`），折叠时那行是只读的触发器、弹出的列表里才是搜索框；形状与理由写在 `apps/web/docs/design/components.md`。
 
 ## 指向
 
