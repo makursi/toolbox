@@ -54,6 +54,34 @@
   --color-border: var(--site-hairline);
   --color-input: var(--site-hairline);
   --color-ring: var(--site-text);
+
+  /* The one colour on the site that carries meaning, and a measured one: no single
+   * red clears AA as a filled control in both schemes, so the module holds two
+   * (`apps/web/docs/design/colour.md`). `destructive-foreground` is this site's
+   * paper, which is also what `[data-layer="primitive"]` re-points `text-white`
+   * to — the registry's own variants write `text-white` on this background. */
+  --color-destructive: var(--site-error);
+  --color-destructive-foreground: var(--site-canvas);
+
+  /* Two values, and the names are chosen to land on the two things the registry's
+   * components actually ask for: a control asks `rounded-md`, a container asks
+   * `rounded-lg` or `rounded-xl`. The incoming default is one value
+   * (`--radius: 0.625rem`) with the rest derived from it, which puts a control at
+   * 8px and a container at 10px; this site's rule is a container at 8px and a
+   * control at 4px, because a pill control in a square-ish card reads as
+   * decoration. */
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+
+  /* No resting shadow, as a position rather than an absence
+   * (`apps/web/docs/design/components.md`): the only shadow this site draws is the
+   * card's on hover. The registry's smallest two are re-pointed at nothing so that
+   * a generated component cannot reintroduce one by asking for its own default —
+   * a larger one would still take a decision, which is the point. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
 }
 
 /*

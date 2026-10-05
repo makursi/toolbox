@@ -5,7 +5,7 @@
 - **卡片**：`Paper withBorder`——发丝线来自 token，绝不硬编码灰色；`radius="md"`（8px）、`p="lg"`（24px），外加一个 `lift` 类，hover 时把阴影提到 4% 不透明度、过渡 200ms。
   **没有阴影是设计本身，不是漏写的样式**——「给卡片加个阴影」是后来者最容易"顺手修"的地方，所以特意写在这里。
 - **卡片在窄屏上的形状**：封面在宽屏上在左侧（220×165），在窄屏上**移到文字下方**且**高度封顶 180px**（多余的裁掉），标题同时从 18px 升到 20px。理由：手机上封面占满屏宽会把标题挤到下面、又把卡片拉得很长，而直接隐藏封面等于把这张图在手机上删掉。换序由一个属性完成：标里是 `[封面, 文字]`，`direction={{ base: "column-reverse", sm: "row" }}`。
-- **圆角**：容器 8px、控件 4px（`Button` 默认 `radius="sm"`）。一套体系两个值；**药丸形主按钮被否决**——放在方正的卡片里，它读起来像装饰。
+- **圆角**：容器 8px、控件 4px（`Button` 默认 `radius="sm"`）。一套体系两个值；**药丸形主按钮被否决**——放在方正的卡片里，它读起来像装饰。新层读的是同一套：`--radius-md` = 4px（注册表组装控件时用的名字）、`--radius-lg` / `--radius-xl` = 8px（容器用的名字），理由与取舍见 `apps/web/docs/design/colour.md`。
 - **按钮**：Mantine `filled`，用 `ink` 调色板（浅色接近黑、深色接近白），对比色由 Mantine 自动计算（17.33:1）。
 - **图标**：来自 Phosphor，由 Iconify 的 Tailwind v4 插件在**构建期**编进 CSS（`apps/web/src/app/globals.css` 里的 `@plugin`），写成一个字面量类名 `icon-[ph--arrow-right-bold]`，绘制方式是 `currentColor` 的 mask，所以图标跟随所在文字的颜色与字号。**统一用 bold 一个字重**，尺寸就是 `1em`，没有图标专用的尺寸 token。**不做包装组件**：Tailwind 是从源码里读出类名的，拼出来的名字不会被编译，`apps/web/src/app/__tests__/icons.test.ts` 会拦下这种写法和写错的图标名。除了这三条，`.icon` 只负责插件管不到的两件事（`flex-shrink`、以及把 inline-block 的图标下移 `0.125em` 与文字对齐）。理由与取舍见 `docs/adr/0009-phosphor-icons-through-iconify.md`。
 - **折叠控件（disclosure）**：目前没有在用。要不要折叠是每个工具自己的决定，按工具级规则进工具自己的文档（`docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`）；image-converter 的「高级选项」2026-09-18 已删，见它的 `rules.md`。

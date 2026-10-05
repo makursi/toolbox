@@ -26,11 +26,14 @@ import { Button } from "@/components/ui/button";
  * on pure black and pure white survives components nobody here can edit
  * (`apps/web/src/app/globals.css`).
  *
- * The `destructive` variant is deliberately absent. It is the one variant whose
- * colour is semantic — an error — and this site has never had an error value of
- * its own to move: the interface borrows Mantine's red today. Drawing it here
- * would either invent a colour or show a transparent box, so the palette for it is
- * #116's to decide and measure, and the variant comes back with a value.
+ * The `destructive` variant is left out on purpose, and the reason changed when
+ * #116 measured it. The error colour exists now (`#c92a2a` light, `#ff8787` dark,
+ * each clearing AA as text on its own canvas), but the *variant* asks for
+ * `bg-destructive/60` in dark, and a red at sixty percent over a near-black canvas
+ * cannot hold AA against a near-black label: measured, 3.60:1. That is the
+ * registry's own shape — its default dark `destructive` measures about 2.9:1 with
+ * white on it — so a filled error control would need a component of this site's,
+ * not this one. `apps/web/docs/design/colour.md` carries the numbers.
  */
 export const metadata: Metadata = {
   title: "Primitive",
