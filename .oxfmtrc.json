@@ -2,7 +2,8 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "sortImports": true,
   "sortTailwindcss": {
-    "stylesheet": "apps/web/src/app/globals.css"
+    "stylesheet": "apps/web/src/app/globals.css",
+    "functions": ["cn", "cva"]
   },
   "ignorePatterns": [
     "**/node_modules",
