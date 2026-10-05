@@ -421,6 +421,23 @@
 }
 
 /*
+ * The registry's popover opens with 100ms of fade and zoom, and it is the first
+ * generated Primitive on this site that moves on its own. The pattern above applies
+ * to it unchanged — motion is opt-in, and `prefers-reduced-motion: reduce` leaves
+ * the list simply there — but it cannot be written the same way round, because the
+ * animation comes from the registry's own utility classes rather than from a rule
+ * here: this takes it off instead of adding it.
+ *
+ * It is addressed by the Primitive's `data-slot`, which is the anchor convention
+ * #126 settled on for site rules that have to outlive a library (#130).
+ */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="popover-content"] {
+    animation: none;
+  }
+}
+
+/*
  * A narrow screen: an action takes the width it can get. Deliberately separate
  * from the rule above — a narrow window on a desktop still drags files, and a
  * wide tablet still wants the thumb-sized button.

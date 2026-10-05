@@ -50,7 +50,7 @@ test.describe("the cover generator", () => {
     await page.getByRole("button", { name: "image", exact: true }).click();
 
     const background = await solidPng(page.context(), "#00aa88");
-    await page.locator(".mantine-Dropzone-root input[type=file]").setInputFiles(background);
+    await page.locator(".cover-background-input").setInputFiles(background);
 
     // The background post-processing controls arrive with the background image:
     // blur and grayscale sliders, enabled now that a background exists. Drive
@@ -124,7 +124,7 @@ test.describe("the cover generator", () => {
     await open(page, COVER_PATH);
 
     const background = await solidPng(page.context(), "#00aa88");
-    await page.locator(".mantine-Dropzone-root input[type=file]").setInputFiles(background);
+    await page.locator(".cover-background-input").setInputFiles(background);
 
     await showSection(page, "样式");
     const blur = page.getByRole("slider", { name: "背景模糊" });
@@ -220,34 +220,45 @@ test.describe("the cover generator", () => {
   }) => {
     await open(page, COVER_PATH);
 
-    // `getByLabel` also reaches the Select's own listbox, which Mantine labels
-    // with the input's id; the combobox role names the control itself.
+    // Since #130 the picker is the registry's own searchable list: a read-only input
+    // that opens a `Command` of filtered families. Its name is the `<label for>` the
+    // panel draws, so the role query names the control itself and not a listbox —
+    // the same shape the outgoing layer's `Select` had, reached differently.
     const picker = page.getByRole("combobox", { name: "系统字体" });
     await expect(picker).toBeDisabled();
     await expect(picker).toHaveAttribute("placeholder", "先获取系统字体");
+    // A disabled control says which step is missing (`apps/web/docs/design/components.md`),
+    // in the panel's own words rather than in a tooltip — one line at the editor
+    // column's 320px, which the wording was shortened to fit.
+    await expect(page.getByText("还没读取系统字体，先按「获取系统字体」。")).toBeVisible();
 
     await context.grantPermissions(["local-fonts"]);
     await page.getByRole("button", { name: "获取系统字体" }).click();
     await expect(picker).toBeEnabled();
 
+    // The trigger displays the choice; the field that gets typed into is the search
+    // inside the popover, and it takes the focus when the list opens.
+    await picker.click();
+    const search = page.getByPlaceholder("搜索字体");
+    await expect(search).toBeFocused();
+
     // The dropdown opens with the whole list; the query is what decides what
     // survives it.
     const options = page.getByRole("option");
-    await picker.click();
     await expect(options.first()).toBeVisible();
     const all = await options.allInnerTexts();
 
     // A query that matches nothing is what makes the filter decisive: with the
-    // `filter` prop deleted, the whole list would still be rendered and the Tool's
-    // own 「没有匹配的字体」 would never appear.
-    await picker.fill("zzzz");
+    // filtering deleted, the whole list would still be rendered and the Tool's own
+    // 「没有匹配的字体」 would never appear.
+    await search.fill("zzzz");
     await expect(page.getByText("没有匹配的字体")).toBeVisible();
 
     // A query that matches something leaves only names carrying it — and fewer of
     // them than the full list. The query is the first family's own prefix, so it
     // cannot be one this machine has no font for.
     const query = (all[0] ?? "").trim().slice(0, 3);
-    await picker.fill(query);
+    await search.fill(query);
     await expect(options.first()).toBeVisible();
     const names = await options.allInnerTexts();
     for (const name of names) expect(name.toLowerCase()).toContain(query.toLowerCase());
@@ -257,6 +268,28 @@ test.describe("the cover generator", () => {
     await options.first().click();
     await expect(picker).toHaveValue(chosen);
     await expect(page.getByRole("listbox")).toBeHidden();
+  });
+
+  /*
+   * #130: the icon search, and the waiting discipline it needs.
+   *
+   * The icon set is a lazily imported chunk, so before it lands the result list is
+   * empty for *every* query — which makes "no matches" the state the page is in on
+   * load. A test that waits for that passes before React has rendered anything,
+   * which is the recorded failure mode ("wait for a state transition, not for an
+   * absence"). So the transition comes first: a query that matches something has to
+   * produce rows, and only then does the empty state mean the filter ran.
+   */
+  test("the icon search settles before its result is asserted", async ({ page }) => {
+    await open(page, COVER_PATH);
+    const search = page.getByLabel("搜索图标");
+
+    await search.fill("image");
+    await expect(page.getByRole("button", { name: "image", exact: true })).toBeVisible();
+
+    await search.fill("zzzzzz");
+    await expect(page.getByText("没有匹配的图标。")).toBeVisible();
+    await expect(page.getByRole("button", { name: "image", exact: true })).toHaveCount(0);
   });
 
   /*

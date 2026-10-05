@@ -24,6 +24,7 @@
     "@mantine/hooks": "^9.6.1",
     "@zumer/snapdom": "^3.1.0",
     "class-variance-authority": "^0.7.1",
+    "cmdk": "^1.1.1",
     "cn": "^0.4.0",
     "fflate": "^0.8.3",
     "next": "catalog:",
