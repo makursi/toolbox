@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { SiteFooter } from "@/components/site-footer/site-footer";
 import { SiteHeader } from "@/components/site-header/site-header";
 import { siteDescription, siteName, siteUrl, shareMetadata } from "@/lib/site";
+import { tokensCss } from "@/lib/tokens";
 
 import { Providers } from "./providers";
 
@@ -48,7 +49,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       {...mantineHtmlProps}
     >
       <head>
+        {/*
+         * The colour scheme is decided before the first paint, and by exactly one
+         * mechanism: `ColorSchemeScript` reads the stored preference (or the
+         * operating system's, which it is the only thing that can read it from)
+         * and writes `data-mantine-color-scheme` on `<html>`. The incoming
+         * component layer keys its dark variant on that same attribute rather
+         * than adding a second one (`apps/web/docs/design/colour.md`).
+         */}
         <ColorSchemeScript defaultColorScheme="auto" />
+        {/*
+         * The site's values, published from the single source in
+         * `src/lib/tokens.ts` — the same module Mantine's theme factory reads a
+         * few lines away. Emitted here, server-side, so the properties are in the
+         * document before anything paints; `globals.css` maps the new layer's
+         * utility names onto them. A stylesheet that repeated these values would
+         * be a second owner of colour (#111).
+         */}
+        <style dangerouslySetInnerHTML={{ __html: tokensCss() }} />
       </head>
       <body>
         <Providers>

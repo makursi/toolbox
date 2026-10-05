@@ -15,6 +15,87 @@
 @import "@mantine/dropzone/styles.layer.css";
 
 /*
+ * The incoming component layer's theme block: names, and only names.
+ *
+ * Every entry points at a custom property the root layout emits from
+ * `src/lib/tokens.ts`, so the utilities the generated components are written with
+ * read this site's palette without a value being repeated here. A hex in this file
+ * would be a second owner of colour, which is what #111 forbids; `tokens.test.ts`
+ * is what notices (#127).
+ *
+ * `inline` is what makes that work: Tailwind substitutes the `var()` reference into
+ * each utility instead of emitting a `--color-*` property of its own, so the only
+ * definitions in the document are the ones the module produced.
+ */
+@theme inline {
+  --color-background: var(--site-canvas);
+  --color-foreground: var(--site-text);
+
+  --color-card: var(--site-surface);
+  --color-card-foreground: var(--site-text);
+  --color-popover: var(--site-surface);
+  --color-popover-foreground: var(--site-text);
+
+  /* Ink on paper in light, paper on ink in dark: the same one value the outgoing
+   * layer's `primaryShade` picks, read from the same module. */
+  --color-primary: var(--site-text);
+  --color-primary-foreground: var(--site-canvas);
+
+  --color-secondary: var(--site-surface-hover);
+  --color-secondary-foreground: var(--site-text);
+  --color-muted: var(--site-surface-hover);
+  --color-muted-foreground: var(--site-dimmed);
+
+  /* `accent` is a hover surface and not a hue. This design has no accent colour:
+   * the only colour in the interface carries meaning, which is an error. */
+  --color-accent: var(--site-surface-hover);
+  --color-accent-foreground: var(--site-text);
+
+  --color-border: var(--site-hairline);
+  --color-input: var(--site-hairline);
+  --color-ring: var(--site-text);
+}
+
+/*
+ * The dark variant, defined rather than assumed.
+ *
+ * Tailwind's `dark:` asks the operating system by default. This site has exactly
+ * one owner of the colour scheme and it is not the media query: Mantine's
+ * `ColorSchemeScript` resolves the stored preference — or the system's, once —
+ * and writes one attribute on `<html>`, which is also what decides the accessible
+ * name of the scheme switch. Leaving `dark:` on the media query would be the
+ * second mechanism #126 exists to remove, and it would disagree with the switch
+ * the moment a visitor chose a scheme the system does not prefer.
+ *
+ * The variant is written against the attribute, so the generated components'
+ * `dark:` utilities follow the switch. `:where()` keeps its specificity at zero.
+ */
+@custom-variant dark (&:where([data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
+
+/*
+ * Pure black and pure white, inside the new layer.
+ *
+ * The ban is one of the enforced invariants and it was settled by a measurement,
+ * so a component layer is not a reason to reopen it (`apps/web/docs/design.md`).
+ * A generated Primitive is not ours to edit, and the registry's own variants do
+ * ship `text-white` — the destructive one does — so the ban is enforced where the
+ * values live instead: inside a region drawn by the new layer, Tailwind's `white`
+ * and `black` resolve to this site's paper and ink.
+ *
+ * It is scoped rather than global on purpose. `bg-white` is a legitimate value
+ * somewhere else: the cover generator's preview pane paints the *exported
+ * artifact's* background, and an exported image is exactly the exception the
+ * colour rule already records. A global override would quietly change the file
+ * somebody downloads.
+ */
+@layer components {
+  [data-layer="primitive"] {
+    --color-black: var(--site-text);
+    --color-white: var(--site-canvas);
+  }
+}
+
+/*
  * Icons, from Phosphor, compiled in at build time.
  *
  * The plugin turns a class like `icon-[ph--sun-bold]` into one rule holding the
@@ -122,18 +203,18 @@
    * moves: the hairline becomes ink. No new colour, so no new contrast pairing.
    */
   .format-card[data-checked] {
-    border-color: var(--mantine-color-text);
+    border-color: var(--site-text);
   }
 
   .mantine-Dropzone-root {
-    background-color: var(--mantine-color-default);
-    border-color: var(--mantine-color-default-border);
+    background-color: var(--site-surface);
+    border-color: var(--site-hairline);
   }
 
   .mantine-Dropzone-root[data-accept] {
-    background-color: var(--mantine-color-default-hover);
-    border-color: var(--mantine-color-text);
-    color: var(--mantine-color-text);
+    background-color: var(--site-surface-hover);
+    border-color: var(--site-text);
+    color: var(--site-text);
   }
 }
 
@@ -163,7 +244,7 @@
  */
 @layer components {
   .file-row {
-    border-top: 1px solid var(--mantine-color-default-border);
+    border-top: 1px solid var(--site-hairline);
     padding-block: var(--mantine-spacing-xs);
   }
 
@@ -179,7 +260,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border: 1px solid var(--mantine-color-default-border);
+    border: 1px solid var(--site-hairline);
     border-radius: var(--mantine-radius-sm);
   }
 }
@@ -345,10 +426,19 @@
  * is its cool `gray-3` / `dark-4`, which would be the one cold line on the page
  * (apps/web/docs/design/colour.md). The active marker needs no override: it is
  * painted with `--tabs-color`, which is the theme's primary — `ink`.
+ *
+ * The three selectors here are this site's own anchors rather than Mantine's
+ * class names, which is #126's point: these rules guard *site* rules — a row that
+ * owes a finger 46px, a pinned row that needs its own background — and writing
+ * them against `.mantine-Tabs-*` would make them die in the same commit that
+ * replaces the tab row. Anchored, they survive the swap; the anchor convention and
+ * its owning file are in `apps/web/docs/design/components.md`. The two rules that
+ * are still written against Mantine's classes are noted there with what they
+ * guard and why they cannot move yet.
  */
 @layer components {
-  .cover-tabs {
-    --tab-border-color: var(--mantine-color-default-border);
+  [data-slot="cover-tabs"] {
+    --tab-border-color: var(--site-hairline);
   }
 
   /*
@@ -359,7 +449,7 @@
    * above the floor wherever the row lands, instead of loosening the threshold the
    * whole site is held to.
    */
-  .cover-tabs .mantine-Tabs-tab {
+  [data-slot="cover-tab"] {
     min-height: 46px;
   }
 
@@ -374,15 +464,15 @@
    * The row needs a background of its own: it is 46px of transparent tabs with a
    * hairline, and a panel scrolling under it would otherwise show through.
    */
-  .cover-tabs .mantine-Tabs-list {
-    background-color: var(--mantine-color-body);
+  [data-slot="cover-tab-row"] {
+    background-color: var(--site-canvas);
     position: sticky;
     top: 1rem;
     z-index: 1;
   }
 
   @media (max-width: 767.98px) {
-    .cover-tabs .mantine-Tabs-list {
+    [data-slot="cover-tab-row"] {
       top: calc(var(--cover-preview-height, 0px) + 1rem);
     }
   }
@@ -397,8 +487,8 @@
  */
 .cover-frame {
   aspect-ratio: 4 / 3;
-  background-color: var(--mantine-color-default);
-  border: 1px solid var(--mantine-color-default-border);
+  background-color: var(--site-surface);
+  border: 1px solid var(--site-hairline);
   border-radius: var(--mantine-radius-sm);
   flex-shrink: 0;
   max-height: 180px;
@@ -452,11 +542,11 @@
  * say that it is a link.
  */
 .quiet-link {
-  color: var(--mantine-color-dimmed);
+  color: var(--site-dimmed);
 }
 
 .quiet-link:hover {
-  color: var(--mantine-color-text);
+  color: var(--site-text);
 }
 
 @keyframes reveal {
