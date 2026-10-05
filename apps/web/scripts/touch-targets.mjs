@@ -234,8 +234,10 @@ const PAGES = [
         // The icon result rows are this page's only controls that no name identifies
         // (~50 of them, one per lucide result), so they are declared by their hook
         // class: losing it would take the whole list out of this Instrument's sight
-        // without moving a pixel (#106).
-        carriers: [".cover-icon-option"],
+        // without moving a pixel (#106). Since #129 the text fields, the weight and
+        // the two icon switches carry `.cover-field` for the same reason — a field's
+        // name is its `<label for>`, which the label helper does not read.
+        carriers: [".cover-field", ".cover-icon-option"],
         controls: ["获取系统字体", "清除"],
         presence: {
           absent: [".cover-panel-style", ".cover-panel-export"],

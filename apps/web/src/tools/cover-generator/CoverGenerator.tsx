@@ -7,9 +7,7 @@ import {
   FileInput,
   Flex,
   Select,
-  Slider,
   Stack,
-  Switch,
   Text,
   TextInput,
 } from "@mantine/core";
@@ -17,11 +15,12 @@ import { Dropzone } from "@mantine/dropzone";
 import { useRef, type CSSProperties, type ReactNode } from "react";
 
 /*
- * The incoming component layer's parts of this page (#117). `Button` and `Switch`
- * are aliased because the outgoing layer's `Button` and `Switch` are still used by
- * the two sections that have not moved: during the two-layer state the alias is
- * what makes it obvious which layer a line belongs to, and it disappears with the
- * last section.
+ * The incoming component layer's parts of this page (#117). `Button` is aliased
+ * because the outgoing layer's `Button` is still used by the parts of 内容 that have
+ * not moved — the icon rows, the background drop zone's clear action and the font
+ * controls — so during the two-layer state the alias is what makes it obvious which
+ * layer a line belongs to, and it disappears with the last of them. `Switch` was
+ * aliased for the same reason until #129 moved the last one this page had.
  */
 import { Button as PrimitiveButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,6 +101,32 @@ export function CoverGenerator() {
   const aspect = ratio.width / ratio.height;
   const exportRef = useRef<HTMLDivElement | null>(null);
   const { exportCover, exporting } = useCoverExport(exportRef, composition, ratio);
+
+  /*
+   * A disabled control has to say which step is missing, and the sentence has to
+   * change with the state rather than being one generic line
+   * (`apps/web/docs/design/components.md`). Two states disable the background
+   * sliders and they are different missing steps, so they read differently; the
+   * colour field has one.
+   *
+   * These were owed by #128's batch, which moved the controls without their
+   * sentences: the rule is site-wide and the controls are on the page either way,
+   * so this pays the debt rather than passing it to the round's record.
+   *
+   * The copy is inline because this Tool's strings already live in this component
+   * (文件名, 背景透明（仅 PNG）, 导出缩放, 下载), and this round's own scope forbids
+   * touching `core/` and its tests — so the copy module the rule asks for, with the
+   * unit tests that hold it, is recorded as owed to #119's consistency pass rather
+   * than invented here.
+   */
+  const backgroundProcessingReason = composition.transparent
+    ? "「背景透明」打开时不处理背景图，先关掉它。"
+    : composition.backgroundImage === null
+      ? "先加一张背景图，模糊与灰度才有作用。"
+      : null;
+  const iconColorReason = composition.colorSync
+    ? "「颜色同步」打开时，图标颜色跟随文字颜色。"
+    : null;
 
   async function uploadIcon(file: File | null) {
     if (file === null) return;
@@ -189,43 +214,77 @@ export function CoverGenerator() {
             value="content"
           >
             <Stack gap="md">
-              <Flex
-                gap="md"
-                direction={{ base: "column", md: "row" }}
-                align={{ base: "stretch", md: "center" }}
-              >
-                <TextInput
-                  label="左侧文字"
-                  value={composition.leftText}
-                  onChange={(event) => set({ leftText: event.currentTarget.value })}
+              {/* The two fields sit side by side from the same width the outgoing
+                  layer switched at — its `md` is 992px, and Tailwind's `lg` is the
+                  nearest whole breakpoint — and stack below it. */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Field htmlFor="cover-left-text" label="左侧文字">
+                  <Input
+                    className="cover-field touch-target h-11"
+                    id="cover-left-text"
+                    onChange={(event) => set({ leftText: event.currentTarget.value })}
+                    value={composition.leftText}
+                  />
+                </Field>
+                <Field htmlFor="cover-right-text" label="右侧文字">
+                  <Input
+                    className="cover-field touch-target h-11"
+                    id="cover-right-text"
+                    onChange={(event) => set({ rightText: event.currentTarget.value })}
+                    value={composition.rightText}
+                  />
+                </Field>
+              </div>
+              {/* The weight is a native range for the reason #128 measured and
+                  recorded: the incoming layer's `Slider` renders its own thumb and
+                  gives it no name, so a named slider cannot be built from it. */}
+              <Field htmlFor="cover-weight" label="字重">
+                <input
+                  className="cover-field touch-target h-11 w-full accent-[var(--site-text)]"
+                  id="cover-weight"
+                  max={900}
+                  min={100}
+                  onChange={(event) => set({ weight: Number(event.currentTarget.value) })}
+                  step={100}
+                  type="range"
+                  value={composition.weight}
                 />
-                <TextInput
-                  label="右侧文字"
-                  value={composition.rightText}
-                  onChange={(event) => set({ rightText: event.currentTarget.value })}
-                />
-              </Flex>
-              <Slider
-                label="字重"
-                min={100}
-                max={900}
-                step={100}
-                thumbLabel="字重"
-                value={composition.weight}
-                onChange={(weight) => set({ weight })}
-              />
+              </Field>
 
               <Divider />
-              <Switch
-                checked={composition.iconVisible}
-                label="显示图标"
-                onChange={(event) => set({ iconVisible: event.currentTarget.checked })}
-              />
-              <Switch
-                checked={composition.iconBackground}
-                label="图标背景"
-                onChange={(event) => set({ iconBackground: event.currentTarget.checked })}
-              />
+              {/* `gap-8` between the two switch rows rather than the panel's own
+                  rhythm, and it is arithmetic: a `.touch-target` overlay reaches
+                  `(overlay - box) / 2` beyond its own box, so two 18px switches need
+                  28px between them or each takes the other's outer sample points.
+                  Measured at the panel's 16px as `hit-testable 43x23` — the Instrument
+                  reporting a real encroachment, which is the failure it exists for,
+                  rather than a number to explain away. */}
+              <div className="flex flex-col gap-8">
+                <div className="flex items-center gap-2">
+                  <PrimitiveSwitch
+                    checked={composition.iconVisible}
+                    className="cover-field touch-target"
+                    id="cover-icon-visible"
+                    onCheckedChange={(iconVisible) => set({ iconVisible })}
+                  />
+                  <Label htmlFor="cover-icon-visible">显示图标</Label>
+                </div>
+                {/* 图标背景 comes with 显示图标 rather than with the icon batches:
+                    they are the same two rows, and leaving one of them on the
+                    outgoing layer between two on the incoming one would leave this
+                    section straddling both layers for no reason. The ticket's list is
+                    one control short, which is recorded here rather than read as
+                    licence. */}
+                <div className="flex items-center gap-2">
+                  <PrimitiveSwitch
+                    checked={composition.iconBackground}
+                    className="cover-field touch-target"
+                    id="cover-icon-background"
+                    onCheckedChange={(iconBackground) => set({ iconBackground })}
+                  />
+                  <Label htmlFor="cover-icon-background">图标背景</Label>
+                </div>
+              </div>
               <FileInput
                 accept="image/*"
                 label="上传图标"
@@ -452,6 +511,9 @@ export function CoverGenerator() {
                   type="range"
                   value={composition.backgroundBlur}
                 />
+                {backgroundProcessingReason !== null && (
+                  <p className="text-sm text-[var(--site-dimmed)]">{backgroundProcessingReason}</p>
+                )}
               </Field>
               <Field htmlFor="cover-background-grayscale" label="背景灰度">
                 <input
@@ -467,6 +529,9 @@ export function CoverGenerator() {
                   type="range"
                   value={composition.backgroundGrayscale}
                 />
+                {backgroundProcessingReason !== null && (
+                  <p className="text-sm text-[var(--site-dimmed)]">{backgroundProcessingReason}</p>
+                )}
               </Field>
               <div className="flex items-center gap-2">
                 <PrimitiveSwitch
@@ -499,6 +564,9 @@ export function CoverGenerator() {
                   type="color"
                   value={composition.iconColor}
                 />
+                {iconColorReason !== null && (
+                  <p className="text-sm text-[var(--site-dimmed)]">{iconColorReason}</p>
+                )}
               </Field>
               <Field htmlFor="cover-background-color" label="背景颜色">
                 <input
