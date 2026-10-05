@@ -257,7 +257,15 @@ const PAGES = [
         tab: "样式",
       },
       {
-        controls: ["下载 16:9"],
+        // Since #117 this section is drawn by the incoming layer, and every control
+        // in it carries the hit-area class — the registry's own sizes are 24 to 40px,
+        // all under this site's floor. The names below are the ones this Instrument
+        // can read off them: a ratio button's text, a scale button's text, the
+        // download action. The two it cannot name are declared as carriers instead,
+        // because a field and a switch are named by their `<label for>` — which is
+        // what a screen reader uses and what this helper does not read (#106).
+        carriers: ["#cover-filename", "#cover-transparent"],
+        controls: ["1:1", "4:3", "16:9", "21:9", "1x", "2x", "3x", "4x", "下载 16:9"],
         presence: {
           absent: [".cover-panel-content", ".cover-panel-style"],
           present: [".cover-panel-export"],
@@ -383,13 +391,17 @@ const readCarriers = (selectors) => {
 /**
  * Which of a section's declared panels are *showing*, and the height each one has.
  *
- * "Showing" rather than "in the DOM", because Mantine keeps every panel element
- * mounted and hides the ones that are not picked with `display: none` — measured on
- * the production build, all three panels are present with the same classes whatever
- * the tab row says. What changes when a section is opened is visibility: the picked
- * panel goes to `display: block` with a real height, and the others go to `none`
- * with a height of 0. `keepMounted={false}` on the tabs decides whether a panel's
- * *contents* are mounted, which is what an unnamed control leaking out would follow.
+ * "Showing" rather than "in the DOM", which is what makes this claim survive a
+ * change of component layer. The outgoing library kept every panel element mounted
+ * and hid the ones that were not picked with `display: none` — measured on the
+ * production build, all three panels were present with the same classes whatever
+ * the tab row said — while its `keepMounted={false}` kept the *contents* out. Since
+ * #117 the cover generator's tab row is the incoming layer's, and an unpicked panel
+ * is **not in the DOM at all**: it answers `matched: 0, showing: 0`, which this
+ * reads exactly as it read the hidden one. What the claim actually asks is whether
+ * another section's panel is *visible* while this one is open, and that question
+ * has the same answer either way — which is why the layer could move without the
+ * claim moving.
  *
  * The name check answers "are the controls this section names here"; this answers
  * the question a name cannot: "is this the section that is open, and is nothing else
@@ -487,7 +499,11 @@ const LAYOUT = `(() => {
  * preview is far above the row whatever the offset is.
  */
 const STICKY = `(() => {
-  const list = document.querySelector('.cover-tabs .mantine-Tabs-list');
+  // The row's own anchor rather than the outgoing library's class name: since #117
+  // the tab row is the incoming layer's, and data-slot is the name that survived the
+  // swap (#126). No backticks in here — the expression is itself a template literal,
+  // and one would end it here rather than at the closing brace (#108).
+  const list = document.querySelector('[data-slot="cover-tab-row"]');
   if (list === null) return JSON.stringify({ missing: true });
   const pane = document.querySelector('.cover-preview-pane');
   const box = (el) => {
@@ -567,9 +583,16 @@ async function waitForControls(client, names) {
  * Click the element whose own text is exactly `text`, among those matching
  * `selector`, and say whether one was there.
  *
- * One expression, because the three callers below all want the same thing from
- * Mantine controls whose visible text is the whole of what names them, and the
- * find-and-click was written out once per caller before this.
+ * One expression, because the two callers below both want the same thing from
+ * controls whose visible text is the whole of what names them.
+ *
+ * It sends a **pointer sequence** rather than a lone `click()` event. The outgoing
+ * component layer's controls answered `click`, and a programmatic one was enough
+ * to open a section; the incoming layer's tab and toggle act on `mousedown`, so a
+ * lone `click` left the row looking untouched and the sweep failed with "the 样式
+ * tab never came to be selected" (#117). `mousedown`, `mouseup` and `click` is what
+ * a pointer sends, and both layers answer it — so this is a re-derivation of how a
+ * section is opened, not a workaround for one layer.
  */
 async function clickByText(client, selector, text) {
   return client.evaluate(`(() => {
@@ -577,6 +600,9 @@ async function clickByText(client, selector, text) {
       (el) => el.textContent.trim() === ${JSON.stringify(text)},
     );
     if (!target) return false;
+    const at = { bubbles: true, button: 0, cancelable: true, ctrlKey: false };
+    target.dispatchEvent(new MouseEvent("mousedown", at));
+    target.dispatchEvent(new MouseEvent("mouseup", at));
     target.click();
     return true;
   })()`);
@@ -616,7 +642,10 @@ async function selectTab(client, name) {
  * the one ratio that does not bind it, which reads as a pass.
  */
 async function selectRatio(client, ratioKey) {
-  if ((await clickByText(client, "label", ratioKey)) !== true) {
+  // The ratio presets are the incoming layer's toggle group since #117, which is a
+  // `radiogroup` — the outgoing layer drew them as `<label>`s beside radio inputs,
+  // so this is one of the declarations that had to be re-derived with the move.
+  if ((await clickByText(client, "[role=radio]", ratioKey)) !== true) {
     throw new Error(`no ratio preset labelled ${ratioKey} on the page`);
   }
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -727,7 +756,7 @@ const CLAIMS = [
     about: "the section that is showing is this one, and nothing else is",
     falsification: {
       source:
-        "put keepMounted back on the tabs and render a second panel's contents, the shape #94 proved red on the gate's panel claim — a style cannot do it: Mantine writes display:none inline on the unpicked panel, which an injected rule loses to (measured 2026-10-01, both 360 and 1024, where a forced display left the count at 0)",
+        "render a second panel's contents — `forceMount` on the incoming layer's `TabsContent` since #117, which is what `keepMounted` was to the outgoing one, and the shape #94 proved red on the gate's panel claim. A style cannot do it, and since the tab row moved it is for a simpler reason than before: the panel that is not picked is not in the DOM at all, so there is no element for a rule to land on (measured 2026-10-01 on the outgoing layer, both 360 and 1024, where a forced display left the count at 0)",
     },
     per: "section",
     only: (ctx) => ctx.presence !== undefined,
@@ -1136,17 +1165,32 @@ const FALSIFY = [
   {
     case: { height: 900, width: 360 },
     claim: "hit-areas",
-    note: "the 46px the layout grants the row, on the width where it reads under the threshold",
-    property: "min-height",
-    selector: ".cover-tabs .mantine-Tabs-tab",
-    value: "30px",
+    note: "a tab that stops being drawn at all — the floor is a reading off the page, and a control with no box has none",
+    // Two earlier forms of this entry are recorded because each was written, run, and
+    // found not to prove what it claimed:
+    //
+    // - `min-height: 30px` was it until #117, and the run caught its replacement
+    //   being vacuous: the new layer's controls carry a 46px overlay (44 plus the
+    //   two pixels whole-pixel sampling needs, the remedy #91 applied to the row's
+    //   layout), so taking the *box* down to 30px leaves the hit area at 46.
+    // - `transform: scale(0.5)` reads STILL GREEN and then turns the *restored*
+    //   phase red, because the generated component carries `transition-all`: the
+    //   scale is animated, so the walk measures the old geometry and the new one
+    //   arrives a phase late. A guard that changes the page asynchronously is not a
+    //   guard for a synchronous reading.
+    //
+    // `display` is the one here that cannot be animated, so the control is simply
+    // not drawn when the claim is asked.
+    property: "display",
+    selector: '[data-slot="cover-tab"]',
+    value: "none",
   },
   {
     case: { height: 667, width: 375 },
     claim: "tab-row-pinned",
     note: "the row's stickiness",
     property: "position",
-    selector: ".cover-tabs .mantine-Tabs-list",
+    selector: '[data-slot="cover-tab-row"]',
     value: "static",
   },
   {

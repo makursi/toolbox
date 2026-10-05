@@ -12,12 +12,25 @@ import {
   Slider,
   Stack,
   Switch,
-  Tabs,
   Text,
   TextInput,
 } from "@mantine/core";
 import { Dropzone } from "@mantine/dropzone";
 import { useRef, type CSSProperties } from "react";
+
+/*
+ * The incoming component layer's parts of this page (#117). `Button` and `Switch`
+ * are aliased because the outgoing layer's `Button` and `Switch` are still used by
+ * the two sections that have not moved: during the two-layer state the alias is
+ * what makes it obvious which layer a line belongs to, and it disappears with the
+ * last section.
+ */
+import { Button as PrimitiveButton } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch as PrimitiveSwitch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 import { CompositionCanvas } from "./composition-canvas/composition-canvas";
 import { matchesFont } from "./core/fonts";
@@ -89,28 +102,53 @@ export function CoverGenerator() {
       >
         {/* The three sections as a tab row, the same behaviour at every width
             (#91): a second behaviour per width is what `ADR-0010` rejected, and a
-            narrow screen is where this one earns its keep. The panels are not kept
-            mounted, so what a visitor has not picked is not in the DOM either. */}
+            narrow screen is where this one earns its keep.
+
+            Since #117 this is the incoming component layer's `Tabs`, and the
+            unpicked panels are **unmounted** — not the element hidden, the element
+            gone. That is what the sentence above always meant and what the outgoing
+            library only half did (it kept every panel element in the DOM and hid it
+            inline, while `keepMounted={false}` kept the *contents* out). It is also
+            the thing `touch-targets.mjs` reads: its `presence` claim asks whether a
+            panel is *showing*, so an unmounted one answers 0 rather than lying.
+            `ui-fingerprint.mjs` therefore declares only the panel that exists in the
+            default state as an anchor — the three are mutually exclusive by design,
+            and each is covered by the Instrument, which opens all three. */}
         <Tabs
           className="cover-tabs"
           data-slot="cover-tabs"
           defaultValue="content"
-          keepMounted={false}
           style={{ "--cover-preview-height": `${paneHeight}px` } as CSSProperties}
         >
-          <Tabs.List data-slot="cover-tab-row" grow>
-            <Tabs.Tab className="touch-target" data-slot="cover-tab" value="content">
+          {/* `variant="line"` rather than the registry's default: the default marks
+              the active tab with a filled pill and `shadow-sm`, and a resting shadow
+              is a position this site has taken (`apps/web/docs/design/colour.md`).
+              `line` marks it with a 2px bar in the foreground colour, which is what
+              the outgoing layer's underline already was. */}
+          {/* `h-auto` because the registry's list is a fixed `h-9` (36px) while this
+              site's tabs owe a finger 46px: without it the tabs would draw outside
+              the row that is supposed to be their background. The class is written
+              with the same variant the registry's height carries — the variant
+              prefix is part of the utility's identity, so a bare `h-auto` would sit
+              beside `h-9` rather than replace it, and `cn` is what makes it a
+              replacement. */}
+          <TabsList
+            className="w-full group-data-[orientation=horizontal]/tabs:h-auto"
+            data-slot="cover-tab-row"
+            variant="line"
+          >
+            <TabsTrigger className="touch-target" data-slot="cover-tab" value="content">
               内容
-            </Tabs.Tab>
-            <Tabs.Tab className="touch-target" data-slot="cover-tab" value="style">
+            </TabsTrigger>
+            <TabsTrigger className="touch-target" data-slot="cover-tab" value="style">
               样式
-            </Tabs.Tab>
-            <Tabs.Tab className="touch-target" data-slot="cover-tab" value="export">
+            </TabsTrigger>
+            <TabsTrigger className="touch-target" data-slot="cover-tab" value="export">
               导出
-            </Tabs.Tab>
-          </Tabs.List>
+            </TabsTrigger>
+          </TabsList>
 
-          <Tabs.Panel
+          <TabsContent
             className="cover-panel-content"
             data-slot="cover-panel-content"
             value="content"
@@ -279,9 +317,9 @@ export function CoverGenerator() {
                 }
               />
             </Stack>
-          </Tabs.Panel>
+          </TabsContent>
 
-          <Tabs.Panel className="cover-panel-style" data-slot="cover-panel-style" value="style">
+          <TabsContent className="cover-panel-style" data-slot="cover-panel-style" value="style">
             <Stack gap="md">
               <Slider
                 label="字体大小"
@@ -400,46 +438,115 @@ export function CoverGenerator() {
                 value={composition.shadowColor}
               />
             </Stack>
-          </Tabs.Panel>
+          </TabsContent>
 
-          <Tabs.Panel className="cover-panel-export" data-slot="cover-panel-export" value="export">
-            <Flex gap="md" direction="column" align="stretch">
-              <TextInput
-                label="文件名"
-                onChange={(event) => set({ filename: event.currentTarget.value })}
-                placeholder="默认按比例与文字生成"
-                value={composition.filename}
-              />
-              <Switch
-                checked={composition.transparent}
-                label="背景透明（仅 PNG）"
-                onChange={(event) => set({ transparent: event.currentTarget.checked })}
-              />
-              <SegmentedControl
-                data={ratios.map((r) => ({ label: r.key, value: r.key }))}
-                value={composition.ratioId}
-                onChange={(ratioId) => set({ ratioId })}
-              />
-              <Text c="dimmed" size="sm">
-                导出缩放
-              </Text>
-              <SegmentedControl
-                data={EXPORT_SCALES.map((scale) => ({
-                  label: `${scale}x`,
-                  value: String(scale),
-                }))}
-                value={String(composition.exportScale)}
-                onChange={(value) => {
-                  const scale = EXPORT_SCALES.find((one) => String(one) === value);
-                  if (scale !== undefined) set({ exportScale: scale });
+          <TabsContent
+            className="cover-panel-export"
+            data-layer="primitive"
+            data-slot="cover-panel-export"
+            value="export"
+          >
+            {/* Laid out with Tailwind utilities rather than the outgoing library's
+                `Stack` and `Flex`, so that nothing in this section comes from the
+                layer it is leaving.
+
+                `gap-6` rather than a tighter rhythm, and it is arithmetic rather
+                than taste: every control here carries `.touch-target`, whose overlay
+                is centred and 46px on both axes (44 plus the two pixels #91's
+                whole-pixel sampling needs). An overlay reaches
+                `(46 - box) / 2` beyond its own box, so two neighbours must be at
+                least the sum of their two overhangs apart or one eats the other's
+                outer sample points and the walk — which requires *both* sides —
+                reports the smaller of the two. The demanding pair here is the 18px
+                switch and the 36px ratio row: 13.8 + 5 = 18.8px, measured at 16px
+                gaps as `hit-testable 45x37`, which is a failure this Instrument
+                exists to report rather than a number to explain away. */}
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="cover-filename">文件名</Label>
+                {/* `h-11` (44px) rather than the registry's `h-9`: an `<input>` is a
+                    replaced element, so it paints no `::after` at all — the class
+                    below is then only the Instrument's way of seeing this control,
+                    and the 44px has to come from the layout. Measured: with the
+                    registry's 36px the hit area read 35, whatever the pseudo-element
+                    declared. */}
+                <Input
+                  className="touch-target h-11"
+                  id="cover-filename"
+                  onChange={(event) => set({ filename: event.currentTarget.value })}
+                  placeholder="默认按比例与文字生成"
+                  value={composition.filename}
+                />
+              </div>
+              {/* Radix's `Switch` is a real `<button role="switch">`, so the hit-area
+                  class sits on the element that owns the click — the trap this repo
+                  paid for once is a switch whose toggle lives on an inner input under
+                  a wrapper that handles nothing, and there is no such wrapper here. */}
+              <div className="flex items-center gap-2">
+                <PrimitiveSwitch
+                  checked={composition.transparent}
+                  className="touch-target"
+                  id="cover-transparent"
+                  onCheckedChange={(transparent) => set({ transparent })}
+                />
+                <Label htmlFor="cover-transparent">背景透明（仅 PNG）</Label>
+              </div>
+              {/* The ratio row had no accessible name on the outgoing layer either —
+                  a `SegmentedControl` is a group, and a group without a name is read
+                  as one; naming it is a repair, not a regression. */}
+              <ToggleGroup
+                aria-label="比例"
+                className="w-full"
+                onValueChange={(ratioId) => {
+                  if (ratioId !== "") set({ ratioId });
                 }}
-              />
-              <Button className="touch-target" loading={exporting} onClick={exportCover}>
+                type="single"
+                value={composition.ratioId}
+                variant="outline"
+              >
+                {ratios.map((one) => (
+                  <ToggleGroupItem className="touch-target flex-1" key={one.key} value={one.key}>
+                    {one.key}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              <div className="flex flex-col gap-2">
+                <span className="text-sm leading-none font-medium" id="cover-scale-label">
+                  导出缩放
+                </span>
+                <ToggleGroup
+                  aria-labelledby="cover-scale-label"
+                  className="w-full"
+                  onValueChange={(value) => {
+                    const scale = EXPORT_SCALES.find((one) => String(one) === value);
+                    if (scale !== undefined) set({ exportScale: scale });
+                  }}
+                  type="single"
+                  value={String(composition.exportScale)}
+                  variant="outline"
+                >
+                  {EXPORT_SCALES.map((scale) => (
+                    <ToggleGroupItem
+                      className="touch-target flex-1"
+                      key={scale}
+                      value={String(scale)}
+                    >
+                      {scale}x
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+              {/* The outgoing layer's `loading` showed a spinner and set `disabled`.
+                  The incoming layer's `Button` has no such prop, so the disabled look
+                  is what says "working" — recorded in the round rather than papered
+                  over with a second animation this site's motion rules would then owe
+                  a reason for. */}
+              <PrimitiveButton className="touch-target" disabled={exporting} onClick={exportCover}>
                 下载 {composition.ratioId}
                 {composition.exportScale > 1 ? ` @${composition.exportScale}x` : ""}
-              </Button>
-            </Flex>
-          </Tabs.Panel>
+              </PrimitiveButton>
+            </div>
+          </TabsContent>
         </Tabs>
       </Box>
 
