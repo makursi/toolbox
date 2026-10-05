@@ -1,0 +1,28 @@
+# The component layer is shadcn/ui again, and the registry is reachable this time
+
+This supersedes [ADR-0006](0006-mantine-for-components.md), because the premise that ADR was decided on no longer holds — **not** because its reasoning does not. The premise was that `ui.shadcn.com` is unreachable from this environment, where "every `shadcn add` failed with `ECONNRESET`". Measured on 2026-10-05 through the local wrapper described below: `shadcn.cmd --version` answers `4.21.1` with exit code 0, and `shadcn.cmd view button` returns the real registry item — `registry/new-york-v4/ui/button.tsx`, with `dependencies: ["cn", "radix-ui"]` — also with exit code 0. That is a measurement rather than a claim, and it is the whole of the premise change.
+
+**ADR-0006's reasoning is not being overturned, and one of its rejected options stays rejected.** The registry ships aliased imports — the returned `button.tsx` opens with `import { cn } from "cn"` — and only the generator rewrites those to the project's alias as it writes the file. Hand-vendoring the registry is therefore still vendoring a build step: you would own a generated style layer and hand-rewrite imports on every component addition. What the wrapper buys is narrower than "the network works now", and it is the only thing that changed: the correct path became available. A reader who stops at the previous paragraph and concludes the earlier decision was a mistake has read it backwards — the premise moved, the judgement did not.
+
+What arrives is a **vendored component layer**, which this repository now has a word for: a **Primitive** (`CONTEXT.md`), one directory the generator owns, regenerated rather than hand-edited, and therefore deliberately exempt from the file rules that govern code a person writes. The registry's own design language is the *starting point* of that work rather than its answer: the aesthetic invariants ADR-0007 recorded are re-opened so the palette, the type scale and the radii can be re-derived and measured here, while the enforced invariants — hit areas, self-hosted assets, icons compiled at build time, no invented data, and the ban on pure black and pure white that a measurement settled — carry over untouched.
+
+Two things this decision rests on, written down so they cannot rot silently:
+
+- **The registry is reachable only through the wrapper.** `C:\Users\29634\.local\bin\shadcn.cmd` sets the proxy environment the CLI needs and calls the installed CLI; it is machine-local, outside version control, and its own defects are recorded in the round's register (`docs/drafts/shadcn-pilot.md`). If that wrapper disappears, or if the Node release on the machine stops honouring the variable the wrapper sets, this premise disappears with it and the reachability question is open again. That is a condition of this decision, not a footnote to it.
+- **The migration is bounded, and it is a pilot.** One Tool moves first and the outgoing layer stays installed: the two-layer state is a stage with an exit condition — the old layer off the pilot page, the instruments re-derived onto the new one, and this ADR's successor written when the design language settles — rather than a destination. `apps/web/docs/design.md` records the state and what ends it.
+
+## Consequences
+
+- `docs/adr/0006-mantine-for-components.md` keeps its reasoning and gains a superseded pointer. The history records what was believed and why; the conclusion is not retrofitted.
+- The dependency and configuration work lands **before** the first component is generated, so the first `add` is an end-to-end proof that the wrapper, the project alias and the token layer agree (`#115`).
+- The Instruments that read the rendered page were addressed to the outgoing library and are unbound from it **before** the page moves (`#114`, `#124`, `#125`), because a swap moves every reading taken through that library's class names by construction.
+- The outgoing library stays a dependency of the App for the length of the pilot. Nothing else in the site moves with the first page, and no Tool's logic, worker or unit tests move at all.
+- The site keeps making no outbound requests at runtime (`docs/adr/0005-no-outbound-requests.md`): the registry is reached while generating code, never by the page.
+- ADR-0007's aesthetic conclusions are re-opened; its *method* — measure every value in both schemes, keep the bans a measurement settled — is not.
+
+## Considered Options
+
+- **Stay on the outgoing layer.** Rejected: ADR-0006 itself names the cost, that its visual language "is not ours to edit in place", and a vendored layer is. The reason to stay was unreachability, and that reason is gone.
+- **Hand-vendor the registry, now that it can be fetched.** Still rejected, for ADR-0006's reason: the aliased imports make hand-vendoring a build step, and the generator is the thing that performs it correctly.
+- **Move the wrapper into version control so the premise is reproducible.** Rejected: its address, its proxy port and its CLI path are this machine's, and a checked-in wrapper would encode them for everyone else while looking portable. Its existence and its defects are recorded in the round's register instead.
+- **Replace the whole site in one step.** Rejected: the couplings the change runs through — tokens, instruments, dark mode, the measured design language — are found most cheaply on one page the Instruments already describe in detail, and a site-wide swap would make "which difference was intended" unanswerable.
