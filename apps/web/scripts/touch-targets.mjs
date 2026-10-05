@@ -52,7 +52,9 @@
  * widths again as a phone (`hover: none`): the site keeps 窄屏 and 触屏 apart, the
  * touch branch is allowed to grow a control, so the narrow *window* is the strict
  * case and the phone is the one no other check looks at. Waits are for React's own
- * hydration signal rather than for a sleep — a control in the prerendered HTML
+ * hydration signal rather than for a sleep — and, since #135, for the page to stop
+ * changing, which is the third half of the shared navigation and not this script's
+ * (`cdp.mjs`): a control in the prerendered HTML
  * looks hydrated, and a click or a file dropped on it is silently lost.
  *
  * Every guarded property is a named **claim** (#98): a unit with its own reading,

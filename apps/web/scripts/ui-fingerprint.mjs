@@ -31,6 +31,22 @@
  * the page different. Each view state is given 350 ms to settle before its reading
  * is taken.
  *
+ * A reading is taken on a page that has **stopped moving**, because the first one
+ * after a navigation was not (#111, measured 2026-10-05). Three separate things
+ * arrive after the connection layer has said the navigation landed, and each of
+ * them changes what the outline reads: the `.reveal` entrance animation is a
+ * 12px translate over 600ms, a page that lazily imports something grows when the
+ * chunk lands (the cover generator's 50 icon rows are 236px of page), and Next
+ * appends its route announcer element on its own schedule. Measured on one
+ * unchanged build in one unchanged browser, two runs of `capture` differed at
+ * all three of those, and a cold browser profile differed from a warm one on the
+ * same build — while the per-view readings 350ms later agreed. So every navigation
+ * now waits for stillness: no running CSS animation, the document loaded, and the
+ * number of resource entries unchanged across two consecutive samples. It is a
+ * wait on the page's own state rather than a longer budget, for the reason the
+ * hydration wait gives below, and it fails loudly rather than reading a page that
+ * never settles.
+ *
  * Usage — the Chrome has to be running already, because launching it is the part
  * that differs per machine:
  *
@@ -130,6 +146,62 @@ const STYLES = `(() => {
   });
 })()`;
 
+/**
+ * What "this page has stopped moving" means, in one expression: nothing is
+ * animating, the document is loaded, and no resource has arrived since the last
+ * time this was asked.
+ *
+ * The three are not the same kind of thing on purpose. The animation is the
+ * `reveal` entrance — 12px over 600ms — and a reading taken inside it lands on a
+ * fractional offset that `Math.round` flips between runs. The resource count is
+ * how a lazily imported chunk is noticed: the cover generator's icon library
+ * arrives after mount and its 50 rows are 236px of page. And `readyState` is the
+ * cheap half of both.
+ *
+ * Type is deliberately not part of it: a web font swapping in does not move the
+ * boxes this reads, and waiting on `document.fonts` would make the instrument
+ * depend on a font loading policy it has no business in.
+ */
+const STILL = `JSON.stringify({
+  animating: document.getAnimations().filter((a) => a.playState === 'running').length,
+  ready: document.readyState === 'complete',
+  resources: performance.getEntriesByType('resource').length,
+})`;
+
+/**
+ * Wait for that, rather than sleeping and hoping.
+ *
+ * Two consecutive equal resource counts is what makes this a wait rather than a
+ * snapshot: a single reading of "nothing in flight" is satisfiable by the instant
+ * before a chunk is requested. The cap is 40 samples of 100ms — a page still
+ * moving after four seconds is a failure with a sentence, not a reading of a page
+ * mid-flight, and a silent longer wait would turn a defect into a slow pass. That
+ * the whole matrix is unchanged is the other half of the decision: this adds a
+ * wait before a reading, it does not move a viewport, a scheme or a budget.
+ */
+const SETTLE_ATTEMPTS = 40;
+const SETTLE_INTERVAL_MS = 100;
+
+async function settle(client) {
+  let previousResources = null;
+  for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
+    const sample = JSON.parse(await client.evaluate(STILL));
+    if (
+      sample.ready &&
+      sample.animating === 0 &&
+      previousResources !== null &&
+      sample.resources === previousResources
+    ) {
+      return;
+    }
+    previousResources = sample.resources;
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_INTERVAL_MS));
+  }
+  throw new Error(
+    `the page never settled: ${SETTLE_ATTEMPTS} samples of ${SETTLE_INTERVAL_MS}ms without a still document — a reading taken while the page is still moving is not a reading`,
+  );
+}
+
 async function capture(baseUrl, outFile) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
@@ -155,6 +227,8 @@ async function capture(baseUrl, outFile) {
       // never arrived — and what replaces the 1800 ms sleep that used to be the only
       // thing between a dead server and a fingerprint of its error page (ADR-0015).
       await client.navigate(`${baseUrl}${path}`);
+      // Everything below reads a page that has stopped moving; see `settle`.
+      await settle(client);
 
       const page = { path, views: {}, outline: await client.evaluate(OUTLINE) };
 
