@@ -335,36 +335,46 @@ export function CoverGenerator() {
                 />
               </Field>
               {iconSet !== null && iconResults.length > 0 && (
-                <Stack gap={4} mah={220} style={{ overflowY: "auto" }}>
+                /* The grid, and the fattest declaration in the Instrument: ~50 rows
+                   whose names it cannot know in advance, held by the
+                   `.cover-icon-option` carrier instead (#131, the mechanism #106
+                   added).
+
+                   The height is the lesson this exact row taught (#29, the
+                   thirteenth round, 406 failures): inside a capped scrolling stack,
+                   flex shrinking pulls a row back to its minimum content height, and
+                   **flex shrinking does not read a height** — 44px measured 20px, and
+                   the neighbouring rows' 44px overlays then took each other's sample
+                   points. So the height is granted by the layout (`h-11`) *and* the
+                   row refuses to shrink (`shrink-0`); either one alone was measured
+                   not to be enough. The stack is the incoming layer's own box rather
+                   than the outgoing layer's `Stack`, which is the rest of this ticket:
+                   no row here comes from the library that is leaving. */
+                <div className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
                   {iconResults.map((name) => {
                     const resolved = resolveLucideIcon(iconSet, name);
                     const selected =
                       composition.icon?.source === "lucide" && composition.icon.name === name;
                     return (
-                      <Button
-                        className="cover-icon-option touch-target shrink-0"
-                        color="gray"
-                        h={44}
-                        justify="flex-start"
+                      <PrimitiveButton
+                        className="cover-icon-option touch-target h-11 shrink-0 justify-start"
                         key={name}
-                        leftSection={
-                          resolved === undefined ? null : (
-                            <IconGlyph
-                              body={resolved.body}
-                              height={resolved.height}
-                              size={18}
-                              width={resolved.width}
-                            />
-                          )
-                        }
                         onClick={() => set({ icon: { source: "lucide", name } })}
-                        variant={selected ? "light" : "subtle"}
+                        variant={selected ? "secondary" : "ghost"}
                       >
+                        {resolved === undefined ? null : (
+                          <IconGlyph
+                            body={resolved.body}
+                            height={resolved.height}
+                            size={18}
+                            width={resolved.width}
+                          />
+                        )}
                         {name}
-                      </Button>
+                      </PrimitiveButton>
                     );
                   })}
-                </Stack>
+                </div>
               )}
               {iconQuery.trim() !== "" &&
                 iconResults.length === 0 && (
@@ -937,6 +947,11 @@ function IconGlyph({
   return (
     <svg
       aria-hidden
+      // The size is a class rather than the attributes alone: the incoming layer's
+      // `Button` sets every `svg` it did not get a `size-*` class on to `size-4`, and
+      // the selector skips the ones that have one — so this is what makes the
+      // attribute and the drawing agree at the 18px the row has always used.
+      className="size-[18px]"
       dangerouslySetInnerHTML={{ __html: body }}
       fill="none"
       height={size}
