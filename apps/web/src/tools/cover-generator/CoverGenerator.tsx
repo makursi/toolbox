@@ -82,30 +82,39 @@ export function CoverGenerator() {
           which is the same 768px, so both sides of the layout flip together. A
           Tailwind `sm:` would have flipped at 640 and split them, which is the
           band this tool shipped broken (#80). */}
-      <Box className="cover-editor-column order-2 md:order-1" w={{ base: "100%", sm: 320 }}>
+      <Box
+        className="cover-editor-column order-2 md:order-1"
+        data-slot="cover-editor-column"
+        w={{ base: "100%", sm: 320 }}
+      >
         {/* The three sections as a tab row, the same behaviour at every width
             (#91): a second behaviour per width is what `ADR-0010` rejected, and a
             narrow screen is where this one earns its keep. The panels are not kept
             mounted, so what a visitor has not picked is not in the DOM either. */}
         <Tabs
           className="cover-tabs"
+          data-slot="cover-tabs"
           defaultValue="content"
           keepMounted={false}
           style={{ "--cover-preview-height": `${paneHeight}px` } as CSSProperties}
         >
-          <Tabs.List grow>
-            <Tabs.Tab className="touch-target" value="content">
+          <Tabs.List data-slot="cover-tab-row" grow>
+            <Tabs.Tab className="touch-target" data-slot="cover-tab" value="content">
               内容
             </Tabs.Tab>
-            <Tabs.Tab className="touch-target" value="style">
+            <Tabs.Tab className="touch-target" data-slot="cover-tab" value="style">
               样式
             </Tabs.Tab>
-            <Tabs.Tab className="touch-target" value="export">
+            <Tabs.Tab className="touch-target" data-slot="cover-tab" value="export">
               导出
             </Tabs.Tab>
           </Tabs.List>
 
-          <Tabs.Panel className="cover-panel-content" value="content">
+          <Tabs.Panel
+            className="cover-panel-content"
+            data-slot="cover-panel-content"
+            value="content"
+          >
             <Stack gap="md">
               <Flex
                 gap="md"
@@ -272,7 +281,7 @@ export function CoverGenerator() {
             </Stack>
           </Tabs.Panel>
 
-          <Tabs.Panel className="cover-panel-style" value="style">
+          <Tabs.Panel className="cover-panel-style" data-slot="cover-panel-style" value="style">
             <Stack gap="md">
               <Slider
                 label="字体大小"
@@ -393,7 +402,7 @@ export function CoverGenerator() {
             </Stack>
           </Tabs.Panel>
 
-          <Tabs.Panel className="cover-panel-export" value="export">
+          <Tabs.Panel className="cover-panel-export" data-slot="cover-panel-export" value="export">
             <Flex gap="md" direction="column" align="stretch">
               <TextInput
                 label="文件名"
@@ -442,12 +451,16 @@ export function CoverGenerator() {
           block is the Flex spanning both columns, so the preview really does stay in
           view while the settings scroll beneath it — hence the z-index, since it
           overlays the column that follows it on a narrow screen. */}
-      <Box className="cover-canvas-column sticky top-4 z-[2] order-1 min-w-0 flex-1 md:order-2">
+      <Box
+        className="cover-canvas-column sticky top-4 z-[2] order-1 min-w-0 flex-1 md:order-2"
+        data-slot="cover-canvas-column"
+      >
         {/* The preview: the full-size composition, scaled to fit the pane. The
             badge and the pixel caption sit here, not in the export. */}
         <Box
           ref={wrapperRef}
           className="cover-preview-pane relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
+          data-slot="cover-preview-pane"
           style={{ "--cover-aspect": aspect, aspectRatio: aspect } as CSSProperties}
         >
           {/* The composition is a fixed 1280×720 box, so it sits out of the

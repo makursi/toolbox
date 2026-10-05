@@ -24,3 +24,13 @@ That list was four items long and one of them was a mistake. "Did this navigatio
 - **Share the whole navigation policy, viewport and waits included.** Rejected: the two want different pages, different viewports and different media emulation, and forcing a common shape on those would cost more than the duplication it removes.
 - **Hand-roll a fake CDP server and test the layer end to end.** Rejected: this repository's Instruments take no dependency and need no WebSocket server, and a hand-written one in a test would exercise the transport while the defect was in classification. The pure function is the higher seam.
 - **Keep the 1800 ms sleep and check the page's content instead.** Rejected: a sleep is a guess in both directions, and the hydration signal is the one the gate already trusts.
+
+## Update — 2026-10-05 (#135): "ready to measure" also means "has stopped changing"
+
+Decision 1 was missing half of itself, and the missing half was found the way the first one was: by an Instrument trusting its own timing.
+
+`apps/web/scripts/ui-fingerprint.mjs` takes its first reading of a page straight after `navigate` returns. On this site the page is still arriving at that moment, and **three** separate things moved the reading afterwards — the `.reveal` entrance animation (600 ms of `translateY(12px)`, which lands on a fractional offset that `round` flips between runs), the cover generator's lazily imported icon library (236px of page, its 50 rows), and Next's route announcer element, which mounts nothing and fetches nothing. Measured on one unchanged build in one unchanged browser: two `capture` runs differed in three places, and a browser with a cold profile differed from a warm one on the same build.
+
+The fix went into this layer, not into the script that found it, and the rejected option above is the reason: fixing the fingerprint on its own is a second definition of "ready to measure". Decision 1 therefore reads **"resolves only once React has claimed the page and the page has stopped changing"**, and `navigate` gained a third half, `waitForStillness` — no running CSS animation, `readyState === "complete"`, and neither a resource nor a DOM mutation arriving across two consecutive samples. It is a wait on the page's own state rather than a longer budget, for the reason the hydration wait gives, and a page that never settles fails with a sentence.
+
+Both Instruments are affected, and that is the point: the hit-area Instrument reads geometry off the page it has just navigated to as well, so it was exposed to the same three arrivals and had only its own per-claim waits in front of them.

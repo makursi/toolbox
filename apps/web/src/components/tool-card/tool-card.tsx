@@ -31,10 +31,12 @@ export function ToolCard({ tool }: { tool: ToolMeta }) {
     <Stack gap="xs">
       {/* A notch larger on a phone: with the cover below the fold of the card
           rather than beside it, the title is the only thing doing the talking. */}
-      <Text fw={500} fz={{ base: "xl", sm: "lg" }}>
+      <Text data-slot="tool-card-title" fw={500} fz={{ base: "xl", sm: "lg" }}>
         {tool.title}
       </Text>
-      <Text c="dimmed">{tool.description}</Text>
+      <Text c="dimmed" data-slot="tool-card-description">
+        {tool.description}
+      </Text>
       <Text mt="xs" size="sm">
         打开
         <span aria-hidden className="icon ml-1 icon-[ph--arrow-right-bold]" />
@@ -44,7 +46,10 @@ export function ToolCard({ tool }: { tool: ToolMeta }) {
 
   return (
     <Link href={toolPath(tool.slug)} style={{ color: "inherit", textDecoration: "none" }}>
-      <Paper className="lift" p="lg" radius="md" withBorder>
+      {/* The card, its frame and its two lines of copy are anchored for the
+          fingerprint (#114): they are what it compares on this page, and an anchor
+          is the one way to name them that survives a change of component layer. */}
+      <Paper className="lift" data-slot="tool-card" p="lg" radius="md" withBorder>
         {tool.cover ? (
           /*
            * The cover sits beside the text on a wide screen and *under* it on a
@@ -56,7 +61,7 @@ export function ToolCard({ tool }: { tool: ToolMeta }) {
             {/* Width comes from the responsive prop alone; the rest of the
                 frame is `.cover-frame` in globals.css, so no inline declaration
                 can outrank a breakpoint (see apps/web/docs/design/layout.md). */}
-            <Box className="cover-frame" w={{ base: "100%", sm: 220 }}>
+            <Box className="cover-frame" data-slot="tool-card-cover" w={{ base: "100%", sm: 220 }}>
               {/* Decorative: the card's text already names the Tool. */}
               <Image
                 alt=""

@@ -4,14 +4,19 @@
  * Both `ui-fingerprint.mjs` and `touch-targets.mjs` talk to a Chrome that is
  * already running, over a debugging port: attaching to the first page target,
  * sending commands by id, and evaluating an expression in that page. That
- * connection is what this module holds. It also owns "is the browser still there":
- * before every navigation it probes the debugging port, and a browser that has gone
+ * connection is what this module holds. It also owns "is the browser still there": before
+ * every navigation it probes the debugging port, and a browser that has gone
  * fails the run in a sentence naming the port and the command that starts it again,
  * instead of a connection error that reads like a page that never rendered that
  * control. And since #104 it owns "the navigation succeeded" as well: one call
  * navigates and resolves only once React has claimed the page, a navigation whose
  * result reports a failure throws rather than returning, and what one response means
- * is decided by a pure function instead of being read off the socket. The rest stays
+ * is decided by a pure function instead of being read off the socket. Since #135 it
+ * owns the third half of that as well — **the page has stopped changing** — because
+ * the fingerprint grew the wait on its own when its first reading turned out to be
+ * racing three things that arrive after hydration, and a second definition of "ready
+ * to measure" in one of the two Instruments is exactly what ADR-0015 rejected.
+ * The rest stays
  * in each script — which pages to visit, how to size the viewport and which media
  * features to emulate, how to report a result — because the two want different
  * versions of all three, and the one genuinely identical piece (a four-line console
@@ -66,6 +71,55 @@ const startCommand = (port) =>
  */
 const gone = (port, what) =>
   `the browser on port ${port} is gone: ${what}\nStart it again with:\n  ${startCommand(port)}\n(a browser that dies mid-run is a failure, never a restart)`;
+
+/**
+ * What "this page has stopped changing" means, in one expression: nothing is
+ * animating, the document is loaded, and neither a resource nor a DOM mutation has
+ * arrived since the last time this was asked.
+ *
+ * The four are not the same kind of thing on purpose (#135, measured 2026-10-05).
+ * The animation is the `reveal` entrance — 12px over 600ms — and a reading taken
+ * inside it lands on a fractional offset that `Math.round` flips between runs. The
+ * resource count is how a lazily imported chunk is noticed: the cover generator's
+ * icon library arrives after mount and its 50 rows are 236px of page. The mutation
+ * count is how everything else is noticed, and it is the half with no cheaper
+ * signal: Next appends its route announcer element on its own schedule, mounting
+ * nothing and fetching nothing, and it was the difference between a cold browser
+ * profile and a warm one on one unchanged build. And `readyState` is the cheap half
+ * of all of them.
+ *
+ * Type is deliberately not part of it: a web font swapping in does not move the
+ * boxes an Instrument reads, and waiting on `document.fonts` would make the shared
+ * layer depend on a font loading policy it has no business in.
+ *
+ * The observer is installed on the first sample, so a mutation landing between the
+ * navigation resolving and the first sample is in the past — the right place for it,
+ * since it is not something a later reading can still see changing.
+ */
+const STILL = `(() => {
+  if (window.__stillness === undefined) {
+    window.__stillness = { mutations: 0 };
+    new MutationObserver((records) => {
+      window.__stillness.mutations += records.length;
+    }).observe(document.body, { attributes: true, characterData: true, childList: true, subtree: true });
+  }
+  return JSON.stringify({
+    animating: document.getAnimations().filter((a) => a.playState === 'running').length,
+    mutations: window.__stillness.mutations,
+    ready: document.readyState === 'complete',
+    resources: performance.getEntriesByType('resource').length,
+  });
+})()`;
+
+/**
+ * How many samples of how many milliseconds a page is given to stop changing. Two
+ * consecutive equal samples are what make this a wait rather than a snapshot: a
+ * single reading of "nothing in flight" is satisfiable by the instant before a chunk
+ * is requested. Four seconds of a page that never settles is a failure with a
+ * sentence — a silent longer wait would turn a defect into a slow pass.
+ */
+const STILLNESS_ATTEMPTS = 40;
+const STILLNESS_INTERVAL_MS = 100;
 
 export async function connect(port) {
   if (typeof WebSocket === "undefined") {
@@ -261,12 +315,45 @@ export async function connect(port) {
   };
 
   /**
+   * Wait for the page to stop changing, rather than sleeping and hoping.
+   *
+   * The third half of "the navigation succeeded", and it lives here rather than in
+   * the Instrument that found it needing it, because "ready to measure" is one
+   * property with one answer (ADR-0015, Decision 1 — and its rejected option names
+   * this shape: fixing the fingerprint on its own is a second definition of it).
+   * Both Instruments read geometry off the page they have just navigated to, so
+   * both were exposed.
+   */
+  const waitForStillness = async () => {
+    let previous = null;
+    for (let attempt = 0; attempt < STILLNESS_ATTEMPTS; attempt++) {
+      const sample = JSON.parse(await evaluate(STILL));
+      if (
+        sample.ready &&
+        sample.animating === 0 &&
+        previous !== null &&
+        sample.mutations === previous.mutations &&
+        sample.resources === previous.resources
+      ) {
+        return;
+      }
+      previous = sample;
+      await new Promise((resolve) => setTimeout(resolve, STILLNESS_INTERVAL_MS));
+    }
+    throw new Error(
+      `the page never stopped changing: ${STILLNESS_ATTEMPTS} samples of ${STILLNESS_INTERVAL_MS}ms without a still document — a reading taken while the page is still moving is not a reading`,
+    );
+  };
+
+  /**
    * Go to a page and come back only once it can be measured: the navigation must
-   * have arrived (see `send`) and React must have claimed the document.
+   * have arrived (see `send`), React must have claimed the document, and the page
+   * must have stopped changing (see `waitForStillness`).
    */
   const navigate = async (url) => {
     await send("Page.navigate", { url });
     await waitForHydration();
+    await waitForStillness();
   };
 
   await send("Page.enable");
