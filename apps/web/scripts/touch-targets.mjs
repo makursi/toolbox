@@ -547,6 +547,30 @@ const DROPZONE = `(() => {
 })()`;
 
 /**
+ * The outgoing layer's fingerprints on the pilot page: the class names its own
+ * components carry (#132).
+ *
+ * Read off the *rendered* page rather than off the imports, because the two are not
+ * the same claim. A dead import is a dead line, but a component that still renders —
+ * from a shared component, a provider, or one control a batch forgot — is exactly
+ * what "every batch landed" cannot see, and the batches are what this ticket exists
+ * to check rather than to trust. The prefix is matched on whole class names, so a
+ * rename inside the library cannot make the claim pass by spelling alone.
+ *
+ * The scope is the page's own container (`[data-slot="tool-page"]`) rather than the
+ * document: the site's header and footer are still the outgoing layer's, and this
+ * ticket does not claim them. That they sit *outside* the tool page is the whole
+ * reason this declaration can be as strict as it is.
+ */
+const OUTGOING_LAYER = `(() => {
+  const scope = document.querySelector('[data-slot="tool-page"]') ?? document.body;
+  const names = [...scope.querySelectorAll('*')]
+    .flatMap((el) => String(el.className ?? '').split(/\\s+/))
+    .filter((name) => name.startsWith('mantine-'));
+  return JSON.stringify({ count: names.length, found: [...new Set(names)].slice(0, 6) });
+})()`;
+
+/**
  * The cover generator's tab row and preview, read at two scroll positions.
  *
  * The row pins below the preview (#92), and "pinned" is a claim about the rendered
@@ -781,6 +805,30 @@ const CLAIMS = [
           line: `  PASS  every control matching ${entry.selector} carries the hit-area class — ${entry.matched} matched`,
         };
       }),
+  },
+  {
+    name: "no-outgoing-layer",
+    about: "the pilot page renders nothing from the component layer it is leaving",
+    falsification: {
+      source:
+        "put one component of the outgoing layer back on the page — an injected style cannot add a class name, and a class name is what this reads",
+    },
+    // Per section rather than per page, because the editor shows one panel at a time:
+    // a scan of the page in whatever state the sweep happened to leave it would miss
+    // a control left behind in the two panels that are not open. This way each panel
+    // is opened and scanned in turn, and the shell is scanned three times over.
+    per: "section",
+    only: (ctx) => ctx.page.layout === true,
+    read: (ctx) => ctx.read("outgoing", OUTGOING_LAYER),
+    judge: (outgoing) => {
+      const ok = outgoing.count === 0;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  no element on this page carries the outgoing layer's class names — ${outgoing.count} found${ok ? "" : `: ${outgoing.found.join(", ")}`}`,
+        },
+      ];
+    },
   },
   {
     name: "section-isolation",
