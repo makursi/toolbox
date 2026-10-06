@@ -2,7 +2,7 @@
 
 > **管什么**：列宽、内距、页面节奏、断点（两个 `sm` 不是一回事）、窄屏回退。**和它一起读**：`apps/web/docs/design/components.md`（窄屏上各控件长什么样）。
 
-- 内容列宽：Mantine `Container size="md"`（960px）。
+- 内容列宽 **960px**，两种写法：旧层是 Mantine 的 `Container size="md"`，新层是 `mx-auto w-full max-w-[960px] px-4`（工具页外壳已在新层上，#132——数值是这条规则，写法随页）。
 - 页面内距：首页 `py-12 sm:py-24`，工具页与 404 页 `py-10 sm:py-16`。
 - 这些**写成 Tailwind 工具类**：`utilities` 层在 `globals.css` 里排在 `mantine` 之后，所以工具类能稳定覆盖 Mantine 的默认值。这也是 ADR-0006 之后 Tailwind 仍然留在 App 里的理由。
   注意一个容易说错的细节：`gap` 只接受 spacing 值，**不接受断点对象**；但 `py` 是 `StyleProp`，**接受**（Mantine 会生成 `@media (min-width: …)`）。两种写法都能达到目的，这里选工具类是为了让响应式规则集中在一处。

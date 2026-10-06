@@ -28,6 +28,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 import { CompositionCanvas } from "./composition-canvas/composition-canvas";
 import { matchesFont } from "./core/fonts";
+import { backgroundProcessingReason, iconColorReason, systemFontPickerReason } from "./core/hints";
 import { resolveLucideIcon } from "./core/icons";
 import { pixelCaption, ratioByKey, ratios } from "./core/ratios";
 import { EXPORT_SCALES, proportionalSizes, type ShadowScope } from "./core/state";
@@ -102,28 +103,20 @@ export function CoverGenerator() {
   /*
    * A disabled control has to say which step is missing, and the sentence has to
    * change with the state rather than being one generic line
-   * (`apps/web/docs/design/components.md`). Two states disable the background
-   * sliders and they are different missing steps, so they read differently; the
-   * colour field has one.
+   * (`apps/web/docs/design/components.md`).
    *
-   * These were owed by #128's batch, which moved the controls without their
-   * sentences: the rule is site-wide and the controls are on the page either way,
-   * so this pays the debt rather than passing it to the round's record.
-   *
-   * The copy is inline because this Tool's strings already live in this component
-   * (文件名, 背景透明（仅 PNG）, 导出缩放, 下载), and this round's own scope forbids
-   * touching `core/` and its tests — so the copy module the rule asks for, with the
-   * unit tests that hold it, is recorded as owed to #119's consistency pass rather
-   * than invented here.
+   * The sentences live in the Tool's copy layer (`core/hints.ts`) with the tests
+   * that hold them, which is where this rule always said they belonged. #128's and
+   * #129's batches wrote them inline because their own scope forbade touching
+   * `core/` and recorded the module as owed to this round's consistency pass; #119
+   * is that pass, so what is left here is the wiring and the reasons are elsewhere.
    */
-  const backgroundProcessingReason = composition.transparent
-    ? "「背景透明」打开时不处理背景图，先关掉它。"
-    : composition.backgroundImage === null
-      ? "先加一张背景图，模糊与灰度才有作用。"
-      : null;
-  const iconColorReason = composition.colorSync
-    ? "「颜色同步」打开时，图标颜色跟随文字颜色。"
-    : null;
+  const backgroundReason = backgroundProcessingReason({
+    hasBackground: composition.backgroundImage !== null,
+    transparent: composition.transparent,
+  });
+  const iconReason = iconColorReason(composition.colorSync);
+  const fontReason = systemFontPickerReason({ hasList: sysFonts.length > 0, hint: sysHint });
 
   /*
    * The font picker's own state: whether its list is open, and the query the Tool's
@@ -552,19 +545,15 @@ export function CoverGenerator() {
                     with the state: while the list has not been read the trigger
                     itself says 先获取系统字体, and this says where to press. When the
                     machine's list is *unavailable* the hint above already carries the
-                    reason, so this stays silent rather than competing with it. The
-                    copy is inline for #129's recorded reason: this round's scope
-                    forbids touching `core/`, so the copy module the rule asks for is
-                    owed to #119's consistency pass.
+                    reason, so this stays silent rather than competing with it —
+                    which is one of the properties `core/hints.ts` is tested for.
 
                     It fits one line at the editor column's own 320px, which is
                     measured rather than hoped: the first wording ran two characters
                     long and wrapped inside the 「获取系统字体」 it names, which is what
                     the look at both colour schemes caught. */}
-                {sysFonts.length === 0 && sysHint === null && (
-                  <p className="text-sm text-muted-foreground">
-                    还没读取系统字体，先按「获取系统字体」。
-                  </p>
+                {fontReason !== null && (
+                  <p className="text-sm text-muted-foreground">{fontReason}</p>
                 )}
               </Field>
             </div>
@@ -668,8 +657,8 @@ export function CoverGenerator() {
                   type="range"
                   value={composition.backgroundBlur}
                 />
-                {backgroundProcessingReason !== null && (
-                  <p className="text-sm text-[var(--site-dimmed)]">{backgroundProcessingReason}</p>
+                {backgroundReason !== null && (
+                  <p className="text-sm text-[var(--site-dimmed)]">{backgroundReason}</p>
                 )}
               </Field>
               <Field htmlFor="cover-background-grayscale" label="背景灰度">
@@ -686,8 +675,8 @@ export function CoverGenerator() {
                   type="range"
                   value={composition.backgroundGrayscale}
                 />
-                {backgroundProcessingReason !== null && (
-                  <p className="text-sm text-[var(--site-dimmed)]">{backgroundProcessingReason}</p>
+                {backgroundReason !== null && (
+                  <p className="text-sm text-[var(--site-dimmed)]">{backgroundReason}</p>
                 )}
               </Field>
               <div className="flex items-center gap-2">
@@ -721,8 +710,8 @@ export function CoverGenerator() {
                   type="color"
                   value={composition.iconColor}
                 />
-                {iconColorReason !== null && (
-                  <p className="text-sm text-[var(--site-dimmed)]">{iconColorReason}</p>
+                {iconReason !== null && (
+                  <p className="text-sm text-[var(--site-dimmed)]">{iconReason}</p>
                 )}
               </Field>
               <Field htmlFor="cover-background-color" label="背景颜色">
