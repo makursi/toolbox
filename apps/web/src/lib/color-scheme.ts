@@ -1,3 +1,5 @@
+import type { Scheme } from "@/lib/tokens";
+
 /**
  * The colour scheme, and who writes it.
  *
@@ -19,9 +21,10 @@
  * in the document's head before anything paints, so it cannot import this module. The
  * storage key is interpolated from here rather than typed twice, and the parse — the
  * one piece with a rule in it — is a pure function with a unit test.
+ *
+ * `Scheme` is the token module's type rather than a second declaration of the same two
+ * words: the values are per-scheme there, so that is where the concept is named.
  */
-
-export type Scheme = "light" | "dark";
 
 /** The one key, and the one attribute. Both are this site's. */
 export const SCHEME_STORAGE_KEY = "toolbox-color-scheme";

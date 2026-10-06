@@ -83,9 +83,10 @@
  * into the live page, re-runs **that claim** and requires it to go red. An injection
  * that leaves its claim green exits 1 — an injection that changes nothing proves
  * nothing. The injection is reliable because it is **unlayered**: this repository's
- * layer order is `theme → base → mantine → components → utilities` (declared at the
- * top of `apps/web/src/app/globals.css`) and an unlayered rule outranks every layer,
- * so an injected rule wins whatever the stylesheet says.
+ * layer order is `theme → base → components → utilities` (declared at the top of
+ * `apps/web/src/app/globals.css`; it had a fourth name in the middle until #168 took
+ * the outgoing library out) and an unlayered rule outranks every layer, so an injected
+ * rule wins whatever the stylesheet says.
  *
  * What `--falsify` cannot prove: anything structural or behavioural. Whether an
  * unpicked panel is still mounted, whether the chosen section is written to the URL,
@@ -1582,11 +1583,11 @@ const FALSIFY_PAGE = "cover";
  * Put one rule in the live page, unlayered, and hand back the undo.
  *
  * Unlayered is what makes this reliable: every rule this site writes lives in one of
- * `theme`/`base`/`mantine`/`components`/`utilities` (declared at the top of
- * `apps/web/src/app/globals.css`), an unlayered rule outranks all of them, and a
- * `<style>` appended at runtime is unlayered by definition. So the injection wins on
- * layer order alone, with no `!important` and no specificity contest to keep in step
- * with the stylesheet it is breaking.
+ * `theme`/`base`/`components`/`utilities` (declared at the top of
+ * `apps/web/src/app/globals.css` — `mantine` was the fourth until #168), an unlayered
+ * rule outranks all of them, and a `<style>` appended at runtime is unlayered by
+ * definition. So the injection wins on layer order alone, with no `!important` and no
+ * specificity contest to keep in step with the stylesheet it is breaking.
  *
  * The element is removed again rather than overridden, so the next entry starts from
  * the page as shipped.

@@ -49,6 +49,50 @@ function initialEnabled(): Record<ImageFormat, boolean> {
   return { png: false, jpeg: false, webp: true, avif: false, bmp: false };
 }
 
+/**
+ * The page's secondary action, in one place: 选择文件, 取消 and the ZIP button are the
+ * same control, and the outgoing layer's numbers are in it — a 42px box, a 1px hairline
+ * border, the surface token as the fill, 22px of inline padding, 16px text on a 16px
+ * line, and this site's hover surface in both schemes. It is a constant rather than the
+ * registry's `outline` variant because no variant of the ladder is 42px and the
+ * variant's dark fill is a translucent input colour rather than a token (see
+ * `apps/web/docs/design/components.md`).
+ */
+const SECONDARY_ACTION =
+  "h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary";
+
+/**
+ * One error box, for both lists this page can produce: the files that were refused and
+ * the Conversions that failed. They differ in their title and in what they list, and in
+ * nothing else — which is why they are one component rather than two copies of the same
+ * markup. `role="alert"` comes from the Primitive, and the surface is this site's card
+ * colour with the measured error colour as text.
+ */
+function ErrorList({
+  rows,
+  title,
+}: {
+  /* A refused file is identified by its name and a failed Conversion by its id, which
+     is a number — React's key accepts either, and a narrower type here would mean the
+     two callers could not share the one component. */
+  rows: { id: string | number; name: string; message: string }[];
+  title: string;
+}) {
+  return (
+    <Alert className="mt-4" variant="destructive">
+      <AlertTitle>{title}</AlertTitle>
+      <div className="col-start-2 flex flex-col gap-1">
+        {rows.map((row) => (
+          <p className="text-sm leading-[1.45]" key={row.id}>
+            <span className="font-medium">{row.name}</span>
+            {`: ${row.message}`}
+          </p>
+        ))}
+      </div>
+    </Alert>
+  );
+}
+
 export function ImageConverter() {
   const { entries, refused, addFiles, remove, clearFiles } = useFileQueue();
   const { running, planned, outcomes, start, cancel, clear: clearResults } = useConversionBatch();
@@ -153,7 +197,7 @@ export function ImageConverter() {
           >
             <div className="flex flex-col items-center gap-3">
               <Button
-                className="action-full-width add-files-button touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
+                className={`action-full-width add-files-button touch-target ${SECONDARY_ACTION}`}
                 disabled={running}
                 onClick={() => fileInput.current?.click()}
                 variant="outline"
@@ -235,24 +279,16 @@ export function ImageConverter() {
             </div>
 
             {refused.length > 0 && (
-              /*
-               * The same box as the failures below, and the same `role="alert"`.
-               * Its surface is this site's card colour with the error colour as
-               * text, where the outgoing layer borrowed a pale red background —
-               * a value this palette never measured (`apps/web/docs/design/colour.md`
-               * holds the two measured error values).
-               */
-              <Alert className="mt-4" variant="destructive">
-                <AlertTitle>有文件没能加入</AlertTitle>
-                <div className="col-start-2 flex flex-col gap-1">
-                  {refused.map((entry) => (
-                    <p className="text-sm leading-[1.45]" key={entry.name}>
-                      <span className="font-medium">{entry.name}</span>
-                      {`: ${entry.message}`}
-                    </p>
-                  ))}
-                </div>
-              </Alert>
+              /* `ErrorList`'s own docstring holds why this box looks the way it does,
+                 and why it is the same component the failures use. */
+              <ErrorList
+                rows={refused.map((entry) => ({
+                  id: entry.name,
+                  message: entry.message,
+                  name: entry.name,
+                }))}
+                title="有文件没能加入"
+              />
             )}
           </div>
         )}
@@ -355,7 +391,7 @@ export function ImageConverter() {
         </Button>
         {running && (
           <Button
-            className="action-full-width touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
+            className={`action-full-width touch-target ${SECONDARY_ACTION}`}
             onClick={cancel}
             variant="outline"
           >
@@ -391,19 +427,14 @@ export function ImageConverter() {
         )}
 
         {failures.length > 0 && (
-          /* The same box as the rejected list above, with `role="alert"`: this site's
-             card surface and the measured error colour as text. */
-          <Alert className="mt-4" variant="destructive">
-            <AlertTitle>有转换失败</AlertTitle>
-            <div className="col-start-2 flex flex-col gap-1">
-              {failures.map((failure) => (
-                <p className="text-sm leading-[1.45]" key={failure.conversion.id}>
-                  <span className="font-medium">{failure.conversion.outputName}</span>
-                  {`: ${failure.message}`}
-                </p>
-              ))}
-            </div>
-          </Alert>
+          <ErrorList
+            rows={failures.map((failure) => ({
+              id: failure.conversion.id,
+              message: failure.message,
+              name: failure.conversion.outputName,
+            }))}
+            title="有转换失败"
+          />
         )}
 
         {succeeded.length > 0 && (
@@ -411,7 +442,7 @@ export function ImageConverter() {
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-[18px] leading-[1.45] font-semibold">3. 下载</h2>
               <Button
-                className="touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
+                className={`touch-target ${SECONDARY_ACTION}`}
                 onClick={() => saveBlob(zipConversions(succeeded), "converted-images.zip")}
                 variant="outline"
               >
