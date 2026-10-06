@@ -191,7 +191,7 @@ const MIN = 43;
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
- * The three pages, and the controls each one has to carry **by name**.
+ * The four pages, and the controls each one has to carry **by name**.
  *
  * A floor on the count cannot carry this: the cover page renders ~50 icon result
  * rows the moment the lucide chunk lands, and 获取系统字体 carries the class too,
@@ -199,6 +199,12 @@ const PREVIEW_MAX_SHARE = 0.45;
  * control the file is dropped for was the one control the check could not miss
  * (#81). Every name below is awaited before the measurement, so a control that
  * never renders fails as a missing name rather than leaving the report quietly.
+ *
+ * The 404 page is the fourth, and it is not a Tool's: it is the frame's own page,
+ * added by #161 before the frame moved. It carries the header's scheme switch and
+ * one control of its own, the way home — a control that had never been measured
+ * because this page had no declaration in either Instrument. Its path is a URL
+ * nothing serves on purpose: Next renders this page for any miss.
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; `layout` asks for the cover generator's two-column
@@ -219,6 +225,11 @@ const PREVIEW_MAX_SHARE = 0.45;
  */
 const PAGES = [
   { controls: ["切换到"], name: "home", path: "/" },
+  {
+    controls: ["切换到", "回到首页"],
+    name: "not-found",
+    path: "/no-such-page",
+  },
   {
     controls: ["切换到", "返回首页", "清空", "移除"],
     fileInput: "input[type=file]",
@@ -1330,6 +1341,12 @@ async function sweep(baseUrl) {
  * to notice, and the case it binds at — plus, when the property only binds for one of
  * the two pointers, `touch: true` to say so, because the desktop pass is the default
  * and a claim about what `hover: none` does cannot be proved from it.
+ *
+ * An entry may also name the page it is measured on (`page`), and it must when the
+ * property it breaks belongs to a page other than the default one: a claim is only
+ * proved on the page the sweep measures it on, and a selector that matches nothing
+ * there would leave the claim green — which this mode reads as "the injection
+ * proved nothing" rather than as a pass (#161).
  */
 const FALSIFY = [
   {
@@ -1396,19 +1413,30 @@ const FALSIFY = [
     selector: ".cover-preview-pane",
     value: "50%",
   },
+  {
+    case: { height: 900, width: 360 },
+    claim: "hit-areas",
+    note: "the 404's way home — the one control on the frame's own page, and the class on it is the whole of what makes this Instrument see it. `display` is the property that cannot be animated, so the control is simply not drawn when the claim is asked; a control with no box has no hit area, which is what the claim says out loud",
+    page: "not-found",
+    property: "display",
+    selector: '[data-slot="not-found"] .touch-target',
+    value: "none",
+  },
 ];
 
 /**
- * The page every entry above is measured on: the cover generator, whose geometry
- * these five properties are. The percentage pairs on the preview cap and the 46px
- * tab row are that Tool's own rules (`src/tools/cover-generator/rules.md`); the
- * other two pages have hit-area claims too, and an entry for one of them belongs
- * here the day it is worth a falsification run.
+ * The page an entry is measured on unless it names its own: the cover generator,
+ * whose geometry most of these properties are. The percentage pairs on the preview
+ * cap and the 46px tab row are that Tool's own rules
+ * (`src/tools/cover-generator/rules.md`); the other pages have hit-area claims too,
+ * and #161 is the day one of them was worth a falsification run — the 404's way
+ * home, which is an entry of its own because a claim is proved on the page the
+ * sweep measures it on.
  *
- * Two of the five were written from the mechanism rather than from a run (#109):
+ * Two of the entries were written from the mechanism rather than from a run (#109):
  * `order: 2` on the canvas column puts it after the editor whatever the narrow rule
  * does, and `max-width: 50%` on the pane breaks the wide branch's "the pane is
- * exactly its column" by construction. The other three have each been watched go
+ * exactly its column" by construction. The others have each been watched go
  * red by hand, and every run is recorded in `apps/web/docs/design/log.md`.
  */
 const FALSIFY_PAGE = "cover";
@@ -1550,7 +1578,6 @@ async function falsify(baseUrl) {
   }
 
   const client = await connect(port);
-  const page = PAGES.find((candidate) => candidate.name === FALSIFY_PAGE);
   const [scheme] = SCHEMES;
 
   try {
@@ -1559,6 +1586,17 @@ async function falsify(baseUrl) {
       if (claim === undefined) {
         throw new Error(
           `the falsification list names a claim that is not in the registry: ${entry.claim}`,
+        );
+      }
+      // The entry's own page when it names one, the default otherwise. Resolved per
+      // entry rather than once for the run: a claim is proved on the page the sweep
+      // measures it on, and an entry whose selector lives on another page would
+      // otherwise leave its claim green and read as a failed injection.
+      const pageName = entry.page ?? FALSIFY_PAGE;
+      const page = PAGES.find((candidate) => candidate.name === pageName);
+      if (page === undefined) {
+        throw new Error(
+          `the falsification list names a page that is not in the registry: ${pageName}`,
         );
       }
       if (

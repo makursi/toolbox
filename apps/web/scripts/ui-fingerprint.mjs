@@ -128,6 +128,11 @@ const SHELL_ANCHORS = ["page-shell", "site-main", "site-header", "site-footer"];
  * panels have no anchored parent and their nesting is not in the reading — and
  * `cover-tab` is the row's three parts. An anchor is a name for a region, and a
  * region the ticket names is the whole of it, not only its outermost element.
+ *
+ * Not every page here is a Tool's: the 404 page is the frame's own, and it was
+ * added by #161 for the same reason every other page is declared — it is about to
+ * change, and an Instrument that cannot address a page cannot say the page did not
+ * move. A page is one more entry, whether a Tool or the frame draws it.
  */
 const PAGES = [
   {
@@ -171,6 +176,23 @@ const PAGES = [
     ],
     name: "cover",
     path: "/tools/cover-generator",
+  },
+  {
+    /*
+     * The 404 page, which is part of the frame rather than a page of its own: it is
+     * what a visitor gets for a URL this site does not serve, and it carries the
+     * shell and one thing of its own (#161). It entered this Instrument before the
+     * frame moved, which is the ordering rule the round inherits — an Instrument
+     * reads what is about to change, and is proved able to fail on it, before the
+     * change lands. The path is a URL nothing serves on purpose: the page is the
+     * one route Next renders for a miss, so any unrouted path is it.
+     *
+     * `not-found` is the page's own container, the one anchor it owns; the way home
+     * is a control rather than a region and belongs to `touch-targets.mjs`.
+     */
+    anchors: [...SHELL_ANCHORS, "not-found"],
+    name: "not-found",
+    path: "/no-such-page",
   },
 ];
 

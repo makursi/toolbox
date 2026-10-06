@@ -16,7 +16,13 @@ export const metadata: Metadata = { title: "没有这个页面" };
 
 export default function NotFound() {
   return (
-    <Container className="py-10 sm:py-16" size="md">
+    /*
+     * `data-slot` is an anchor, not a style and not behaviour (#114): this page is
+     * part of the frame, it moves with the frame, and both Instruments have to be
+     * able to address it before it moves (#161). The name is declared per page in
+     * `apps/web/scripts/ui-fingerprint.mjs`.
+     */
+    <Container className="py-10 sm:py-16" data-slot="not-found" size="md">
       <Stack align="flex-start" className="reveal" gap="xs">
         <Title order={1}>没有这个页面</Title>
         <Text c="dimmed" maw={560}>
@@ -30,7 +36,7 @@ export default function NotFound() {
           cost is a full page load on the way home, which for a 404 is the more
           robust behaviour anyway: it still works with JavaScript off.
         */}
-        <Button component="a" href="/" mt="md" size="md">
+        <Button className="touch-target" component="a" href="/" mt="md" size="md">
           回到首页
         </Button>
       </Stack>
