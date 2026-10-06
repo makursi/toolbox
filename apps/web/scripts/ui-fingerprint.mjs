@@ -50,6 +50,15 @@
  * visible in the outline — the walk finds every `data-slot` — so a stray one is a
  * difference rather than a silence.
  *
+ * **A page may declare the file it is measured with** (`fileInput`, #165). Some
+ * regions only exist after something has been dropped — the second Tool's file list
+ * and its outputs — and an anchor the captured state cannot carry fails the run, so
+ * the choice is between measuring those regions and declaring nothing about them.
+ * The file goes in after the navigation has settled and the page is settled again
+ * before anything is read; it is the same file `touch-targets.mjs` drops, and both
+ * halves of that (the drop and the wait) are the connection layer's. This is
+ * coverage extended, not a second definition of "ready to measure".
+ *
  * What it deliberately does not cover: end-to-end behaviour (a real file going
  * through a real Worker), console errors, and anything a keyboard or a pointer
  * does. `touch-targets.mjs` is the sibling that does measure one pointer
@@ -96,6 +105,7 @@
  * a difference or a declared anchor matched nothing, so it can gate a shell chain.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { connect } from "./cdp.mjs";
 
@@ -160,8 +170,27 @@ const PAGES = [
      * list and the outputs under them are later batches, and an anchor the page
      * carries but this list does not name still shows up in the outline as a
      * difference.
+     *
+     * `converter-files` and `file-row` are #165's, and they are the reason this page
+     * declares a `fileInput`: the file list exists only after a file has been
+     * dropped, so a capture that navigated and stopped there would fail on two
+     * anchors that cannot be present — which is the rule working, not a gap to paper
+     * over. The file is the same one the hit-area Instrument drops (the Tool's own
+     * cover, a real JPEG); it goes in after the navigation has settled, the page is
+     * settled again before anything is read, and it stays in place for all ten view
+     * states of this page. What it is *not* is a second reading of "ready to
+     * measure": both halves are the connection layer's (`cdp.mjs`).
      */
-    anchors: [...SHELL_ANCHORS, "tool-page", "format-card", "converter-add", "converter-formats"],
+    anchors: [
+      ...SHELL_ANCHORS,
+      "tool-page",
+      "format-card",
+      "converter-add",
+      "converter-formats",
+      "converter-files",
+      "file-row",
+    ],
+    fileInput: "input[type=file]",
     name: "tool",
     path: "/tools/image-converter",
   },
@@ -370,6 +399,16 @@ const anchorReading = (
   matched: document.querySelectorAll(selector).length,
 })))`;
 
+/**
+ * The file a page is measured with, when its anchors only exist after something
+ * has been dropped (#165). It is the Tool's own cover — a real JPEG that is already
+ * in the repository — so no fixture has to be committed and no encoder has to live
+ * in this script. The file is never converted here, only queued.
+ */
+const FIXTURE = fileURLToPath(
+  new URL("../public/tools/image-converter/cover.jpg", import.meta.url),
+);
+
 async function capture(baseUrl, outFile) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
@@ -401,6 +440,18 @@ async function capture(baseUrl, outFile) {
       // the 1800 ms sleep that used to be the only thing between a dead server and a
       // fingerprint of its error page.
       await client.navigate(`${baseUrl}${path}`);
+
+      /*
+       * A page whose anchors only exist after a file has been dropped gets one, and
+       * then waits for the page to stop changing *again*: the file is a change that
+       * arrives after the navigation settled, and a reading taken while the row is
+       * still arriving is not a reading (#135's rule, applied to the one change this
+       * Instrument makes itself).
+       */
+      if (page.fileInput !== undefined) {
+        await client.setFile(page.fileInput, FIXTURE);
+        await client.settle();
+      }
 
       // Before anything else is read: a page this run cannot address is a page it
       // must not report on. The failures are printed here, where the reason is

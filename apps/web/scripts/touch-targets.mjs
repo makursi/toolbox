@@ -271,14 +271,15 @@ const PAGES = [
     ],
     fileInput: "input[type=file]",
     name: "tool",
-    // The frame plus the two regions #164 moved. The file list and the outputs under
-    // them are still the outgoing layer's until #165 and #166, each of which adds the
-    // region it moved and the last of which can claim the whole document.
+    // The frame plus the regions #164 and #165 moved. The outputs and the action row
+    // under them are still the outgoing layer's until #166, which adds its region and
+    // is the ticket that can claim the whole document.
     outgoing: [
       '[data-slot="site-header"]',
       '[data-slot="site-footer"]',
       '[data-slot="converter-add"]',
       '[data-slot="converter-formats"]',
+      '[data-slot="converter-files"]',
     ],
     path: "/tools/image-converter",
   },
@@ -701,28 +702,6 @@ const STICKY = `(() => {
 function report(line) {
   // oxlint-disable-next-line no-console -- see above.
   console.log(line);
-}
-
-/**
- * Put a file into the page's file input. React does receive this: the input keeps
- * its own change event and CDP sets the files on it. See item 2 of `apps/web/docs/design/log.md` — headless Chrome can do this, and the claim that it could not was
- * a limitation of an older tool, not of the browser.
- *
- * No sleep after this: whatever the file triggers (a row, a background image, 清除)
- * is waited for by name in `waitForControls`, which is both faster and stricter
- * than the 1200 ms this used to wait.
- */
-async function addFile(client, selector) {
-  const document = await client.send("DOM.getDocument", { depth: 1 });
-  const input = await client.send("DOM.querySelector", {
-    nodeId: document.result.root.nodeId,
-    selector,
-  });
-  if (!input.result?.nodeId) throw new Error(`no file input matching ${selector}`);
-  await client.send("DOM.setFileInputFiles", {
-    files: [FIXTURE],
-    nodeId: input.result.nodeId,
-  });
 }
 
 /**
@@ -1339,10 +1318,16 @@ async function applyCase(client, shape, pointer, scheme) {
  * page's controls only exist after something has been dropped. Shared by the sweep
  * and the falsification mode, so "the page as measured" is one definition rather than
  * two that drift.
+ *
+ * The file itself is the connection layer's `setFile` since #165 — the fingerprint
+ * needs exactly the same call now that it reads the second Tool's file list — and
+ * the wait after it is *not* a sleep: whatever the file triggers (a row, a
+ * background image, 清除) is waited for by name in `waitForControls`, which is both
+ * faster and stricter than the 1200 ms this used to wait.
  */
 async function openPage(client, baseUrl, page) {
   await client.navigate(`${baseUrl}${page.path}`);
-  if (page.fileInput !== undefined) await addFile(client, page.fileInput);
+  if (page.fileInput !== undefined) await client.setFile(page.fileInput, FIXTURE);
 }
 
 /**

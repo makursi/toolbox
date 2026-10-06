@@ -14,6 +14,7 @@ import {
 } from "@mantine/core";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { Alert as PrimitiveAlert, AlertTitle } from "@/components/ui/alert";
 import { Button as PrimitiveButton } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -199,30 +200,35 @@ export function ImageConverter() {
           </p>
         </div>
 
-        {/* The row is also there when every file was refused: the rejected list
-            is what is left to clear, and it is the only way to clear it. */}
+        {/*
+          The region #165 moved: the count line, the 清空 beside it, the queued rows
+          and the rejected list. The anchor is a region for `touch-targets.mjs`,
+          which drops a file before it measures — `ui-fingerprint.mjs` reads it too,
+          but only because the fingerprint now drops the same file (its `fileInput`),
+          since an anchor the captured state cannot carry fails the run.
+        */}
         {(summary !== null || refused.length > 0) && (
-          <Stack gap="xs" mt="md">
-            <Group justify="space-between" wrap="nowrap">
-              <Text c="dimmed" size="sm">
-                {summary}
-              </Text>
+          <div className="mt-4 flex flex-col" data-slot="converter-files">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm leading-[1.45] text-muted-foreground">{summary}</p>
               {/* Hidden while a Batch runs, the way 取消 only appears while one
                   does — a greyed control would owe the visitor a reason, and
                   the reason here is the one 取消 already names. */}
               {!running && (
-                <Button
-                  className="touch-target"
+                <PrimitiveButton
+                  className="touch-target h-[26px] border-input bg-card px-2 text-sm leading-none font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
                   onClick={clearAll}
-                  size="compact-sm"
-                  variant="default"
+                  variant="outline"
                 >
                   清空
-                </Button>
+                </PrimitiveButton>
               )}
-            </Group>
+            </div>
 
-            <Stack gap={0}>
+            {/* The rows. A column rather than a list element: each row's own hairline
+                is what separates it, and the first one's separates the list from the
+                count line above it. */}
+            <div className="mt-2.5 flex flex-col">
               {entries.map((entry) => (
                 <FileRow
                   disabled={running}
@@ -231,23 +237,29 @@ export function ImageConverter() {
                   onRemove={() => remove(entry.id)}
                 />
               ))}
-            </Stack>
-          </Stack>
-        )}
+            </div>
 
-        {refused.length > 0 && (
-          <Alert color="red" mt="md" title="有文件没能加入">
-            <Stack gap={4}>
-              {refused.map((entry) => (
-                <Text key={entry.name} size="sm">
-                  <Text component="span" fw={500} inherit>
-                    {entry.name}
-                  </Text>
-                  {`: ${entry.message}`}
-                </Text>
-              ))}
-            </Stack>
-          </Alert>
+            {refused.length > 0 && (
+              /*
+               * The same box as the failures below, and the same `role="alert"`.
+               * Its surface is this site's card colour with the error colour as
+               * text, where the outgoing layer borrowed a pale red background —
+               * a value this palette never measured (`apps/web/docs/design/colour.md`
+               * holds the two measured error values).
+               */
+              <PrimitiveAlert className="mt-4" variant="destructive">
+                <AlertTitle>有文件没能加入</AlertTitle>
+                <div className="col-start-2 flex flex-col gap-1">
+                  {refused.map((entry) => (
+                    <p className="text-sm leading-[1.45]" key={entry.name}>
+                      <span className="font-medium">{entry.name}</span>
+                      {`: ${entry.message}`}
+                    </p>
+                  ))}
+                </div>
+              </PrimitiveAlert>
+            )}
+          </div>
         )}
       </section>
 

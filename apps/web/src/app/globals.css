@@ -262,11 +262,15 @@
  * decode leaves an empty box rather than an empty frame that reads as a broken
  * picture. The hairline is the row's own token: without it a pale photo has no
  * edge against the canvas.
+ *
+ * The row's 10px of block padding and the picture's 4px radius are utilities on
+ * the elements since #165, because this file used the outgoing layer's spacing and
+ * radius variables for them — a stylesheet that outlives the library may not name
+ * its variables. What is left here is geometry and colour of this site's own.
  */
 @layer components {
   .file-row {
     border-top: 1px solid var(--site-hairline);
-    padding-block: var(--mantine-spacing-xs);
   }
 
   .file-preview {
@@ -282,7 +286,6 @@
     height: 100%;
     object-fit: cover;
     border: 1px solid var(--site-hairline);
-    border-radius: var(--mantine-radius-sm);
   }
 }
 
@@ -355,12 +358,18 @@
 /*
  * The drop zone, and the two ways a small screen changes it.
  *
- * Padding is a class rather than the `p` prop because a simple style prop is
- * written inline, and an inline declaration outranks every layer: `p="lg"`
- * could not be taken back below.
+ * Padding is a class rather than a padding utility because the touch branch has to
+ * be able to take the box's padding away entirely, and `utilities` is declared after
+ * `components`: a `p-5` on the element would beat `.dropzone-touch-flat`'s `padding:
+ * 0` and the flat box would keep its padding. Both rules live in the same layer, so
+ * the media query wins on source order — which is the whole reason this pair exists.
+ *
+ * 20px is the outgoing layer's `lg` (`1.25rem`, not Tailwind's), written as a number
+ * since #165: it used to read `var(--mantine-spacing-lg)`, and a stylesheet that
+ * outlives the library may not name its variables.
  */
 .dropzone-pad {
-  padding: var(--mantine-spacing-lg);
+  padding: 20px;
 }
 
 /*
