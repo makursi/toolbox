@@ -70,7 +70,7 @@ One conversion each way, using a photo with transparency and a photo without:
 - [ ] Cancel stops the Batch and clears the results.
 - [ ] The ZIP download contains every successful output, named as the list shows.
 - [ ] **▣** The whole flow is usable with the keyboard alone: Space toggles a focused format row, and the file dialog opens from the drop zone with Enter. The rest of the flow (choosing targets, converting, downloading) is still checked by hand, because the gate drives it with the pointer.
-- [ ] Mantine's components look styled at all (if they render unstyled, the `@layer` order in `globals.css` has been changed and Tailwind is losing to Mantine, or winning over it). **This page renders none of them since #166** — the check still matters for the home page and for the shell's provider, and `apps/web/docs/design/checklist.md` keeps the mechanical version of it. What is worth a look here instead is that the page has **one** layer: no control on it should look like it came from another product.
+- [ ] The site has **one** component layer, and this page renders no control that looks like it came from another product. There is no library left to compare against since #168 — `apps/web/docs/design/checklist.md` carries the mechanical version of what used to be checked here (the `@layer` order in the built CSS, and the four pages' `no-outgoing-layer` claim in the hit-area Instrument).
 - [ ] **▣** With DevTools open, a full Batch produces **no outbound requests** after the page has loaded.
 - [ ] **▣** With the console open, no CSP violation is reported (a violation means `next.config.ts` and the Worker disagree about something).
 - [ ] A large image (near the pixel limit) does not freeze the page while it converts.

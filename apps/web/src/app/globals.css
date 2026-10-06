@@ -1,18 +1,50 @@
 /*
  * The layer order, declared before any import.
  *
- * Mantine ships `.layer.css` entry points that wrap its styles in `@layer mantine`
- * for exactly this reason: in Next.js the order of stylesheet imports cannot be
- * controlled. Declaring the order here is what keeps Tailwind's utilities — and
- * anything we write ourselves — able to override Mantine, rather than the other
- * way round. A `@layer` statement may precede `@import`, per the cascade-layers
- * spec.
+ * It used to have a fourth name in the middle — `mantine` — because the outgoing
+ * component library shipped `.layer.css` entry points that wrapped its styles for
+ * exactly this reason, and the order of stylesheet imports cannot be controlled in
+ * Next.js. That library left in #168, so the name and its two imports went with it.
+ * The order still matters for the same reason it always did: Tailwind's utilities have
+ * to be able to override anything we or a Primitive writes.
+ *
+ * A `@layer` statement may precede `@import`, per the cascade-layers spec.
  */
-@layer theme, base, mantine, components, utilities;
+@layer theme, base, components, utilities;
 
 @import "tailwindcss";
-@import "@mantine/core/styles.layer.css";
-@import "@mantine/dropzone/styles.layer.css";
+
+/*
+ * The document's own typography, which the outgoing library's global stylesheet used
+ * to provide (#168).
+ *
+ * Every anchor both Instruments read inherits from here — font family, size, leading
+ * and colour — so this rule is what makes the layer swap a move rather than a
+ * redesign for anything that does not declare its own. The values are the ones that
+ * were measured on the built page before the library left: Geist first with the
+ * system's CJK fonts behind it (nothing is downloaded for those, see
+ * `apps/web/docs/design/typography.md`), 16px, a **1.7** leading (Chinese needs more
+ * room than Latin at the same size), the text token as the colour and the canvas token
+ * as the background.
+ *
+ * `body` rather than `html`: Tailwind's preflight sets the html element's family and
+ * leading, and this has to win for everything inside the body without fighting the
+ * element it belongs to. It is in the `base` layer, after the preflight, so source
+ * order settles it.
+ */
+@layer base {
+  body {
+    background-color: var(--site-canvas);
+    color: var(--site-text);
+    font-family:
+      var(--font-geist-sans), "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Noto Sans CJK SC", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
 
 /*
  * The incoming component layer's theme block: names, and only names.
@@ -88,17 +120,21 @@
  * The dark variant, defined rather than assumed.
  *
  * Tailwind's `dark:` asks the operating system by default. This site has exactly
- * one owner of the colour scheme and it is not the media query: Mantine's
- * `ColorSchemeScript` resolves the stored preference — or the system's, once —
- * and writes one attribute on `<html>`, which is also what decides the accessible
- * name of the scheme switch. Leaving `dark:` on the media query would be the
- * second mechanism #126 exists to remove, and it would disagree with the switch
- * the moment a visitor chose a scheme the system does not prefer.
+ * one owner of the colour scheme and it is not the media query: the script in the
+ * layout's head resolves the stored preference — or the system's, once — and writes
+ * one attribute on `<html>`, which is also what decides the accessible name of the
+ * scheme switch. Leaving `dark:` on the media query would be the second mechanism
+ * #126 exists to remove, and it would disagree with the switch the moment a visitor
+ * chose a scheme the system does not prefer.
+ *
+ * The attribute was the outgoing library's until #168 (`data-mantine-color-scheme`);
+ * it is this site's now, and `src/lib/color-scheme.ts` is the whole of the policy
+ * (`docs/adr/0017-the-site-owns-the-colour-scheme.md`).
  *
  * The variant is written against the attribute, so the generated components'
  * `dark:` utilities follow the switch. `:where()` keeps its specificity at zero.
  */
-@custom-variant dark (&:where([data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
+@custom-variant dark (&:where([data-color-scheme="dark"], [data-color-scheme="dark"] *));
 
 /*
  * Pure black and pure white, inside the new layer.
@@ -553,12 +589,12 @@
  * could not afford to be.
  */
 .theme-toggle-light,
-[data-mantine-color-scheme="dark"] .theme-toggle-dark {
+[data-color-scheme="dark"] .theme-toggle-dark {
   display: inline-flex;
 }
 
 .theme-toggle-dark,
-[data-mantine-color-scheme="dark"] .theme-toggle-light {
+[data-color-scheme="dark"] .theme-toggle-light {
   display: none;
 }
 

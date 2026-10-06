@@ -1,6 +1,8 @@
 # A manual colour-scheme switch
 
 > **Updated by ADR-0009**: the switch is now an icon-only button — a moon in the light scheme, a sun in the dark one — whose accessible name is `sr-only` text in the markup. That turns two things below into history rather than current state: the second implementation note ("the visible word is its accessible name (verified: '深色'…)") and the closing sentence ("a labelled button rather than a sun and a moon because this site has no icon set yet"). The reasoning about CSS choosing the state, and about a hand-written `aria-label` being unusable, still holds — the hidden sentence is a sentence now («切换到深色»), which is what invisible text bought.
+>
+> **Updated by ADR-0017** (2026-10-06, #168): the switch, the attribute and the stored choice are **this site's** now. `data-mantine-color-scheme` and `localStorageColorSchemeManager` below are history — the outgoing component library that happened to implement them left the App, and `apps/web/src/lib/color-scheme.ts` is the whole policy: `data-color-scheme` on `<html>`, the key `toolbox-color-scheme`, and a `matchMedia` listener that keeps following the system while the visitor has not chosen. Everything this ADR decided about _why_ there is a switch, two states rather than three, and no flash on load still holds.
 
 ADR-0007 set the scheme to `auto` in both `ColorSchemeScript` and the provider, and `apps/web/docs/design/colour.md` turned that into a rule: "跟随操作系统，**不做手动切换开关**". It held while the dark scheme had never been rendered; once both schemes had been seen in a browser, a dark scheme nobody can choose is a dark scheme nobody sees. The header now carries a two-state switch.
 

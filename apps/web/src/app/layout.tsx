@@ -1,14 +1,12 @@
-import { Box, ColorSchemeScript, mantineHtmlProps } from "@mantine/core";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { SiteFooter } from "@/components/site-footer/site-footer";
 import { SiteHeader } from "@/components/site-header/site-header";
+import { colorSchemeScript } from "@/lib/color-scheme";
 import { siteDescription, siteName, siteUrl, shareMetadata } from "@/lib/site";
 import { tokensCss } from "@/lib/tokens";
-
-import { Providers } from "./providers";
 
 import "./globals.css";
 
@@ -42,62 +40,68 @@ export default function RootLayout({ children }: { children: ReactNode }) {
      * site is added to a home screen. All three are exports of one supplied
      * illustration — the crop, the sizes and the master are in
      * `apps/web/docs/design/assets.md`.
+     *
+     * `suppressHydrationWarning` is on the `<html>` element for one reason: the
+     * scheme script below writes `data-color-scheme` before React hydrates, so the
+     * server's markup and the client's first render disagree about one attribute on
+     * one element — deliberately, and in the only way that avoids a flash of the
+     * wrong scheme. React warns about exactly that mismatch, and this is React's own
+     * way of being told it was intended.
      */
     <html
       className={`${geistSans.variable} ${geistMono.variable}`}
       lang="zh-CN"
-      {...mantineHtmlProps}
+      suppressHydrationWarning
     >
       <head>
         {/*
          * The colour scheme is decided before the first paint, and by exactly one
-         * mechanism: `ColorSchemeScript` reads the stored preference (or the
-         * operating system's, which it is the only thing that can read it from)
-         * and writes `data-mantine-color-scheme` on `<html>`. The incoming
-         * component layer keys its dark variant on that same attribute rather
-         * than adding a second one (`apps/web/docs/design/colour.md`).
+         * mechanism: this script reads the stored preference (or, with none, the
+         * operating system's — which is the only thing that can read it before a
+         * paint) and writes `data-color-scheme` on `<html>`. The stylesheet's `dark`
+         * variant and this site's tokens are both defined against that one attribute
+         * (`apps/web/docs/design/colour.md`), and `src/lib/color-scheme.ts` is the
+         * whole of the policy.
          */}
-        <ColorSchemeScript defaultColorScheme="auto" />
+        <script dangerouslySetInnerHTML={{ __html: colorSchemeScript() }} />
         {/*
          * The site's values, published from the single source in
-         * `src/lib/tokens.ts` — the same module Mantine's theme factory reads a
-         * few lines away. Emitted here, server-side, so the properties are in the
-         * document before anything paints; `globals.css` maps the new layer's
-         * utility names onto them. A stylesheet that repeated these values would
-         * be a second owner of colour (#111).
+         * `src/lib/tokens.ts` — and since #168 the only end of that source there is:
+         * the outgoing layer's runtime resolver went with the library. Emitted here,
+         * server-side, so the properties are in the document before anything paints;
+         * `globals.css` maps the new layer's utility names onto them. A stylesheet
+         * that repeated these values would be a second owner of colour (#111).
          */}
         <style dangerouslySetInnerHTML={{ __html: tokensCss() }} />
       </head>
       <body>
-        <Providers>
-          {/*
-           * The shell is a column at least as tall as the viewport, so the footer
-           * sits on the bottom edge of a short page (the homepage, a 404) instead
-           * of floating halfway up it. `min-h` rather than a fixed height: the
-           * Tool page is taller than the viewport and has to keep scrolling.
-           */}
-          {/*
-           * `data-slot` is an anchor, not a style and not behaviour: it names the
-           * region so `apps/web/scripts/ui-fingerprint.mjs` can address this page
-           * by an attribute of ours instead of by the component library's class
-           * names and content-hashed module classes, which a change of component
-           * layer moves by construction (#114). The vocabulary is the incoming
-           * layer's own — it stamps `data-slot` on everything it renders — so the
-           * two ends of the migration speak the same language and no translation
-           * table is needed. Every anchor the fingerprint reads is declared, per
-           * page, in that script; a slot added here and not declared there is not
-           * read.
-           */}
-          <Box className="flex min-h-[100dvh] flex-col" data-slot="page-shell">
-            <SiteHeader />
-            {/* A `<main>` landmark, so the one thing a screen reader is asked to
-                jump to is the content and not the chrome around it. */}
-            <Box component="main" data-slot="site-main" style={{ flex: 1 }}>
-              {children}
-            </Box>
-            <SiteFooter />
-          </Box>
-        </Providers>
+        {/*
+         * The shell is a column at least as tall as the viewport, so the footer
+         * sits on the bottom edge of a short page (the homepage, a 404) instead
+         * of floating halfway up it. `min-h` rather than a fixed height: the
+         * Tool page is taller than the viewport and has to keep scrolling.
+         */}
+        {/*
+         * `data-slot` is an anchor, not a style and not behaviour: it names the
+         * region so `apps/web/scripts/ui-fingerprint.mjs` can address this page
+         * by an attribute of ours instead of by the component library's class
+         * names and content-hashed module classes, which a change of component
+         * layer moves by construction (#114). The vocabulary is the incoming
+         * layer's own — it stamps `data-slot` on everything it renders — so the
+         * two ends of the migration speak the same language and no translation
+         * table is needed. Every anchor the fingerprint reads is declared, per
+         * page, in that script; a slot added here and not declared there is not
+         * read.
+         */}
+        <div className="flex min-h-[100dvh] flex-col" data-slot="page-shell">
+          <SiteHeader />
+          {/* A `<main>` landmark, so the one thing a screen reader is asked to
+              jump to is the content and not the chrome around it. */}
+          <main className="flex-1" data-slot="site-main">
+            {children}
+          </main>
+          <SiteFooter />
+        </div>
       </body>
     </html>
   );

@@ -4,7 +4,7 @@
 
 ## 值（token）
 
-暖色单色（warm monochrome）。**值定义在 `apps/web/src/lib/tokens.ts`**——一个与组件引擎无关的纯模块，加一个对比度纯函数。**两个组件层都读它，它也是唯一声明值的地方**（#126）：旧层在 TypeScript 侧读（`apps/web/src/app/theme.ts` 的 `createTheme` 与 `cssVariablesResolver`），新层读同一批值——根布局把模块发成文档里的自定义属性，`apps/web/src/app/globals.css` 再用一个 `@theme inline` 块把新层的工具类名映射上去。**样式表里再写一个十六进制值就是第二个主人**；`tokens.test.ts` 盯的就是这件事（#127）。只有新层在用的圆角与字阶还留在 Tailwind 的默认值上，#116 显式重定。
+暖色单色（warm monochrome）。**值定义在 `apps/web/src/lib/tokens.ts`**——一个与组件引擎无关的纯模块，加一个对比度纯函数。**它也是唯一声明值的地方**（#126），而且自 #168 起**只有一个消费者**：根布局把模块发成文档里的自定义属性，`apps/web/src/app/globals.css` 再用一个 `@theme inline` 块把工具类名映射上去（以前还有旧层在 TypeScript 侧读它，那套 `createTheme` 与 `cssVariablesResolver` 随库一起删了）。**样式表里再写一个十六进制值就是第二个主人**；`tokens.test.ts` 盯的就是这件事（#127）。只有圆角与字阶还留在 Tailwind 的默认值上，#116 显式重定。
 
 **没有强调色（accent color）**：界面上唯一的颜色只用来表达语义，也就是错误。
 
@@ -48,17 +48,17 @@
 
 **纯黑与纯白在新层里被挡住，而不是靠自觉。** 禁纯 `#000000` / `#ffffff` 是强制项，换组件层不是重开它的理由（`apps/web/docs/design.md`），而注册表发来的组件不是我们手改的东西——它自己的变体里就写着 `text-white`。所以这条禁令落在值这一层：`globals.css` 里 `[data-layer="primitive"]` 把 Tailwind 的 `white` / `black` 重指到本站的纸与墨。**它是有作用域的，故意的**：封面生成器预览框上的 `bg-white` 画的是**导出产物的底色**，而"导出的图片像素不算"正是同一条规则早已写下的例外——全局重指会让访客下载到的文件悄悄变一个颜色。
 
-**为什么旧层这一端仍是 TypeScript**：Mantine 的变量由 `createTheme` 加一个 `cssVariablesResolver` 在**运行时**写到文档里，位置在我们的样式表之后——所以在 CSS 里直接覆盖 `--mantine-color-body` 会输掉层叠，resolver 是官方支持的路径，也是唯一稳赢的路径。这个理由只解释**旧层这一端为什么不能用样式表**，不再解释值住在哪里：值住在模块里（#111 否掉的是"两个颜色主人"，不是"样式表"本身）。新层那一端没有这个限制，它的名字映射是静态的，值来自根布局发出的同一份模块。
+**token 的源头自 #168 起只有一端。** 以前是两处：模块里的值由旧层的 `createTheme` 加一个 `cssVariablesResolver` 在**运行时**写到文档里（位置在我们的样式表之后，所以 CSS 里直接覆盖 `--mantine-color-body` 会输掉层叠），新层那一端则读根布局发出的同一份模块。那套 resolver 随库一起走了（`src/app/theme.ts` 与 `providers.tsx` 都删掉了），现在只有 `src/lib/tokens.ts` 一个模块加它发出的自定义属性——值只写一遍，映射是静态的，`@theme inline` 把工具类名指到那些属性上。
 
 ## 模式（明暗配色）
 
-**配色只有唯一一个主人：Mantine 的配色管理器加它写在 `<html>` 上的 `data-mantine-color-scheme` 属性**（#126）。`ColorSchemeScript` 在首屏前读持久化的选择（没有选择时读操作系统，那是只有它能读的东西）并写下这个属性。**新层不另立机制**：`globals.css` 用一条 `@custom-variant dark` 把 Tailwind 的 `dark:` 变体定义在**同一个属性**上，而不是默认的 `prefers-color-scheme`，也没有 `.dark` 类、没有第二套主题库。留两套的代价不是风格问题：访客一旦手动选了与系统相反的配色，两个定义就会当场互相矛盾。
+**配色只有唯一一个主人，而且是本站自己的**（#168 重新论证了 #126 的那条，见 `docs/adr/0017-the-site-owns-the-colour-scheme.md`）：`src/lib/color-scheme.ts` 一个模块，`<html>` 上一个属性 `data-color-scheme`，`localStorage` 里一个键 `toolbox-color-scheme`。根布局 `<head>` 里那段脚本在首屏前读持久化的选择（没有选择时读操作系统，那是只有它能读的东西）并写下属性。**变体定义在同一个属性上**：`globals.css` 用一条 `@custom-variant dark` 把 Tailwind 的 `dark:` 变体指到 `[data-color-scheme="dark"]`，而不是默认的 `prefers-color-scheme`，也没有 `.dark` 类、没有第二套主题库。留两套的代价不是风格问题：访客一旦手动选了与系统相反的配色，两个定义就会当场互相矛盾。
 
-`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，带 `.touch-target`；**按钮自 #163 起是新层的 Primitive**，框是量出来的 32×26、1px 发丝边框、表面色填充、4px 圆角、14px 字——为什么不是从注册表的档位里挑的，见 `apps/web/docs/design/components.md`），**只有图标**（浅色下是月亮、深色下是太阳），图标写的是**它将要切到的模式**。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
+**默认跟随操作系统**，而且是**活着的跟随**：访客没有选择时，开关上挂的 `matchMedia` 监听会跟着系统切换（macOS 与 Windows 都会按时间表切换深色），它写属性、**不写存储**——系统的当前答案不是访客的选择。页头右侧那个两态开关（`ThemeToggle`，带 `.touch-target`；按钮自 #163 起是新层的 Primitive，框是量出来的 32×26、1px 发丝边框、表面色填充、4px 圆角、14px 字——为什么不是从注册表的档位里挑的，见 `apps/web/docs/design/components.md`）**只有图标**（浅色下是月亮、深色下是太阳），图标写的是**它将要切到的模式**。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`；**旧键里的选择会重置一次**（不读 `mantine-color-scheme-value`，否则库的名字会永远留在这个模块里），理由与取舍记在 ADR-0017。
 
-持久化由 Mantine 自带的 `localStorageColorSchemeManager` 完成（就是 provider 的默认值，没改一行配置），`ColorSchemeScript` 在首屏前读取它，所以没有闪白也没有 hydration 不匹配。
+持久化由那个模块自己完成（`localStorage.setItem`，读的时候 try/catch 兜底），根布局的脚本在首屏前读它，所以没有闪白也没有 hydration 不匹配。
 
-**名字由样式表切，不由 JS 状态切**：图标与 `sr-only` 的名字都按模式各备一份、都在 DOM 里，`[data-mantine-color-scheme]` 决定哪一份活着。服务端不可能知道系统配色，所以任何在渲染期读 scheme 的做法，要么 hydration 不匹配、要么先撒一句谎再自我纠正。也因此**它没有 `aria-label`**：写在组件里的 `aria-label` 是一个固定字符串，总有一种配色下会与实际显示的模式不符；而两份 `sr-only` 文字正好可以写成完整的句子（「切换到深色」），这是以前那个可见的词负担不起的。**这条理由与哪个库渲染这个控件无关，所以它不随组件层走**（#126）。
+**名字由样式表切，不由 JS 状态切**：图标与 `sr-only` 的名字都按模式各备一份、都在 DOM 里，`[data-color-scheme]` 决定哪一份活着。服务端不可能知道系统配色，所以任何在渲染期读 scheme 的做法，要么 hydration 不匹配、要么先撒一句谎再自我纠正——点击那一刻也是**从文档上读**当前配色（`currentScheme()`），不放在 React state 里。也因此**它没有 `aria-label`**：写在组件里的 `aria-label` 是一个固定字符串，总有一种配色下会与实际显示的模式不符；而两份 `sr-only` 文字正好可以写成完整的句子（「切换到深色」），这是以前那个可见的词负担不起的。**这条理由与哪个库渲染这个控件无关**（#126），所以换库、换主人都不动它。
 
 任何 token 都必须**先补齐两个模式**才能上线。禁止纯 `#000000` 与纯 `#ffffff`（见上：新层里由作用域挡住）：两者都撑不起层次；浅色画布之所以是暖白（bone），正是为了让白卡片能落在它上面。任何一"节"都不允许在页面中途翻转成反色主题。
 

@@ -6,7 +6,7 @@
 
 - [ ] _（可机械验证）_ **渲染产物里零破折号**：构建后 `find .next/server/app -name "*.html" -exec grep -o "—\|–" {} \; | wc -l` 为 0。
 - [ ] _（可机械验证）_ **没有远程资源与字体**：`find .next/server/app -name "*.html" -exec grep -o "fonts.googleapis\|fonts.gstatic" {} \; | wc -l` 为 0，**并且同一件事对构建出的 CSS 再查一遍**：`find .next/static/chunks -name "*.css" -exec grep -o "url(http" {} \; | wc -l` 为 0、`grep -rl "api.iconify.design" .next` 无输出。第二条不是重复：字体由 `next/font` 自托管所以 HTML 里查得到它，而图标是构建期编进去的 `data:` URI，一旦有人把 Iconify 改回运行期取图，**只有 CSS 这一路会报警**。（刻意不用 `grep -c`：它在计数为 0 时退出码非 0，看起来像失败。）
-- [ ] _（可机械验证）_ **层顺序未被破坏**：构建产物 CSS 里 `theme` → `base` → `mantine` → `components` → `utilities`（用 `find .next/static/chunks -name "*.css"` 找到文件后按字节偏移比较）。改动 `globals.css` 里那行 `@layer` 会**静默**翻转 Tailwind 与 Mantine 的优先级。
+- [ ] _（可机械验证）_ **层顺序未被破坏**：构建产物 CSS 里 `theme` → `base` → `components` → `utilities`（用 `find .next/static/chunks -name "*.css"` 找到文件后按字节偏移比较）。改动 `globals.css` 里那行 `@layer` 会**静默**翻转 Tailwind 与本站规则（以及注册表组件）的优先级。**自 #168 起没有 `mantine` 这一层了**：旧库连同它那两条 `@import` 一起离开，层序短了一格。
 - [ ] _（可机械验证）_ **新颜色都测过对比度**：对着它实际所在的表面测，文字至少 AA（4.5:1）。
 - [ ] _（可机械验证）_ **新 token 两个模式都定义了**：在预渲染 HTML 里核对浅色与深色两组值。
 - [ ] _（可机械验证）_ **图标类名都是字面量、且在 Phosphor 里存在**：`pnpm test`。拼出来的名字（`icon-[ph--${x}]`）语法检查、lint 与构建都不会报错，只会静默地不生成 CSS。
