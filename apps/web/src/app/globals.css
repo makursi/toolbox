@@ -1,18 +1,50 @@
 /*
  * The layer order, declared before any import.
  *
- * Mantine ships `.layer.css` entry points that wrap its styles in `@layer mantine`
- * for exactly this reason: in Next.js the order of stylesheet imports cannot be
- * controlled. Declaring the order here is what keeps Tailwind's utilities — and
- * anything we write ourselves — able to override Mantine, rather than the other
- * way round. A `@layer` statement may precede `@import`, per the cascade-layers
- * spec.
+ * It used to have a fourth name in the middle — `mantine` — because the outgoing
+ * component library shipped `.layer.css` entry points that wrapped its styles for
+ * exactly this reason, and the order of stylesheet imports cannot be controlled in
+ * Next.js. That library left in #168, so the name and its two imports went with it.
+ * The order still matters for the same reason it always did: Tailwind's utilities have
+ * to be able to override anything we or a Primitive writes.
+ *
+ * A `@layer` statement may precede `@import`, per the cascade-layers spec.
  */
-@layer theme, base, mantine, components, utilities;
+@layer theme, base, components, utilities;
 
 @import "tailwindcss";
-@import "@mantine/core/styles.layer.css";
-@import "@mantine/dropzone/styles.layer.css";
+
+/*
+ * The document's own typography, which the outgoing library's global stylesheet used
+ * to provide (#168).
+ *
+ * Every anchor both Instruments read inherits from here — font family, size, leading
+ * and colour — so this rule is what makes the layer swap a move rather than a
+ * redesign for anything that does not declare its own. The values are the ones that
+ * were measured on the built page before the library left: Geist first with the
+ * system's CJK fonts behind it (nothing is downloaded for those, see
+ * `apps/web/docs/design/typography.md`), 16px, a **1.7** leading (Chinese needs more
+ * room than Latin at the same size), the text token as the colour and the canvas token
+ * as the background.
+ *
+ * `body` rather than `html`: Tailwind's preflight sets the html element's family and
+ * leading, and this has to win for everything inside the body without fighting the
+ * element it belongs to. It is in the `base` layer, after the preflight, so source
+ * order settles it.
+ */
+@layer base {
+  body {
+    background-color: var(--site-canvas);
+    color: var(--site-text);
+    font-family:
+      var(--font-geist-sans), "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Noto Sans CJK SC", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
 
 /*
  * The incoming component layer's theme block: names, and only names.
@@ -88,17 +120,21 @@
  * The dark variant, defined rather than assumed.
  *
  * Tailwind's `dark:` asks the operating system by default. This site has exactly
- * one owner of the colour scheme and it is not the media query: Mantine's
- * `ColorSchemeScript` resolves the stored preference — or the system's, once —
- * and writes one attribute on `<html>`, which is also what decides the accessible
- * name of the scheme switch. Leaving `dark:` on the media query would be the
- * second mechanism #126 exists to remove, and it would disagree with the switch
- * the moment a visitor chose a scheme the system does not prefer.
+ * one owner of the colour scheme and it is not the media query: the script in the
+ * layout's head resolves the stored preference — or the system's, once — and writes
+ * one attribute on `<html>`, which is also what decides the accessible name of the
+ * scheme switch. Leaving `dark:` on the media query would be the second mechanism
+ * #126 exists to remove, and it would disagree with the switch the moment a visitor
+ * chose a scheme the system does not prefer.
+ *
+ * The attribute was the outgoing library's until #168 (`data-mantine-color-scheme`);
+ * it is this site's now, and `src/lib/color-scheme.ts` is the whole of the policy
+ * (`docs/adr/0017-the-site-owns-the-colour-scheme.md`).
  *
  * The variant is written against the attribute, so the generated components'
  * `dark:` utilities follow the switch. `:where()` keeps its specificity at zero.
  */
-@custom-variant dark (&:where([data-mantine-color-scheme="dark"], [data-mantine-color-scheme="dark"] *));
+@custom-variant dark (&:where([data-color-scheme="dark"], [data-color-scheme="dark"] *));
 
 /*
  * Pure black and pure white, inside the new layer.
@@ -213,75 +249,40 @@
 }
 
 /*
- * The drop zone wears this site's clothes, not Mantine's stock ones.
+ * The drop zone and the format rows, in this site's own terms (#164).
  *
- * Mantine's own dropzone stylesheet is written against its default palette:
- * `--mantine-color-white` and `gray-4` in light, `dark-6` and `dark-4` in dark.
- * Neither is this site's palette — the surface token is the warm one, and pure
- * white is banned outright (apps/web/docs/design/colour.md) — so that box read as
- * a piece of another product sitting in the middle of the page.
+ * What used to be here was a patch aimed at the outgoing library's internals:
+ * `.mantine-Dropzone-root` for the box's surface and hairline, its `[data-accept]`
+ * for the dragging state, and `.format-row .mantine-Checkbox-body` /
+ * `-labelWrapper` / `-label` to stretch a row's label to the 44px a finger needs.
+ * Each of those guarded a *site* rule and each of them is now expressed where the
+ * element is: the box is `bg-card border border-dashed border-input` in the
+ * component, the row is a flex row whose label carries `.touch-target` and
+ * `min-h-11`, and only the dragging state needs a rule, because it is a state and
+ * not a look — the box says "let go here" while a file is over it, in this site's
+ * tokens rather than in a library's green.
  *
- * The `components` layer is declared after `mantine` at the top of this file, so
- * an override here beats the library's rule at equal specificity. The dashed
- * hairline is kept on purpose: this is the one box on the site that asks to be
- * dropped on, and that difference should be legible without an icon.
- *
- * The dragging state is drawn in ink and not in a hue: this design has no
- * accent colour, so Mantine's green "accept" would be the only colour on the
- * page that does not mean an error.
+ * It is written against `.add-dropzone`, our own class, so it survives whatever
+ * draws the box next; the colour pair is the same one the outgoing layer's accept
+ * state resolved to (surface-hover, with the hairline becoming ink).
  */
 @layer components {
   /*
-   * A format row: the label, not the box beside it, is the row.
-   *
-   * Mantine puts the toggle on the input and on `<label for>`; the root `<div>`
-   * between them handles nothing, so the label is stretched to the whole row and
-   * given the 44px minimum. `.touch-target` cannot be used here — its overlay
-   * would sit on that wrapper and swallow the click, which is exactly the bug
-   * this replaced.
-   */
-  .format-row .mantine-Checkbox-body {
-    align-items: center;
-  }
-
-  .format-row .mantine-Checkbox-labelWrapper {
-    flex: 1;
-  }
-
-  .format-row .mantine-Checkbox-label {
-    align-items: center;
-    display: flex;
-    min-height: 44px;
-  }
-
-  /*
    * The card, not only the 20px box, says whether a format is on. One token
    * moves: the hairline becomes ink. No new colour, so no new contrast pairing.
+   *
+   * This one is *not* here any more (#164): it is `data-[checked]:border-primary`
+   * on the card, because a rule in this layer cannot beat the `border-border`
+   * utility that gives the card its hairline — `utilities` is declared after
+   * `components`, and layer order outranks specificity. The measurement that found
+   * it is the fingerprint's: the checked card's border read the hairline after the
+   * move, which is exactly the state this rule exists to make visible.
    */
-  .format-card[data-checked] {
-    border-color: var(--site-text);
-  }
-
-  .mantine-Dropzone-root {
-    background-color: var(--site-surface);
-    border-color: var(--site-hairline);
-  }
-
-  .mantine-Dropzone-root[data-accept] {
+  .add-dropzone[data-dragging] {
     background-color: var(--site-surface-hover);
     border-color: var(--site-text);
-    color: var(--site-text);
   }
 }
-
-/*
- * There is no rule for `[data-reject]`: this drop zone passes no `accept` prop,
- * because the format is decided by sniffing the file's bytes rather than by what
- * the browser claims it is, so react-dropzone has nothing to reject and the
- * state never renders. Mantine's default would paint it in its own red, which is
- * a colour nobody measured against this palette; a bad file is reported by the
- * error Alert under the zone instead.
- */
 
 /*
  * The files that made it in, one line each. This sits beside the drop zone
@@ -297,11 +298,15 @@
  * decode leaves an empty box rather than an empty frame that reads as a broken
  * picture. The hairline is the row's own token: without it a pale photo has no
  * edge against the canvas.
+ *
+ * The row's 10px of block padding and the picture's 4px radius are utilities on
+ * the elements since #165, because this file used the outgoing layer's spacing and
+ * radius variables for them — a stylesheet that outlives the library may not name
+ * its variables. What is left here is geometry and colour of this site's own.
  */
 @layer components {
   .file-row {
     border-top: 1px solid var(--site-hairline);
-    padding-block: var(--mantine-spacing-xs);
   }
 
   .file-preview {
@@ -317,7 +322,6 @@
     height: 100%;
     object-fit: cover;
     border: 1px solid var(--site-hairline);
-    border-radius: var(--mantine-radius-sm);
   }
 }
 
@@ -355,47 +359,37 @@
 }
 
 /*
- * A Mantine `Button` clips its own overlay, so on one the class above declares a
- * 44px hit area that does not exist: the root carries `overflow: hidden`, which
- * cuts the pseudo-element down to the button's own box. Two of this site's
- * controls are `Button`s and both were under the minimum because of it (issue
- * #29): the header's colour-scheme switch drew 32x26 and 清空 drew 46x26, the
- * probe read hit areas of 31x25 and 45x27 on them, and their `::after` computed
- * to 44x44 all along.
+ * The Mantine `Button` clip override used to be here, and #166 deleted it: it existed
+ * because a `Button` root carries `overflow: hidden`, which cut the 44px overlay down
+ * to the button's own box — the header's colour switch measured 31x25 and 清空 45x27
+ * while their `::after` computed to 44x44 all along (issue #29, and the ninth round in
+ * `apps/web/docs/design/log.md`). The rule was `.touch-target.mantine-Button-root:not(
+ * [data-loading]) { overflow: visible }`, with the `:not` keeping the clip for the one
+ * state the library needs it in (a loading button slides its label out and sweeps a
+ * highlight across itself, and loading also sets `disabled`, so the state that keeps
+ * the clip is a state that cannot be clicked).
  *
- * `:not([data-loading])` is what makes the override safe rather than a fight with
- * the library. Mantine needs that clip for exactly one state: a loading button
- * slides its label out downwards (`translateY(100%)`) and sweeps a blurred
- * highlight across itself, and both would be visible outside the button without
- * it. Loading also sets `disabled` (Mantine's `Button` passes
- * `disabled: disabled || loading`), so the state that keeps the clip is a state
- * that cannot be clicked — the clip comes back where the library needs it, and
- * the overlay escapes where it does not.
- *
- * `components` is declared after `mantine` at the top of this file, so this wins
- * on layer order and needs no specificity contest — the same mechanism the
- * Dropzone overrides above use, and one that still leaves Tailwind's utilities
- * able to override it.
- *
- * It is written for `Button` rather than for every Mantine root that clips,
- * because `Button` is the set we have measured. `touch-targets.mjs` is what said
- * so, and it is also what would notice the next component that turns out to clip.
+ * It died with its subject: the last Mantine `Button` carrying `.touch-target` was the
+ * second Tool's 清空, and #166 moved it. `touch-targets.mjs` is what would notice the
+ * next component that turns out to clip — it is the reason this was ever found, and it
+ * measures every control the site declares.
  */
-@layer components {
-  .touch-target.mantine-Button-root:not([data-loading]) {
-    overflow: visible;
-  }
-}
 
 /*
  * The drop zone, and the two ways a small screen changes it.
  *
- * Padding is a class rather than the `p` prop because a simple style prop is
- * written inline, and an inline declaration outranks every layer: `p="lg"`
- * could not be taken back below.
+ * Padding is a class rather than a padding utility because the touch branch has to
+ * be able to take the box's padding away entirely, and `utilities` is declared after
+ * `components`: a `p-5` on the element would beat `.dropzone-touch-flat`'s `padding:
+ * 0` and the flat box would keep its padding. Both rules live in the same layer, so
+ * the media query wins on source order — which is the whole reason this pair exists.
+ *
+ * 20px is the outgoing layer's `lg` (`1.25rem`, not Tailwind's), written as a number
+ * since #165: it used to read `var(--mantine-spacing-lg)`, and a stylesheet that
+ * outlives the library may not name its variables.
  */
 .dropzone-pad {
-  padding: var(--mantine-spacing-lg);
+  padding: 20px;
 }
 
 /*
@@ -566,12 +560,15 @@
  * so the only part of the frame that belongs in the component is the width, which
  * is the part that responds. The 180px cap is inert on a wide screen, where the
  * frame is 220x165 anyway.
+ *
+ * The radius is not here: it is `rounded-md` on the element, because this rule used
+ * to read the outgoing layer's `--mantine-radius-sm` and a stylesheet that outlives
+ * the library may not name its variables (#163). The value is the same 4px.
  */
 .cover-frame {
   aspect-ratio: 4 / 3;
   background-color: var(--site-surface);
   border: 1px solid var(--site-hairline);
-  border-radius: var(--mantine-radius-sm);
   flex-shrink: 0;
   max-height: 180px;
   overflow: hidden;
@@ -592,12 +589,12 @@
  * could not afford to be.
  */
 .theme-toggle-light,
-[data-mantine-color-scheme="dark"] .theme-toggle-dark {
+[data-color-scheme="dark"] .theme-toggle-dark {
   display: inline-flex;
 }
 
 .theme-toggle-dark,
-[data-mantine-color-scheme="dark"] .theme-toggle-light {
+[data-color-scheme="dark"] .theme-toggle-light {
   display: none;
 }
 

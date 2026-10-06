@@ -42,7 +42,7 @@ pnpm start
 ## Structure
 
 ```
-apps/web/      the only deployable: Next.js App Router, Mantine, Tailwind CSS v4
+apps/web/      the only deployable: Next.js App Router, Tailwind CSS v4, and a vendored Primitive set in src/components/ui
   src/         the App itself: routes in src/app, Tools in src/tools
   e2e/         the gate: what the site does, with Playwright, on every pull request
   scripts/     the instruments: what it draws, and how big a hit area really is

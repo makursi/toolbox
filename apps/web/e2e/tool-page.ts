@@ -101,13 +101,20 @@ export type RowPart = (typeof ROW_PARTS)[number];
  * the last format cards start below the fold — so a row that was never scrolled
  * to is a row whose "click" lands nowhere, and the test would report a missing
  * handler where there is only a missing scroll.
+ *
+ * The two elements are addressed by the incoming layer's own names since #164: the
+ * box is the Primitive's `data-slot="checkbox"` and the words are the `<label for>`
+ * beside it. Both were the outgoing layer's internals (`.mantine-Checkbox-inner`,
+ * `.mantine-Checkbox-label`) until the row moved, and re-deriving them is part of
+ * what moving a region means — a selector that no longer matches would read as a
+ * row with no geometry rather than as a stale address.
  */
 async function pointOn(page: Page, label: string, part: RowPart): Promise<Point> {
   const row = formatCard(page, label).locator(".format-row");
   await row.scrollIntoViewIfNeeded();
 
-  const box = await row.locator(".mantine-Checkbox-inner").boundingBox();
-  const text = await row.locator(".mantine-Checkbox-label").boundingBox();
+  const box = await row.locator('[data-slot="checkbox"]').boundingBox();
+  const text = await row.locator("label").boundingBox();
   if (box === null || text === null) throw new Error(`the ${label} row has no geometry to click`);
 
   const middle = { x: text.x + text.width / 2, y: text.y + text.height / 2 };
@@ -154,9 +161,16 @@ export async function toggleFormat(page: Page, label: string): Promise<void> {
   await toggleAt(page, label, "the words");
 }
 
-/** The `<input>` a format row's label points at — the control the keyboard reaches. */
+/**
+ * The control a format row's label points at — the element the keyboard reaches.
+ *
+ * Since #164 it is the registry's `Checkbox`, which is a `<button role="checkbox">`
+ * rather than an `<input>`: Radix draws the toggle itself. The label still names it
+ * (`<label for>`), and a key still toggles it — Space is the checkbox's own key in
+ * the ARIA pattern, which is what the keyboard test presses.
+ */
 export function formatCheckbox(page: Page, label: string): Locator {
-  return formatCard(page, label).locator(".format-row input");
+  return formatCard(page, label).locator('.format-row [data-slot="checkbox"]');
 }
 
 /** Hand files to the Tool the way the picker does, through its own file input. */

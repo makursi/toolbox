@@ -1,18 +1,17 @@
 /**
  * The site's design tokens: a warm monochrome, in one engine-agnostic module.
  *
- * This is the single source for every colour value this site uses. Two consumers
- * read it, and they are why it is a plain module rather than a stylesheet:
+ * This is the single source for every colour value this site uses, and since #168 it
+ * is the **only end** of that source: the outgoing layer read it through a theme
+ * factory and a runtime CSS-variable resolver (`src/app/theme.ts`), and both went with
+ * the library. What reads it now is the root layout, which emits every value as a
+ * custom property before anything paints (`tokensCss()` below), and `globals.css`,
+ * whose `@theme inline` block maps the incoming layer's utility names onto those
+ * properties.
  *
- * - **The outgoing layer** reads it here, in TypeScript, inside Mantine's theme
- *   factory (`src/app/theme.ts`).
- * - **The incoming layer** reads it as custom properties, which the root layout
- *   emits into the document from `tokensCss()` below; `globals.css` maps the new
- *   layer's utility names onto those properties in one `@theme inline` block.
- *
- * Two owners of colour cannot coexist (#111), so nothing else may declare a
- * value: a stylesheet that repeats one of these hexes is a second owner, and
- * `tokens.test.ts` is what notices (#127).
+ * One owner of colour (#111), so nothing else may declare a value: a stylesheet that
+ * repeats one of these hexes is a second owner, and `tokens.test.ts` is what notices
+ * (#127).
  *
  * Every value is required in both schemes. Pure `#000000` and pure `#ffffff` are
  * banned, and that ban is the outcome of a measurement rather than a taste
@@ -21,23 +20,19 @@
  * off-black. The ratios beside each value are the ones the palette was chosen
  * against, and `apps/web/docs/design/colour.md` carries what each pair is for.
  *
- * What is deliberately **not** here yet, and who owns it: the site's error
- * colour. The interface has only ever borrowed Mantine's red (`Alert color="red"`
- * on the image converter), so there is no measured value of ours to move; the
- * palette is re-derived and measured in #116, and that is where an error value
- * gets its name and its number. That number arrived in #116, and it is the one
- * value here that had to be *chosen* rather than moved: no single red clears AA
- * as a filled control's background in both schemes, measured, so the error colour
- * is two values — `#c92a2a` at 5.05:1 against the light paper and `#ff8787` at
- * 7.81:1 against the dark ink. Both also clear AA as error *text* on their own
- * canvas, which is the other way this value gets used.
- *
  * What is deliberately **not** here: nothing from the incoming layer's own
  * palette. #116 read its defaults before deciding anything and replaced every
  * value they touched, and the reading is recorded with its source in
  * `apps/web/docs/design/colour.md` — including the one that settled it, since the
  * incoming light canvas is `oklch(1 0 0)`, a pure white that ADR-0007 had already
  * measured and rejected.
+ *
+ * The one value that had to be *chosen* rather than moved is the error colour, and
+ * the reason it is two values is a measurement: no single red clears AA as a filled
+ * control's background in both schemes (`#c92a2a` is 5.05:1 against the light paper
+ * but 3.31:1 against the dark ink; `#ff8787` is 7.81:1 against the dark ink and
+ * 2.14:1 against the light paper). Both also clear AA as error *text* on their own
+ * canvas, which is the other way this value gets used.
  */
 
 export type Scheme = "light" | "dark";
@@ -149,11 +144,12 @@ export function contrastRatio(one: string, other: string): number {
  * The custom properties both schemes are published as, for the layout to emit.
  *
  * Both schemes are emitted rather than one plus a media query, because exactly one
- * mechanism owns the scheme and it is not the operating system: Mantine's
- * `ColorSchemeScript` writes `data-mantine-color-scheme` on `<html>` before the
- * first paint, and the stylesheet reads that. The light block is on `:root` and
- * the dark block follows it at equal specificity, so the attribute wins on source
- * order. See `apps/web/docs/design/colour.md`.
+ * mechanism owns the scheme and it is not the operating system: the script in the
+ * layout's head writes `data-color-scheme` on `<html>` before the first paint
+ * (`src/lib/color-scheme.ts`, and `docs/adr/0017-the-site-owns-the-colour-scheme.md`
+ * for why the attribute is this site's), and the stylesheet reads that. The light
+ * block is on `:root` and the dark block follows it at equal specificity, so the
+ * attribute wins on source order. See `apps/web/docs/design/colour.md`.
  */
 export function tokensCss(): string {
   const block = (scheme: Scheme, indent: string) =>
@@ -163,7 +159,7 @@ export function tokensCss(): string {
     ":root {",
     block("light", "  "),
     "}",
-    '[data-mantine-color-scheme="dark"] {',
+    '[data-color-scheme="dark"] {',
     block("dark", "  "),
     "}",
   ].join("\n");

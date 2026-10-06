@@ -1,5 +1,10 @@
 # dependencies
 node_modules/
+# pnpm resolves its content-addressable store relative to the project, and a clean
+# install (`node_modules` deleted first) can leave one at the repository root before it
+# settles under `node_modules/`. It is a cache of everything ever installed — 1105
+# files of it, measured — and one `git add -A` sweeps it into the index.
+.pnpm-store/
 
 # build output
 .next/

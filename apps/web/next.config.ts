@@ -41,11 +41,14 @@ const nextConfig: NextConfig = {
    * a 10/8 network like the one this was written on.
    */
   allowedDevOrigins: ["127.0.0.1", "10.*.*.*"],
-  experimental: {
-    // Mantine ships a module per component; this is the tree-shaking hint its
-    // own Next.js guide asks for.
-    optimizePackageImports: ["@mantine/core", "@mantine/hooks"],
-  },
+  /*
+   * `experimental.optimizePackageImports` used to list the outgoing library's two
+   * packages — the tree-shaking hint its own Next.js guide asks for, because it ships
+   * a module per component. The library left in #168, and a hint naming a package that
+   * is not installed is not a no-op: Turbopack tries to resolve it and prints
+   * `Can't resolve '@mantine/core/styles.layer.css'` while the build carries on, which
+   * is a warning nobody can act on and a lie about what the App depends on.
+   */
   async headers() {
     return [
       {

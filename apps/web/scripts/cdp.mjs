@@ -356,7 +356,46 @@ export async function connect(port) {
     await waitForStillness();
   };
 
+  /**
+   * Put a file into a file input on the page, by selector.
+   *
+   * It is here because both Instruments now need exactly this and nothing more: the
+   * second Tool's file list and its outputs exist only after a file has been
+   * dropped, so the sweep has to drop one before it measures those controls (#164)
+   * and the fingerprint has to drop the same one before it can read those regions
+   * at all (#165). React does receive it — the input keeps its own change event and
+   * CDP sets the files on it (`apps/web/docs/design/log.md` item 2: headless Chrome
+   * can do this, and the claim that it could not was a limitation of an older tool).
+   *
+   * It is deliberately *not* a second definition of "ready to measure": dropping a
+   * file changes the page, and the caller is the one that knows what it is waiting
+   * for — the sweep waits for the controls it is about to measure by name, and the
+   * fingerprint settles the page again with `settle`.
+   */
+  const setFile = async (selector, path) => {
+    const document = await send("DOM.getDocument", { depth: 1 });
+    const input = await send("DOM.querySelector", {
+      nodeId: document.result.root.nodeId,
+      selector,
+    });
+    if (!input.result?.nodeId) throw new Error(`no file input matching ${selector}`);
+    await send("DOM.setFileInputFiles", { files: [path], nodeId: input.result.nodeId });
+  };
+
   await send("Page.enable");
   await send("Runtime.enable");
-  return { close: () => socket.close(), evaluate, navigate, send };
+  /*
+   * `settle` is the stillness wait on its own, for a caller that changes the page
+   * *after* the navigation and has to wait for it to stop again — which is what
+   * dropping a file is. It is the same function `navigate` calls, not a copy: one
+   * definition of "ready to measure", which is ADR-0015's decision.
+   */
+  return {
+    close: () => socket.close(),
+    evaluate,
+    navigate,
+    send,
+    setFile,
+    settle: waitForStillness,
+  };
 }

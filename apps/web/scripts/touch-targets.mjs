@@ -83,9 +83,10 @@
  * into the live page, re-runs **that claim** and requires it to go red. An injection
  * that leaves its claim green exits 1 — an injection that changes nothing proves
  * nothing. The injection is reliable because it is **unlayered**: this repository's
- * layer order is `theme → base → mantine → components → utilities` (declared at the
- * top of `apps/web/src/app/globals.css`) and an unlayered rule outranks every layer,
- * so an injected rule wins whatever the stylesheet says.
+ * layer order is `theme → base → components → utilities` (declared at the top of
+ * `apps/web/src/app/globals.css`; it had a fourth name in the middle until #168 took
+ * the outgoing library out) and an unlayered rule outranks every layer, so an injected
+ * rule wins whatever the stylesheet says.
  *
  * What `--falsify` cannot prove: anything structural or behavioural. Whether an
  * unpicked panel is still mounted, whether the chosen section is written to the URL,
@@ -191,7 +192,7 @@ const MIN = 43;
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
- * The three pages, and the controls each one has to carry **by name**.
+ * The four pages, and the controls each one has to carry **by name**.
  *
  * A floor on the count cannot carry this: the cover page renders ~50 icon result
  * rows the moment the lucide chunk lands, and 获取系统字体 carries the class too,
@@ -199,6 +200,12 @@ const PREVIEW_MAX_SHARE = 0.45;
  * control the file is dropped for was the one control the check could not miss
  * (#81). Every name below is awaited before the measurement, so a control that
  * never renders fails as a missing name rather than leaving the report quietly.
+ *
+ * The 404 page is the fourth, and it is not a Tool's: it is the frame's own page,
+ * added by #161 before the frame moved. It carries the header's scheme switch and
+ * one control of its own, the way home — a control that had never been measured
+ * because this page had no declaration in either Instrument. Its path is a URL
+ * nothing serves on purpose: Next renders this page for any miss.
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; `layout` asks for the cover generator's two-column
@@ -216,13 +223,74 @@ const PREVIEW_MAX_SHARE = 0.45;
  * Instrument, so losing it is a failure rather than an absence — and each declared
  * selector must match at least one element, because a selector that matches nothing
  * would guard nothing and tell nobody.
+ *
+ * `outgoing` names the regions `no-outgoing-layer` scans on this page, and it is the
+ * one declaration here that *grows* as the round proceeds: it starts as the frame's
+ * anchors on a page whose body has not moved, gains a region in the ticket that moves
+ * that region, and reaches `body` in the ticket that makes the whole page true. A page
+ * that declares nothing is held to `body` (`context`), which is the strictest reading
+ * rather than a silence.
  */
 const PAGES = [
-  { controls: ["切换到"], name: "home", path: "/" },
   {
-    controls: ["切换到", "返回首页", "清空", "移除"],
+    controls: ["切换到"],
+    name: "home",
+    // The whole document since #167: the frame moved in #163, the cards with it, and
+    // this ticket moved the hero — so there is one layer on this page too.
+    outgoing: ["body"],
+    path: "/",
+  },
+  {
+    controls: ["切换到", "回到首页"],
+    name: "not-found",
+    // The whole document, because the whole document is the frame on this page.
+    outgoing: ["body"],
+    path: "/no-such-page",
+  },
+  {
+    /*
+     * The second Tool's page. #164 re-derived this page's declarations for the two
+     * regions it moved: the five format labels are controls the Instrument can name
+     * (each is a `<label for>` stretched across its row, so it both owns the click
+     * and says what it is), and 选择文件 — the page's primary action — is named here
+     * for the first time. It was never in this list because the outgoing layer's
+     * `FileButton` drew it without the hit-area class, so the Instrument could not
+     * see it at all: the control a file is handed to was the one control the check
+     * could not miss (#81's shape, found again here). #166 named 转换 and the ZIP with
+     * it, and declared the download links as carriers, for the same reason — a 28x20
+     * line of text is under this site's floor, and its class is the only thing that
+     * makes it visible to this Instrument.
+     *
+     * `convert` is what makes the page's *own* reading possible: the outputs, the
+     * progress line and the failures only exist after a Batch has run, and this is
+     * the ticket that claims the whole document (#166). So the page is driven to the
+     * state its last region lives in — the same thing the cover generator's page
+     * does when a claim opens a tab or picks a ratio — and then the claims read it.
+     */
+    controls: [
+      "切换到",
+      "返回首页",
+      "选择文件",
+      "PNG (.png)",
+      "JPEG (.jpg)",
+      "WebP (.webp)",
+      "AVIF (.avif)",
+      "BMP (.bmp)",
+      "转换",
+      "清空",
+      "移除",
+      "打包成 ZIP 下载",
+    ],
+    // The links are named by the file they download, which is a name this Instrument
+    // cannot write down in advance (it is derived from the source's own name), so
+    // they are declared by selector: every match must carry the hit-area class.
+    carriers: ["a[download]"],
+    convert: true,
     fileInput: "input[type=file]",
     name: "tool",
+    // The whole document: after #166 there is one layer on this page, which is what
+    // the claim is for.
+    outgoing: ["body"],
     path: "/tools/image-converter",
   },
   {
@@ -234,6 +302,9 @@ const PAGES = [
     fileInput: ".cover-background-input",
     layout: true,
     name: "cover",
+    // The whole document: this page has been the incoming layer's since #132, and the
+    // frame joined it in #163.
+    outgoing: ["body"],
     path: "/tools/cover-generator",
     sections: [
       {
@@ -547,8 +618,8 @@ const DROPZONE = `(() => {
 })()`;
 
 /**
- * The outgoing layer's fingerprints on the pilot page: the class names its own
- * components carry (#132).
+ * The outgoing layer's fingerprints on the regions a page declares (#132, extended
+ * to every page by #163).
  *
  * Read off the *rendered* page rather than off the imports, because the two are not
  * the same claim. A dead import is a dead line, but a component that still renders —
@@ -557,18 +628,40 @@ const DROPZONE = `(() => {
  * to check rather than to trust. The prefix is matched on whole class names, so a
  * rename inside the library cannot make the claim pass by spelling alone.
  *
- * The scope is the page's own container (`[data-slot="tool-page"]`) rather than the
- * document: the site's header and footer are still the outgoing layer's, and this
- * ticket does not claim them. That they sit *outside* the tool page is the whole
- * reason this declaration can be as strict as it is.
+ * **The scope is declared per page, and that is the whole of #163's change to this
+ * claim.** Until then it scanned `[data-slot="tool-page"]`, because the frame and the
+ * second Tool were still the outgoing layer's and a whole-document scan would have
+ * been red by construction. A page now names the regions this round has moved on it —
+ * the frame's three anchors on the home and tool pages, the whole document where the
+ * whole document is true — and a page that names nothing is held to `body`, which is
+ * the strictest reading rather than the loosest. The list grows in the ticket that
+ * moves the next region, and it reaches `body` on a page in the ticket that makes
+ * that page true, which is how "the page is off the old layer" becomes something the
+ * Instrument reads instead of something a reader infers from the tickets.
+ *
+ * Every declared selector must match at least one element, for the reason the
+ * carriers below must: a scope that matches nothing scans nothing, and a claim that
+ * scans nothing prints the same word as a claim that found nothing.
  */
-const OUTGOING_LAYER = `(() => {
-  const scope = document.querySelector('[data-slot="tool-page"]') ?? document.body;
-  const names = [...scope.querySelectorAll('*')]
-    .flatMap((el) => String(el.className ?? '').split(/\\s+/))
-    .filter((name) => name.startsWith('mantine-'));
-  return JSON.stringify({ count: names.length, found: [...new Set(names)].slice(0, 6) });
+const readOutgoing = (selectors) => {
+  const expression = `(() => {
+  return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => {
+    const scopes = [...document.querySelectorAll(selector)];
+    const names = scopes
+      .flatMap((scope) => [...scope.querySelectorAll('*')])
+      .flatMap((el) => String(el.className ?? '').split(/\\s+/))
+      .filter((name) => name.startsWith('mantine-'));
+    return {
+      selector,
+      matched: scopes.length,
+      count: names.length,
+      found: [...new Set(names)].slice(0, 6),
+    };
+  }));
 })()`;
+  assertNoDanglingInterpolation("readOutgoing", expression);
+  return expression;
+};
 
 /**
  * The cover generator's tab row and preview, read at two scroll positions.
@@ -622,25 +715,60 @@ function report(line) {
 }
 
 /**
- * Put a file into the page's file input. React does receive this: the input keeps
- * its own change event and CDP sets the files on it. See item 2 of `apps/web/docs/design/log.md` — headless Chrome can do this, and the claim that it could not was
- * a limitation of an older tool, not of the browser.
+ * Run one Batch on the page, so that the claims can read the state its results live
+ * in (#166).
  *
- * No sleep after this: whatever the file triggers (a row, a background image, 清除)
- * is waited for by name in `waitForControls`, which is both faster and stricter
- * than the 1200 ms this used to wait.
+ * It presses the page's own 转换 button with a **pointer sequence** rather than a
+ * lone `click()` — the incoming layer's buttons act on `mousedown`, which is the
+ * same finding `clickByText` records — and then waits for the transition that says
+ * the Batch produced something: a download link. Waiting for the *presence* of a
+ * result is deliberate; the failure mode this file already knows about is waiting for
+ * an absence, which passes before React has rendered anything at all.
+ *
+ * One target is enough: WebP is the format a fresh page already has on, so one file
+ * in is one file out, and what this is for is the state — the results, the progress
+ * line, the download links — not the codecs, which are the gate's to assert.
  */
-async function addFile(client, selector) {
-  const document = await client.send("DOM.getDocument", { depth: 1 });
-  const input = await client.send("DOM.querySelector", {
-    nodeId: document.result.root.nodeId,
-    selector,
-  });
-  if (!input.result?.nodeId) throw new Error(`no file input matching ${selector}`);
-  await client.send("DOM.setFileInputFiles", {
-    files: [FIXTURE],
-    nodeId: input.result.nodeId,
-  });
+async function convertOnce(client) {
+  /*
+   * First the transition that says the file has arrived: the 转换 button is disabled
+   * until something is queued and a target format is on, so waiting for it to be
+   * *enabled* is waiting for the state rather than for a sleep. Pressing it too early
+   * is silent — the button is disabled, the click does nothing, and the failure reads
+   * twenty seconds later as "the Batch never produced a download link", which names
+   * the wrong thing.
+   */
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const ready = await client.evaluate(`(() => {
+      const button = [...document.querySelectorAll('button')].find((el) =>
+        (el.innerText || '').trim().startsWith('转换'),
+      );
+      return button !== undefined && button.disabled === false;
+    })()`);
+    if (ready === true) break;
+    if (attempt === 39) throw new Error("the 转换 button never became pressable");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  const pressed = await client.evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find((el) =>
+      (el.innerText || '').trim().startsWith('转换'),
+    );
+    if (button === undefined) return false;
+    const at = { bubbles: true, button: 0, cancelable: true };
+    button.dispatchEvent(new MouseEvent('mousedown', at));
+    button.dispatchEvent(new MouseEvent('mouseup', at));
+    button.click();
+    return true;
+  })()`);
+  if (pressed !== true) throw new Error("the page has no 转换 button to press");
+
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const links = await client.evaluate(`document.querySelectorAll('a[download]').length`);
+    if (links > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("the Batch never produced a download link");
 }
 
 /**
@@ -808,27 +936,37 @@ const CLAIMS = [
   },
   {
     name: "no-outgoing-layer",
-    about: "the pilot page renders nothing from the component layer it is leaving",
+    about: "every region a page declares renders nothing from the component layer it is leaving",
     falsification: {
       source:
-        "put one component of the outgoing layer back on the page — an injected style cannot add a class name, and a class name is what this reads",
+        "put one component of the outgoing layer back inside a declared region — an injected style cannot add a class name, and a class name is what this reads",
     },
     // Per section rather than per page, because the editor shows one panel at a time:
     // a scan of the page in whatever state the sweep happened to leave it would miss
     // a control left behind in the two panels that are not open. This way each panel
     // is opened and scanned in turn, and the shell is scanned three times over.
     per: "section",
-    only: (ctx) => ctx.page.layout === true,
-    read: (ctx) => ctx.read("outgoing", OUTGOING_LAYER),
-    judge: (outgoing) => {
-      const ok = outgoing.count === 0;
-      return [
-        {
+    // A page that declares no scope is held to `body` (`context`), so this is only
+    // ever false for a page that says so on purpose — and an empty list is that
+    // statement, not a gap.
+    only: (ctx) => ctx.outgoing.length > 0,
+    read: (ctx) => ctx.read("outgoing", readOutgoing(ctx.outgoing)),
+    judge: (read) =>
+      read.map((entry) => {
+        if (entry.matched === 0) {
+          return {
+            ok: false,
+            line: `  FAIL  nothing matches ${entry.selector} — a declaration that matches nothing guards nothing`,
+          };
+        }
+        const ok = entry.count === 0;
+        return {
           ok,
-          line: `  ${ok ? "PASS" : "FAIL"}  no element on this page carries the outgoing layer's class names — ${outgoing.count} found${ok ? "" : `: ${outgoing.found.join(", ")}`}`,
-        },
-      ];
-    },
+          line: `  ${ok ? "PASS" : "FAIL"}  ${entry.selector} renders nothing from the outgoing layer — ${entry.count} class name(s) found${
+            ok ? "" : `: ${entry.found.join(", ")}`
+          }`,
+        };
+      }),
   },
   {
     name: "section-isolation",
@@ -1155,6 +1293,10 @@ function context({ client, page, pointer, scheme, section, shape }) {
     client,
     narrow: shape.width < NARROW_BELOW,
     names: [...page.controls, ...(section?.controls ?? [])],
+    // The regions `no-outgoing-layer` scans on this page. A page that declares
+    // nothing is held to the whole document: the strictest reading is the one a
+    // silence gets, because "I did not say" is not "I claim less".
+    outgoing: page.outgoing ?? ["body"],
     page,
     pointer,
     presence: section?.presence,
@@ -1243,10 +1385,17 @@ async function applyCase(client, shape, pointer, scheme) {
  * page's controls only exist after something has been dropped. Shared by the sweep
  * and the falsification mode, so "the page as measured" is one definition rather than
  * two that drift.
+ *
+ * The file itself is the connection layer's `setFile` since #165 — the fingerprint
+ * needs exactly the same call now that it reads the second Tool's file list — and
+ * the wait after it is *not* a sleep: whatever the file triggers (a row, a
+ * background image, 清除) is waited for by name in `waitForControls`, which is both
+ * faster and stricter than the 1200 ms this used to wait.
  */
 async function openPage(client, baseUrl, page) {
   await client.navigate(`${baseUrl}${page.path}`);
-  if (page.fileInput !== undefined) await addFile(client, page.fileInput);
+  if (page.fileInput !== undefined) await client.setFile(page.fileInput, FIXTURE);
+  if (page.convert === true) await convertOnce(client);
 }
 
 /**
@@ -1330,6 +1479,12 @@ async function sweep(baseUrl) {
  * to notice, and the case it binds at — plus, when the property only binds for one of
  * the two pointers, `touch: true` to say so, because the desktop pass is the default
  * and a claim about what `hover: none` does cannot be proved from it.
+ *
+ * An entry may also name the page it is measured on (`page`), and it must when the
+ * property it breaks belongs to a page other than the default one: a claim is only
+ * proved on the page the sweep measures it on, and a selector that matches nothing
+ * there would leave the claim green — which this mode reads as "the injection
+ * proved nothing" rather than as a pass (#161).
  */
 const FALSIFY = [
   {
@@ -1396,19 +1551,30 @@ const FALSIFY = [
     selector: ".cover-preview-pane",
     value: "50%",
   },
+  {
+    case: { height: 900, width: 360 },
+    claim: "hit-areas",
+    note: "the 404's way home — the one control on the frame's own page, and the class on it is the whole of what makes this Instrument see it. `display` is the property that cannot be animated, so the control is simply not drawn when the claim is asked; a control with no box has no hit area, which is what the claim says out loud",
+    page: "not-found",
+    property: "display",
+    selector: '[data-slot="not-found"] .touch-target',
+    value: "none",
+  },
 ];
 
 /**
- * The page every entry above is measured on: the cover generator, whose geometry
- * these five properties are. The percentage pairs on the preview cap and the 46px
- * tab row are that Tool's own rules (`src/tools/cover-generator/rules.md`); the
- * other two pages have hit-area claims too, and an entry for one of them belongs
- * here the day it is worth a falsification run.
+ * The page an entry is measured on unless it names its own: the cover generator,
+ * whose geometry most of these properties are. The percentage pairs on the preview
+ * cap and the 46px tab row are that Tool's own rules
+ * (`src/tools/cover-generator/rules.md`); the other pages have hit-area claims too,
+ * and #161 is the day one of them was worth a falsification run — the 404's way
+ * home, which is an entry of its own because a claim is proved on the page the
+ * sweep measures it on.
  *
- * Two of the five were written from the mechanism rather than from a run (#109):
+ * Two of the entries were written from the mechanism rather than from a run (#109):
  * `order: 2` on the canvas column puts it after the editor whatever the narrow rule
  * does, and `max-width: 50%` on the pane breaks the wide branch's "the pane is
- * exactly its column" by construction. The other three have each been watched go
+ * exactly its column" by construction. The others have each been watched go
  * red by hand, and every run is recorded in `apps/web/docs/design/log.md`.
  */
 const FALSIFY_PAGE = "cover";
@@ -1417,11 +1583,11 @@ const FALSIFY_PAGE = "cover";
  * Put one rule in the live page, unlayered, and hand back the undo.
  *
  * Unlayered is what makes this reliable: every rule this site writes lives in one of
- * `theme`/`base`/`mantine`/`components`/`utilities` (declared at the top of
- * `apps/web/src/app/globals.css`), an unlayered rule outranks all of them, and a
- * `<style>` appended at runtime is unlayered by definition. So the injection wins on
- * layer order alone, with no `!important` and no specificity contest to keep in step
- * with the stylesheet it is breaking.
+ * `theme`/`base`/`components`/`utilities` (declared at the top of
+ * `apps/web/src/app/globals.css` — `mantine` was the fourth until #168), an unlayered
+ * rule outranks all of them, and a `<style>` appended at runtime is unlayered by
+ * definition. So the injection wins on layer order alone, with no `!important` and no
+ * specificity contest to keep in step with the stylesheet it is breaking.
  *
  * The element is removed again rather than overridden, so the next entry starts from
  * the page as shipped.
@@ -1550,7 +1716,6 @@ async function falsify(baseUrl) {
   }
 
   const client = await connect(port);
-  const page = PAGES.find((candidate) => candidate.name === FALSIFY_PAGE);
   const [scheme] = SCHEMES;
 
   try {
@@ -1559,6 +1724,17 @@ async function falsify(baseUrl) {
       if (claim === undefined) {
         throw new Error(
           `the falsification list names a claim that is not in the registry: ${entry.claim}`,
+        );
+      }
+      // The entry's own page when it names one, the default otherwise. Resolved per
+      // entry rather than once for the run: a claim is proved on the page the sweep
+      // measures it on, and an entry whose selector lives on another page would
+      // otherwise leave its claim green and read as a failed injection.
+      const pageName = entry.page ?? FALSIFY_PAGE;
+      const page = PAGES.find((candidate) => candidate.name === pageName);
+      if (page === undefined) {
+        throw new Error(
+          `the falsification list names a page that is not in the registry: ${pageName}`,
         );
       }
       if (

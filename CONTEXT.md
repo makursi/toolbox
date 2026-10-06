@@ -41,7 +41,7 @@ toolbox — the repository and the workspace packages (`@toolbox/*`), which is a
 _Avoid_: app, repo
 
 **Instrument**:
-Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. Some instruments read the same page twice on one machine and compare the two readings; others read it at several widths and colour schemes and hold a threshold. The numbers are the output.
+Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. Some instruments read the same page twice on one machine and compare the two readings; others read it at several widths and colour schemes and hold a threshold. An instrument **reaches the state it measures** where a region only exists in that state — dropping a file, pressing the page's own action. The numbers are the output.
 _Avoid_: checker, browser test, snapshot test — and "probe" as a name for the Instrument: to probe a point, or to check that the browser is still there, is what the word is for
 
 **Gate**:
@@ -57,7 +57,7 @@ One guarded property of the rendered page, named: a unit with its own reading, i
 _Avoid_: assertion, check, guard (a Claim is the named unit; a Falsification run is what proves it can go red)
 
 **Anchor**:
-The `data-slot` attribute our own components carry, which is how the fingerprint addresses a region of the rendered page. It is a name that survives a change of component layer, where the outgoing library's class names and content-hashed module classes do not — a swap moves every one of those by construction. Each page declares the anchors it must carry, and a declared anchor that matches no element fails the run: a selector matching nothing guards nothing, and "nothing moved" and "nothing was measured" would otherwise print the same word.
+The `data-slot` attribute our own components carry, which is how the fingerprint addresses a region of the rendered page. It is a name that survives a change of component layer, where a component library's class names and content-hashed module classes do not — a swap moves every one of those by construction, which is what the round in `docs/adr/0018-one-component-layer.md` was measured through. Each page declares the anchors it must carry, and a declared anchor that matches no element fails the run: a selector matching nothing guards nothing, and "nothing moved" and "nothing was measured" would otherwise print the same word.
 _Avoid_: id, hook class, test id; and "selector" for the Anchor itself (the selector is derived from the name)
 
 **Design doc set**:

@@ -50,6 +50,17 @@
  * visible in the outline — the walk finds every `data-slot` — so a stray one is a
  * difference rather than a silence.
  *
+ * **A page may declare the file it is measured with** (`fileInput`, #165) **and the
+ * Batch it runs** (`convert`, #166). Some regions only exist after something has been
+ * dropped or converted — the second Tool's file list, its outputs — and an anchor the
+ * captured state cannot carry fails the run, so the choice is between measuring those
+ * regions and declaring nothing about them. The file goes in after the navigation has
+ * settled, the page is settled again before anything is read, and the conversion is
+ * driven the way the hit-area Instrument drives it (the page's own 转换 button, then a
+ * wait for the first download link). Both halves of the file's half are the connection
+ * layer's; the press is each Instrument's own, which is the part ADR-0015 leaves
+ * unshared. This is coverage extended, not a second definition of "ready to measure".
+ *
  * What it deliberately does not cover: end-to-end behaviour (a real file going
  * through a real Worker), console errors, and anything a keyboard or a pointer
  * does. `touch-targets.mjs` is the sibling that does measure one pointer
@@ -96,6 +107,7 @@
  * a difference or a declared anchor matched nothing, so it can gate a shell chain.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { connect } from "./cdp.mjs";
 
@@ -128,6 +140,11 @@ const SHELL_ANCHORS = ["page-shell", "site-main", "site-header", "site-footer"];
  * panels have no anchored parent and their nesting is not in the reading — and
  * `cover-tab` is the row's three parts. An anchor is a name for a region, and a
  * region the ticket names is the whole of it, not only its outermost element.
+ *
+ * Not every page here is a Tool's: the 404 page is the frame's own, and it was
+ * added by #161 for the same reason every other page is declared — it is about to
+ * change, and an Instrument that cannot address a page cannot say the page did not
+ * move. A page is one more entry, whether a Tool or the frame draws it.
  */
 const PAGES = [
   {
@@ -142,7 +159,47 @@ const PAGES = [
     path: "/",
   },
   {
-    anchors: [...SHELL_ANCHORS, "tool-page", "format-card"],
+    /*
+     * The second Tool's page. `format-card` is its own region and was declared by
+     * #114 — the fingerprint used to read that element through `.mantine-Paper-root`,
+     * so dropping the library's selector without anchoring the element would have
+     * quietly stopped measuring it.
+     *
+     * `converter-add` and `converter-formats` are #164's: the two regions that batch
+     * moved, anchored so that their geometry and their own computed styles are read
+     * before and after the move rather than inferred from the page still being the
+     * same height. They are regions rather than the whole page on purpose — the file
+     * list and the outputs under them are later batches, and an anchor the page
+     * carries but this list does not name still shows up in the outline as a
+     * difference.
+     *
+     * `converter-files` and `file-row` are #165's, and they are the reason this page
+     * declares a `fileInput`: the file list exists only after a file has been
+     * dropped, so a capture that navigated and stopped there would fail on two
+     * anchors that cannot be present — which is the rule working, not a gap to paper
+     * over. The file is the same one the hit-area Instrument drops (the Tool's own
+     * cover, a real JPEG); it goes in after the navigation has settled, the page is
+     * settled again before anything is read, and it stays in place for all ten view
+     * states of this page. What it is *not* is a second reading of "ready to
+     * measure": both halves are the connection layer's (`cdp.mjs`).
+     *
+     * `output-row` is #166's, and it is why this page also declares `convert`: the
+     * results — the row per output, the progress line, the failures — only exist
+     * after a Batch has run. One conversion is run per capture (the page is navigated
+     * once), and its state holds for all ten view states after it.
+     */
+    anchors: [
+      ...SHELL_ANCHORS,
+      "tool-page",
+      "format-card",
+      "converter-add",
+      "converter-formats",
+      "converter-files",
+      "file-row",
+      "output-row",
+    ],
+    convert: true,
+    fileInput: "input[type=file]",
     name: "tool",
     path: "/tools/image-converter",
   },
@@ -171,6 +228,23 @@ const PAGES = [
     ],
     name: "cover",
     path: "/tools/cover-generator",
+  },
+  {
+    /*
+     * The 404 page, which is part of the frame rather than a page of its own: it is
+     * what a visitor gets for a URL this site does not serve, and it carries the
+     * shell and one thing of its own (#161). It entered this Instrument before the
+     * frame moved, which is the ordering rule the round inherits — an Instrument
+     * reads what is about to change, and is proved able to fail on it, before the
+     * change lands. The path is a URL nothing serves on purpose: the page is the
+     * one route Next renders for a miss, so any unrouted path is it.
+     *
+     * `not-found` is the page's own container, the one anchor it owns; the way home
+     * is a control rather than a region and belongs to `touch-targets.mjs`.
+     */
+    anchors: [...SHELL_ANCHORS, "not-found"],
+    name: "not-found",
+    path: "/no-such-page",
   },
 ];
 
@@ -334,6 +408,62 @@ const anchorReading = (
   matched: document.querySelectorAll(selector).length,
 })))`;
 
+/**
+ * The file a page is measured with, when its anchors only exist after something
+ * has been dropped (#165). It is the Tool's own cover — a real JPEG that is already
+ * in the repository — so no fixture has to be committed and no encoder has to live
+ * in this script. The file is never converted here, only queued.
+ */
+const FIXTURE = fileURLToPath(
+  new URL("../public/tools/image-converter/cover.jpg", import.meta.url),
+);
+
+/**
+ * Run the page's own Batch, when the anchors a page declares live in the state its
+ * results are in (#166: the second Tool's outputs, its progress line and its
+ * failures). It presses the page's 转换 button with a **pointer sequence** — the
+ * incoming layer's buttons act on `mousedown`, which is what `touch-targets.mjs`
+ * records for the same reason — and waits for the transition that says a result
+ * exists: a download link. Waiting for a presence rather than for an absence is the
+ * rule this Instrument already records; a wait for "no progress bar" would pass
+ * before React rendered one.
+ *
+ * One target is enough, because WebP is the format a fresh page already has on. The
+ * codecs are not this Instrument's subject — the gate is what asserts the bytes —
+ * this is only how the page is brought to the state being measured. The press is
+ * this script's own copy rather than the connection layer's, for the reason
+ * ADR-0015 gives about the parts that differ per Instrument: which page to visit and
+ * what state to reach is each one's business. The drop and the wait after it are not
+ * — those are `setFile` and `settle`.
+ */
+async function convert(client) {
+  const pressed = await client.evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find((el) =>
+      (el.innerText || '').trim().startsWith('转换'),
+    );
+    if (button === undefined) return false;
+    const at = { bubbles: true, button: 0, cancelable: true };
+    button.dispatchEvent(new MouseEvent('mousedown', at));
+    button.dispatchEvent(new MouseEvent('mouseup', at));
+    button.click();
+    return true;
+  })()`);
+  if (pressed !== true) throw new Error("the page has no 转换 button to press");
+
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const links = await client.evaluate(`document.querySelectorAll('a[download]').length`);
+    if (links > 0) {
+      // The results arrive over several frames (one per Conversion), so the page is
+      // settled once more before anything is read: "a reading is taken on a page
+      // that has stopped changing" is the rule this file was taught in #135.
+      await client.settle();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("the Batch never produced a download link");
+}
+
 async function capture(baseUrl, outFile) {
   const port = Number(process.env.CDP_PORT ?? 9333);
   const client = await connect(port);
@@ -365,6 +495,19 @@ async function capture(baseUrl, outFile) {
       // the 1800 ms sleep that used to be the only thing between a dead server and a
       // fingerprint of its error page.
       await client.navigate(`${baseUrl}${path}`);
+
+      /*
+       * A page whose anchors only exist after a file has been dropped gets one, and
+       * then waits for the page to stop changing *again*: the file is a change that
+       * arrives after the navigation settled, and a reading taken while the row is
+       * still arriving is not a reading (#135's rule, applied to the one change this
+       * Instrument makes itself).
+       */
+      if (page.fileInput !== undefined) {
+        await client.setFile(page.fileInput, FIXTURE);
+        await client.settle();
+      }
+      if (page.convert === true) await convert(client);
 
       // Before anything else is read: a page this run cannot address is a page it
       // must not report on. The failures are printed here, where the reason is
@@ -405,7 +548,21 @@ async function capture(baseUrl, outFile) {
             styles,
             links: JSON.parse(
               await client.evaluate(
-                `JSON.stringify([...document.querySelectorAll('a')].map((a) => [a.getAttribute('href'), a.innerText.trim().slice(0, 30)]))`,
+                /*
+                 * A `blob:` target is printed as its scheme and nothing else, and that
+                 * is a reading rather than a truncation (#166): the Tool mints one per
+                 * page load from the bytes it just encoded, so the URL carries a fresh
+                 * UUID every time — comparing it would compare two random strings and
+                 * make every capture of a page with a download link differ from every
+                 * other, including two captures of the same build. What the reading
+                 * can honestly say is that there is a link, what it says, and that its
+                 * target is a blob of this page's own making. Where it points is the
+                 * gate's business, and the gate reads it.
+                 */
+                `JSON.stringify([...document.querySelectorAll('a')].map((a) => {
+                  const href = a.getAttribute('href') ?? '';
+                  return [href.startsWith('blob:') ? 'blob:' : href, a.innerText.trim().slice(0, 30)];
+                }))`,
               ),
             ),
             // The page rather than a box: a nested scroller legitimately scrolls,

@@ -34,3 +34,11 @@ Decision 1 was missing half of itself, and the missing half was found the way th
 The fix went into this layer, not into the script that found it, and the rejected option above is the reason: fixing the fingerprint on its own is a second definition of "ready to measure". Decision 1 therefore reads **"resolves only once React has claimed the page and the page has stopped changing"**, and `navigate` gained a third half, `waitForStillness` — no running CSS animation, `readyState === "complete"`, and neither a resource nor a DOM mutation arriving across two consecutive samples. It is a wait on the page's own state rather than a longer budget, for the reason the hydration wait gives, and a page that never settles fails with a sentence.
 
 Both Instruments are affected, and that is the point: the hit-area Instrument reads geometry off the page it has just navigated to as well, so it was exposed to the same three arrivals and had only its own per-claim waits in front of them.
+
+## Update — 2026-10-06 (#165): the layer drops the file too, and "stopped changing" is callable on its own
+
+The second Tool's file list and its outputs exist only after a file has been dropped, so both Instruments have to put one into the page before they can read those regions: the hit-area Instrument has done that since #164, and the fingerprint needs exactly the same call the moment it declares an anchor that only exists in that state (#165). Two copies of "set the files on this input, by selector" is the shape this ADR was written against, so it is one method on the connection layer now — `setFile`.
+
+Dropping a file is a change that arrives _after_ the navigation settled, which makes the third half of Decision 1 callable on its own: `settle` is `waitForStillness` — the same function `navigate` calls, not a copy — and the fingerprint settles the page again after the drop. The hit-area Instrument does not call it there: it waits for the controls it is about to measure, by name, which is stricter and is what it already did.
+
+What stays unshared is unchanged: which pages to visit, how to size the viewport and which media features to emulate, and how to report a result.
