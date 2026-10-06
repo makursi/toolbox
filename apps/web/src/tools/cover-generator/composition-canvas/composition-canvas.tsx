@@ -1,5 +1,3 @@
-import { Box, Flex } from "@mantine/core";
-
 import { backdropFilter } from "@/tools/cover-generator/core/background";
 import { resolveLucideIcon, type LucideSet } from "@/tools/cover-generator/core/icons";
 import type { Composition } from "@/tools/cover-generator/core/state";
@@ -11,6 +9,16 @@ import type { Composition } from "@/tools/cover-generator/core/state";
  * component: "the preview and the export are the same composition" is true by
  * construction, not by keeping two copies in step. The caller scales it (the
  * preview shrinks it to fit the pane; the export draws it full size off screen).
+ *
+ * It was the last thing on the pilot page the outgoing layer drew (#132). Both
+ * wrappers were plain boxes and are now plain elements, and the flex row keeps its
+ * three properties exactly — centred on both axes with the composition's own gap,
+ * absolutely positioned over the background — because this markup is what the
+ * *export* captures: a swap that moved a pixel here would move a pixel in the
+ * visitor's file. The icon plate's background was the outgoing layer's
+ * `--mantine-color-default-border`, which is this site's hairline under another
+ * name; it reads the site's token now, the way #126 re-pointed every other rule
+ * that went through the library to reach a value of ours.
  */
 export function CompositionCanvas({
   composition,
@@ -38,7 +46,7 @@ export function CompositionCanvas({
   );
 
   return (
-    <Box
+    <div
       style={{
         background: composition.transparent ? "transparent" : composition.bgColor,
         height: "100%",
@@ -61,11 +69,9 @@ export function CompositionCanvas({
       {filter !== null && (
         <div style={{ position: "absolute", inset: 0, backdropFilter: filter }} />
       )}
-      <Flex
-        align="center"
-        gap={composition.spacing}
-        justify="center"
-        style={{ inset: 0, position: "absolute" }}
+      <div
+        className="absolute inset-0 flex items-center justify-center"
+        style={{ gap: composition.spacing }}
       >
         <span style={textStyle(composition, textShadow)}>{composition.leftText}</span>
         {composition.iconVisible && icon !== null && (
@@ -77,8 +83,8 @@ export function CompositionCanvas({
           />
         )}
         <span style={textStyle(composition, textShadow)}>{composition.rightText}</span>
-      </Flex>
-    </Box>
+      </div>
+    </div>
   );
 }
 
@@ -115,9 +121,9 @@ function IconBody({
   if (icon === null) return null;
 
   return composition.iconBackground ? (
-    <Box
+    <div
       style={{
-        background: "var(--mantine-color-default-border)",
+        background: "var(--site-hairline)",
         borderRadius: `${composition.iconRadius}%`,
         padding: 16,
       }}
@@ -125,7 +131,7 @@ function IconBody({
       <span style={{ color: iconColor, filter: iconShadow }}>
         {renderIcon(iconSet, icon, composition.iconSize)}
       </span>
-    </Box>
+    </div>
   ) : (
     <span style={{ color: iconColor, filter: iconShadow }}>
       {renderIcon(iconSet, icon, composition.iconSize)}

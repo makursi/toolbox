@@ -1,6 +1,5 @@
 "use client";
 
-import { Box, Button, Divider, Flex, Stack } from "@mantine/core";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 /*
@@ -154,24 +153,30 @@ export function CoverGenerator() {
   }
 
   return (
-    <Flex
-      align={{ base: "stretch", sm: "flex-start" }}
-      direction={{ base: "column", sm: "row" }}
-      gap="lg"
-    >
+    /* The two columns. This was the outgoing layer's `Flex`, and its three props
+       become three utilities: `gap="lg"` is this site's 20px (Mantine's `lg` is
+       `1.25rem`, which is not Tailwind's `lg` either), the direction flips at 768,
+       and the cross-axis alignment is `stretch` below that and `flex-start` above it.
+
+       The flip point is Tailwind's `md` (48rem) and not its `sm` (40rem), which is
+       the band this tool shipped broken (#80): the outgoing layer's `sm` is 48em,
+       the same 768 as the order swap below, and `sm:flex-row` would have flipped the
+       columns 128 pixels earlier, splitting the layout from the swap. */
+    <div className="flex flex-col gap-5 md:flex-row md:items-start">
       {/* The configuration column. `order` swaps it under the canvas on a narrow
           screen without a second tree; the accordion is the same component at
           every width.
 
-          The swap is the one property Mantine has no style prop for, so it stays
-          a Tailwind class: Tailwind's `md` is 48rem and Mantine's `sm` is 48em,
-          which is the same 768px, so both sides of the layout flip together. A
-          Tailwind `sm:` would have flipped at 640 and split them, which is the
-          band this tool shipped broken (#80). */}
-      <Box
-        className="cover-editor-column order-2 md:order-1"
+          Both halves of the layout flip at 768 — the direction above and this swap
+          — which is the whole reason the class is `md:` rather than `sm:`. The
+          outgoing layer spelled 768 `sm` (48em) and Tailwind spells 640 `sm`
+          (40rem), so the names disagree about the same word; the numbers are what
+          have to agree, and a `sm:` here would have opened a 128px band where the
+          columns stack but the swap has not happened (#80, and
+          `apps/web/docs/design/layout.md`). */}
+      <div
+        className="cover-editor-column order-2 w-full md:order-1 md:w-[320px]"
         data-slot="cover-editor-column"
-        w={{ base: "100%", sm: 320 }}
       >
         {/* The three sections as a tab row, the same behaviour at every width
             (#91): a second behaviour per width is what `ADR-0010` rejected, and a
@@ -226,7 +231,7 @@ export function CoverGenerator() {
             data-slot="cover-panel-content"
             value="content"
           >
-            <Stack gap="md">
+            <div className="flex flex-col gap-4">
               {/* The two fields sit side by side from the same width the outgoing
                   layer switched at — its `md` is 992px, and Tailwind's `lg` is the
                   nearest whole breakpoint — and stack below it. */}
@@ -264,7 +269,7 @@ export function CoverGenerator() {
                 />
               </Field>
 
-              <Divider />
+              <hr className="border-t border-[var(--site-hairline)]" />
               {/* `gap-8` between the two switch rows rather than the panel's own
                   rhythm, and it is arithmetic: a `.touch-target` overlay reaches
                   `(overlay - box) / 2` beyond its own box, so two 18px switches need
@@ -383,7 +388,7 @@ export function CoverGenerator() {
                   <p className="text-sm text-muted-foreground">没有匹配的图标。</p>
                 )}
 
-              <Divider />
+              <hr className="border-t border-[var(--site-hairline)]" />
               {/* The background image, in the shape the Image Converter's drop zone
                   already uses (`apps/web/src/app/globals.css`): the dashed box is the
                   drop target while there is a pointer to drag with, and on a touch
@@ -420,17 +425,21 @@ export function CoverGenerator() {
               </div>
               {bgRefusal !== null && <p className="text-sm text-destructive">{bgRefusal}</p>}
               {composition.backgroundImage !== null && (
-                <Button
-                  className="touch-target"
-                  color="gray"
+                /* The last control on this page that the outgoing layer drew. Its
+                   height is its own `h-11` rather than a 36px box with a 44px
+                   overlay: a target the layout grants is one every pointer can use
+                   rather than one that has to be probed for, which is the rule the
+                   tab row already follows. */
+                <PrimitiveButton
+                  className="touch-target h-11 self-start"
                   onClick={clearBackground}
-                  variant="subtle"
+                  variant="ghost"
                 >
                   清除
-                </Button>
+                </PrimitiveButton>
               )}
 
-              <Divider />
+              <hr className="border-t border-[var(--site-hairline)]" />
               <Field htmlFor="cover-font-upload" label="上传字体">
                 <Input
                   accept=".woff2,.woff,.ttf,.otf"
@@ -558,7 +567,7 @@ export function CoverGenerator() {
                   </p>
                 )}
               </Field>
-            </Stack>
+            </div>
           </TabsContent>
 
           <TabsContent
@@ -864,7 +873,7 @@ export function CoverGenerator() {
             </div>
           </TabsContent>
         </Tabs>
-      </Box>
+      </div>
 
       {/* The canvas column, and it is the sticky element itself rather than the pane
           inside it. A sticky box can only travel inside its own containing block: the
@@ -874,15 +883,15 @@ export function CoverGenerator() {
           block is the Flex spanning both columns, so the preview really does stay in
           view while the settings scroll beneath it — hence the z-index, since it
           overlays the column that follows it on a narrow screen. */}
-      <Box
+      <div
         className="cover-canvas-column sticky top-4 z-[2] order-1 min-w-0 flex-1 md:order-2"
         data-slot="cover-canvas-column"
       >
         {/* The preview: the full-size composition, scaled to fit the pane. The
             badge and the pixel caption sit here, not in the export. */}
-        <Box
+        <div
           ref={wrapperRef}
-          className="cover-preview-pane relative w-full overflow-hidden rounded-md border border-[var(--mantine-color-default-border)] bg-white"
+          className="cover-preview-pane relative w-full overflow-hidden rounded-md border border-border bg-white"
           data-slot="cover-preview-pane"
           style={{ "--cover-aspect": aspect, aspectRatio: aspect } as CSSProperties}
         >
@@ -904,14 +913,11 @@ export function CoverGenerator() {
           >
             <CompositionCanvas composition={composition} iconSet={iconSet} />
           </div>
-          <span
-            className="absolute top-2 left-2 text-sm text-[var(--mantine-color-dimmed)]"
-            aria-hidden
-          >
+          <span className="absolute top-2 left-2 text-sm text-muted-foreground" aria-hidden>
             {composition.ratioId} · {pixelCaption(composition.ratioId)}
           </span>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       {/* The export instance: the same composition at full size, off screen. */}
       <div
@@ -928,7 +934,7 @@ export function CoverGenerator() {
       >
         <CompositionCanvas composition={composition} iconSet={iconSet} />
       </div>
-    </Flex>
+    </div>
   );
 }
 
