@@ -11,23 +11,33 @@
  * widths in both colour schemes before the change, capture them again after, and
  * compare.
  *
- * **What it compares (#124).** Geometry — an outline of our own anchored regions,
- * each with its box and its own text — plus the page's text, its link targets and
- * its horizontal overflow, and four layout properties off each anchor's computed
- * style. Nothing it reads is the outgoing component library's: no `mantine-*`
- * name and no content-hashed `m_*` class appears in a reading any more, because a
- * change of component layer moves every one of them *by construction*, and an
- * instrument addressed to the library cannot be the safety net for the change
- * that removes it. That is also why the outline stopped printing tag names: who
- * renders the element is exactly what is changing.
+ * **What it compares (#124, re-armed by #133).** Geometry — an outline of our own
+ * anchored regions, each with its box and its own text — plus the page's text, its
+ * link targets and its horizontal overflow, and a list of computed-style properties
+ * off every match of every anchor: layout, colour, typography and radius. Nothing it
+ * reads is the outgoing component library's: no `mantine-*` name and no
+ * content-hashed `m_*` class appears in a reading, because a change of component
+ * layer moves every one of them *by construction*, and an instrument addressed to
+ * the library cannot be the safety net for the change that removes it. That is also
+ * why the outline stopped printing tag names: who renders the element is exactly
+ * what is changing.
  *
- * **What it deliberately stops comparing, and why.** Colour, typography and
- * radius are out for the length of the pilot. The incoming layer brings its own
- * palette, its own type scale and its own corner radii, so keeping them in would
- * turn this into a machine for printing differences nobody will read, and the
- * differences it exists to catch would drown in them. `LAYOUT_PROPERTIES` below
- * is the whole of what is still read off computed style; #133 restores the rest,
- * against a fresh baseline, once the design language settles.
+ * **The narrowing, and its end.** #124 took colour, typography and radius out for
+ * the length of the pilot: the incoming layer brings its own palette, its own type
+ * scale and its own corner radii, so keeping them in would have turned this into a
+ * machine for printing differences nobody will read. That was right while the
+ * language was in flight and wrong the moment it settled — an instrument that
+ * ignores colour cannot notice a colour that moved by accident — so #133 puts them
+ * back, addressed through the same anchors, and **re-baselines**: the baseline
+ * captured before the migration describes the old design, and comparing against it
+ * would now report differences that are all intended. The new baseline is a
+ * capture of the settled pilot page; `apps/web/docs/design/log.md` records that it
+ * moved, why, and what it therefore can no longer tell anyone — anything about the
+ * state the site was in before that capture.
+ *
+ * What the re-armed comparison still does not see is the same list it never saw,
+ * kept here rather than dropped: see "what it deliberately does not cover" below,
+ * and the fixed attribute list the outline reads.
  *
  * **The anchors, and the one rule that matters most.** Each page declares the
  * anchors it must carry **by name** — a `data-slot` attribute on our own
@@ -233,16 +243,53 @@ const OUTLINE = `(() => {
 })()`;
 
 /**
- * The four computed properties this still compares, and the whole of what it
- * reads off a style — everything else about a box is its geometry, which the
- * outline already carries.
+ * The computed properties this compares, and the whole of what it reads off a
+ * style — everything else about a box is its geometry, which the outline already
+ * carries.
  *
- * Layout rather than design, each one: a border width or a padding that moves
- * moves boxes, and an `aspect-ratio` or a `margin-left` is a rule the stylesheet
- * states rather than a box that could be measured. None of them is a colour, a
- * type value or a radius, which is the narrowing #124 asks for and #133 undoes.
+ * **Four groups, and the last three are what #133 put back.** *Layout*: a border
+ * width or a padding that moves moves boxes, and an `aspect-ratio` or a
+ * `margin-left` is a rule the stylesheet states rather than a box that could be
+ * measured. *Colour*: the painted background, the border and the text, which is
+ * the group an instrument that only reads geometry is blind to. *Typography*: the
+ * family, size, weight, letter spacing and leading, which are the values a type
+ * scale is made of. *Radius*: all four corners, because a radius can be changed
+ * one corner at a time.
+ *
+ * Every one of them is read off **our own anchors** rather than off a class the
+ * component layer owns, which is the property that makes them safe to compare
+ * across a layer swap at all (#126's rule for site rules, applied to the reading).
+ *
+ * Deliberately not here, and not a residual limit but a decision: box-shadow, which
+ * this site writes in one place and states as a position (`apps/web/docs/design/colour.md`),
+ * and anything from a `::before`/`::after` — the hit-area instrument owns the one
+ * pseudo-element this site depends on.
  */
-const LAYOUT_PROPERTIES = ["aspect-ratio", "border-top-width", "margin-left", "padding-top"];
+const COMPARED_PROPERTIES = [
+  // Layout.
+  "aspect-ratio",
+  "border-top-width",
+  "margin-left",
+  "padding-top",
+  // Colour.
+  "background-color",
+  "border-bottom-color",
+  "border-left-color",
+  "border-right-color",
+  "border-top-color",
+  "color",
+  // Typography.
+  "font-family",
+  "font-size",
+  "font-weight",
+  "letter-spacing",
+  "line-height",
+  // Radius.
+  "border-bottom-left-radius",
+  "border-bottom-right-radius",
+  "border-top-left-radius",
+  "border-top-right-radius",
+];
 
 /**
  * Those properties, read off **every** match of every anchor the page declares —
@@ -253,7 +300,7 @@ const LAYOUT_PROPERTIES = ["aspect-ratio", "border-top-width", "margin-left", "p
  * already failed on the declaration.
  */
 const stylesReading = (selectors) => `(() => {
-  const props = ${JSON.stringify(LAYOUT_PROPERTIES)};
+  const props = ${JSON.stringify(COMPARED_PROPERTIES)};
   return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => ({
     selector,
     values: [...document.querySelectorAll(selector)].map((el) => {
@@ -520,7 +567,11 @@ function compare(beforeFile, afterFile) {
         firstDifference(bv.outline, av.outline),
       );
       check(
-        `${page.name} @${view}: layout properties are identical`,
+        // Named for what it now reads. It was "layout properties" from #124 to #133,
+        // when the four layout properties were the whole of it; the name is the line
+        // a reader greps for, so it moved with the reading rather than staying a word
+        // that describes a third of it.
+        `${page.name} @${view}: computed styles are identical`,
         JSON.stringify(bv.styles) === JSON.stringify(av.styles),
         bv.styles && av.styles && JSON.stringify(bv.styles) !== JSON.stringify(av.styles)
           ? `\n      before: ${JSON.stringify(bv.styles)}\n      after:  ${JSON.stringify(av.styles)}`
