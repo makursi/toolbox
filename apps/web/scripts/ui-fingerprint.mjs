@@ -147,7 +147,21 @@ const PAGES = [
     path: "/",
   },
   {
-    anchors: [...SHELL_ANCHORS, "tool-page", "format-card"],
+    /*
+     * The second Tool's page. `format-card` is its own region and was declared by
+     * #114 — the fingerprint used to read that element through `.mantine-Paper-root`,
+     * so dropping the library's selector without anchoring the element would have
+     * quietly stopped measuring it.
+     *
+     * `converter-add` and `converter-formats` are #164's: the two regions that batch
+     * moved, anchored so that their geometry and their own computed styles are read
+     * before and after the move rather than inferred from the page still being the
+     * same height. They are regions rather than the whole page on purpose — the file
+     * list and the outputs under them are later batches, and an anchor the page
+     * carries but this list does not name still shows up in the outline as a
+     * difference.
+     */
+    anchors: [...SHELL_ANCHORS, "tool-page", "format-card", "converter-add", "converter-formats"],
     name: "tool",
     path: "/tools/image-converter",
   },

@@ -4,8 +4,6 @@ import {
   Alert,
   Anchor,
   Button,
-  Checkbox,
-  FileButton,
   Flex,
   Group,
   Paper,
@@ -14,9 +12,11 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { Dropzone } from "@mantine/dropzone";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
+import { Button as PrimitiveButton } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { useObjectUrl } from "@/hooks/use-object-url/use-object-url";
 
 import { addedSummary } from "./core/counts";
@@ -59,6 +59,16 @@ export function ImageConverter() {
   const { entries, refused, addFiles, remove, clearFiles } = useFileQueue();
   const { running, planned, outcomes, start, cancel, clear: clearResults } = useConversionBatch();
   const [enabled, setEnabled] = useState(initialEnabled);
+  /*
+   * The drop zone's two pieces of state that the outgoing library used to keep:
+   * the file input a real `<button>` opens, and whether a drag is over the box
+   * (which is what its `data-accept` highlight was). Both are the site's own now
+   * (#164) — the button because a file input's own box is a replaced element and
+   * cannot be styled into the action this page needs, and the highlight because
+   * it is the one thing the box says while a file is over it.
+   */
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const enabledFormats = useMemo(() => imageFormats.filter((format) => enabled[format]), [enabled]);
 
@@ -94,65 +104,100 @@ export function ImageConverter() {
   return (
     <Stack className="mt-10 sm:mt-12" gap="xl">
       <section>
-        <Title order={2} size="h4">
-          1. 添加图片
-        </Title>
-
         {/*
-          No `accept` prop on purpose: it filters by the file's declared type, and
-          a renamed file is exactly what `sniffFormat` is here to catch.
-
-          The drop zone is only the drag target. Clicking and the keyboard go
-          through the FileButton inside it: that is a real `<button>`, so it is
-          announced as one, whereas react-dropzone labels its own root
-          `role="presentation"` — making that the control would mean overriding
-          the role by hand, which is the thing jsx-a11y exists to stop.
+          The region this batch moved (#164), and an anchor for two Instruments at
+          once: `ui-fingerprint.mjs` reads its geometry and its own computed styles
+          per view state, and `touch-targets.mjs` scans it for the outgoing layer's
+          class names. It wraps the heading, the drop zone and the promise rather
+          than the whole `<section>`, because the file list under them is a later
+          batch (#165) and a scope may only claim what has moved.
         */}
-        <Dropzone
-          activateOnClick={false}
-          activateOnKeyboard={false}
-          /* Padding comes from a class rather than the `p` prop on purpose: a
-             simple style prop is written inline, and inline beats every layer,
-             so `p="lg"` could not be undone on a touch screen. */
-          className="dropzone-pad dropzone-touch-flat"
-          disabled={running}
-          enablePointerEvents
-          mt="sm"
-          multiple
-          onDrop={(dropped) => {
-            void addFiles(dropped);
-          }}
-        >
-          <Stack align="center" gap="sm">
-            <FileButton
-              disabled={running}
-              multiple
-              onChange={(picked) => void addFiles(toFiles(picked))}
-            >
-              {(props) => (
-                <Button
-                  {...props}
-                  className="action-full-width add-files-button"
-                  size="md"
-                  variant="default"
-                >
-                  选择文件
-                </Button>
-              )}
-            </FileButton>
-            {/* Hidden where there is no pointer to drag with: see `.drag-hint`. */}
-            <Text c="dimmed" className="drag-hint" size="sm">
-              也可以把文件拖到这里
-            </Text>
-          </Stack>
-        </Dropzone>
+        <div data-slot="converter-add">
+          <h2 className="text-[18px] leading-[1.45] font-semibold">1. 添加图片</h2>
 
-        {/* The promise belongs at the point of action, not under the title: this
-            is where someone decides whether to hand over a file. The capability
-            and the list of formats are one line up, in the description. */}
-        <Text c="dimmed" mt="xs" size="xs">
-          文件不会上传，全程只在这个标签页里完成。
-        </Text>
+          {/*
+            No `accept` on purpose, and that is a rule rather than an omission: an
+            accept filter reads the file's *declared* type, and a renamed file is
+            exactly what `sniffFormat` is here to catch (`core/admission.ts`).
+
+            The box is the drag target only. Clicking and the keyboard go through
+            the `<button>` inside it — a real button, announced as one — because
+            react-dropzone labelled its own root `role="presentation"`, and making
+            that the control would mean overriding the role by hand.
+
+            Padding comes from a class rather than a padding utility on purpose: a
+            simple `style` prop is written inline, inline beats every layer, and
+            the touch branch has to be able to take the box away entirely
+            (`.dropzone-touch-flat`). The three classes are this site's own and
+            predate the move; what changed is who renders the element.
+          */}
+          <div
+            className="add-dropzone dropzone-pad dropzone-touch-flat mt-3 rounded-lg border border-dashed border-input bg-card"
+            data-dragging={dragging || undefined}
+            onDragLeave={(event) => {
+              // Leaving for a child is not leaving the box: without this the
+              // highlight flickers off as the pointer crosses the button inside.
+              // The `instanceof` is the narrowing rather than an assertion: a drag
+              // event's `relatedTarget` is an `EventTarget`, which is not a `Node`
+              // until it is proved to be one.
+              const entering = event.relatedTarget;
+              if (!(entering instanceof Node) || !event.currentTarget.contains(entering)) {
+                setDragging(false);
+              }
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragging(true);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragging(false);
+              void addFiles([...event.dataTransfer.files]);
+            }}
+          >
+            <div className="flex flex-col items-center gap-3">
+              <PrimitiveButton
+                className="action-full-width add-files-button touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
+                disabled={running}
+                onClick={() => fileInput.current?.click()}
+                variant="outline"
+              >
+                选择文件
+              </PrimitiveButton>
+              {/*
+                The input is what actually takes a file: the button above only
+                opens the picker. `sr-only` rather than `hidden` so that it stays
+                focusable for a screen reader's own file-picking path, and it keeps
+                the `input[type=file]` the Instruments and the gate address this
+                Tool by. Its value is cleared after every pick, or choosing the same
+                file twice would fire no change event at all.
+              */}
+              <input
+                className="sr-only"
+                disabled={running}
+                multiple
+                onChange={(event) => {
+                  const picked = [...(event.currentTarget.files ?? [])];
+                  event.currentTarget.value = "";
+                  void addFiles(picked);
+                }}
+                ref={fileInput}
+                type="file"
+              />
+              {/* Hidden where there is no pointer to drag with: see `.drag-hint`. */}
+              <p className="drag-hint text-sm leading-[1.45] text-muted-foreground">
+                也可以把文件拖到这里
+              </p>
+            </div>
+          </div>
+
+          {/* The promise belongs at the point of action, not under the title: this
+              is where someone decides whether to hand over a file. The capability
+              and the list of formats are one line up, in the description. */}
+          <p className="mt-2.5 text-xs leading-[1.4] text-muted-foreground">
+            文件不会上传，全程只在这个标签页里完成。
+          </p>
+        </div>
 
         {/* The row is also there when every file was refused: the rejected list
             is what is left to clear, and it is the only way to clear it. */}
@@ -207,38 +252,71 @@ export function ImageConverter() {
       </section>
 
       <section>
-        <Title order={2} size="h4">
-          2. 转换为
-        </Title>
+        {/* The second region this batch moved (#164): the heading, its one line of
+            copy, and the five format rows. Same anchor contract as `converter-add`. */}
+        <div data-slot="converter-formats">
+          <h2 className="text-[18px] leading-[1.45] font-semibold">2. 转换为</h2>
 
-        <Text c="dimmed" mt="xs" size="xs">
-          每个格式按调好的默认质量编码；PNG 与 BMP 无损。
-        </Text>
+          <p className="mt-2.5 text-xs leading-[1.4] text-muted-foreground">
+            每个格式按调好的默认质量编码；PNG 与 BMP 无损。
+          </p>
 
-        <Stack gap="md" mt="sm">
-          {imageFormats.map((format) => {
-            const spec = formatSpecs[format];
+          <div className="mt-3 flex flex-col gap-4">
+            {imageFormats.map((format) => {
+              const spec = formatSpecs[format];
+              const id = `format-${format}`;
 
-            return (
-              <Paper
-                className="format-card"
-                data-checked={enabled[format] || undefined}
-                data-slot="format-card"
-                key={format}
-                p="lg"
-                withBorder
-              >
-                <Checkbox
-                  checked={enabled[format]}
-                  className="format-row"
-                  disabled={running}
-                  label={`${spec.label} (.${spec.extension})`}
-                  onChange={(event) => setFormatEnabled(format, event.currentTarget.checked)}
-                />
-              </Paper>
-            );
-          })}
-        </Stack>
+              return (
+                /*
+                 * A card, and the same card the homepage's Tool card is: the site's
+                 * own utilities rather than a generated `Card`, which carries a
+                 * resting shadow, a 24px block padding and a surface fill this rule
+                 * does not want — four overrides to arrive where these four classes
+                 * start (`apps/web/docs/design/components.md`).
+                 *
+                 * `data-checked` is the row's own state written as an attribute, and
+                 * the gate asserts *it* rather than the input's `checked`: an
+                 * attribute written from React state cannot be flipped by the
+                 * browser's default action on an input whose handlers are not
+                 * attached yet.
+                 */
+                <div
+                  className="format-card rounded-lg border border-border bg-background p-5 data-[checked]:border-primary"
+                  data-checked={enabled[format] || undefined}
+                  data-slot="format-card"
+                  key={format}
+                >
+                  <div className="format-row flex items-center">
+                    {/*
+                      The registry's `Checkbox` is a `<button role="checkbox">`, and
+                      the label beside it is a `<label for>` — measured in Chrome
+                      before it was chosen (2026-10-06): a label whose control is a
+                      button does forward the click, so "press anywhere on the row"
+                      survives the swap. The box is 20px because the outgoing
+                      layer's was, and the label carries `.touch-target` because a
+                      `<label for>` is the element that owns this click: the overlay
+                      belongs on it and never on the row's wrapper, which is the bug
+                      `.format-row` in `globals.css` was written to fix.
+                    */}
+                    <Checkbox
+                      checked={enabled[format]}
+                      className="size-5"
+                      disabled={running}
+                      id={id}
+                      onCheckedChange={(checked) => setFormatEnabled(format, checked === true)}
+                    />
+                    <Label
+                      className="touch-target flex min-h-11 flex-1 items-center pl-3 text-sm leading-5 font-normal"
+                      htmlFor={id}
+                    >
+                      {`${spec.label} (.${spec.extension})`}
+                    </Label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       {/* A Flex rather than a Group: on a narrow screen the buttons take the
@@ -349,13 +427,6 @@ function DownloadLink({ outcome }: { outcome: Extract<Outcome, { ok: true }> }) 
       下载
     </Anchor>
   );
-}
-
-/** FileButton hands back one file, an array of them, or nothing. */
-function toFiles(picked: File[] | File | null): File[] {
-  if (!picked) return [];
-
-  return Array.isArray(picked) ? picked : [picked];
 }
 
 function saveBlob(blob: Blob, name: string): void {

@@ -213,75 +213,40 @@
 }
 
 /*
- * The drop zone wears this site's clothes, not Mantine's stock ones.
+ * The drop zone and the format rows, in this site's own terms (#164).
  *
- * Mantine's own dropzone stylesheet is written against its default palette:
- * `--mantine-color-white` and `gray-4` in light, `dark-6` and `dark-4` in dark.
- * Neither is this site's palette — the surface token is the warm one, and pure
- * white is banned outright (apps/web/docs/design/colour.md) — so that box read as
- * a piece of another product sitting in the middle of the page.
+ * What used to be here was a patch aimed at the outgoing library's internals:
+ * `.mantine-Dropzone-root` for the box's surface and hairline, its `[data-accept]`
+ * for the dragging state, and `.format-row .mantine-Checkbox-body` /
+ * `-labelWrapper` / `-label` to stretch a row's label to the 44px a finger needs.
+ * Each of those guarded a *site* rule and each of them is now expressed where the
+ * element is: the box is `bg-card border border-dashed border-input` in the
+ * component, the row is a flex row whose label carries `.touch-target` and
+ * `min-h-11`, and only the dragging state needs a rule, because it is a state and
+ * not a look — the box says "let go here" while a file is over it, in this site's
+ * tokens rather than in a library's green.
  *
- * The `components` layer is declared after `mantine` at the top of this file, so
- * an override here beats the library's rule at equal specificity. The dashed
- * hairline is kept on purpose: this is the one box on the site that asks to be
- * dropped on, and that difference should be legible without an icon.
- *
- * The dragging state is drawn in ink and not in a hue: this design has no
- * accent colour, so Mantine's green "accept" would be the only colour on the
- * page that does not mean an error.
+ * It is written against `.add-dropzone`, our own class, so it survives whatever
+ * draws the box next; the colour pair is the same one the outgoing layer's accept
+ * state resolved to (surface-hover, with the hairline becoming ink).
  */
 @layer components {
   /*
-   * A format row: the label, not the box beside it, is the row.
-   *
-   * Mantine puts the toggle on the input and on `<label for>`; the root `<div>`
-   * between them handles nothing, so the label is stretched to the whole row and
-   * given the 44px minimum. `.touch-target` cannot be used here — its overlay
-   * would sit on that wrapper and swallow the click, which is exactly the bug
-   * this replaced.
-   */
-  .format-row .mantine-Checkbox-body {
-    align-items: center;
-  }
-
-  .format-row .mantine-Checkbox-labelWrapper {
-    flex: 1;
-  }
-
-  .format-row .mantine-Checkbox-label {
-    align-items: center;
-    display: flex;
-    min-height: 44px;
-  }
-
-  /*
    * The card, not only the 20px box, says whether a format is on. One token
    * moves: the hairline becomes ink. No new colour, so no new contrast pairing.
+   *
+   * This one is *not* here any more (#164): it is `data-[checked]:border-primary`
+   * on the card, because a rule in this layer cannot beat the `border-border`
+   * utility that gives the card its hairline — `utilities` is declared after
+   * `components`, and layer order outranks specificity. The measurement that found
+   * it is the fingerprint's: the checked card's border read the hairline after the
+   * move, which is exactly the state this rule exists to make visible.
    */
-  .format-card[data-checked] {
-    border-color: var(--site-text);
-  }
-
-  .mantine-Dropzone-root {
-    background-color: var(--site-surface);
-    border-color: var(--site-hairline);
-  }
-
-  .mantine-Dropzone-root[data-accept] {
+  .add-dropzone[data-dragging] {
     background-color: var(--site-surface-hover);
     border-color: var(--site-text);
-    color: var(--site-text);
   }
 }
-
-/*
- * There is no rule for `[data-reject]`: this drop zone passes no `accept` prop,
- * because the format is decided by sniffing the file's bytes rather than by what
- * the browser claims it is, so react-dropzone has nothing to reject and the
- * state never renders. Mantine's default would paint it in its own red, which is
- * a colour nobody measured against this palette; a bad file is reported by the
- * error Alert under the zone instead.
- */
 
 /*
  * The files that made it in, one line each. This sits beside the drop zone

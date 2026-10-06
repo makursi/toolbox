@@ -247,12 +247,39 @@ const PAGES = [
     path: "/no-such-page",
   },
   {
-    controls: ["切换到", "返回首页", "清空", "移除"],
+    /*
+     * The second Tool's page. #164 re-derived this page's declarations for the two
+     * regions it moved: the five format labels are controls the Instrument can name
+     * (each is a `<label for>` stretched across its row, so it both owns the click
+     * and says what it is), and 选择文件 — the page's primary action — is named here
+     * for the first time. It was never in this list because the outgoing layer's
+     * `FileButton` drew it without the hit-area class, so the Instrument could not
+     * see it at all: the control a file is handed to was the one control the check
+     * could not miss (#81's shape, found again here).
+     */
+    controls: [
+      "切换到",
+      "返回首页",
+      "选择文件",
+      "PNG (.png)",
+      "JPEG (.jpg)",
+      "WebP (.webp)",
+      "AVIF (.avif)",
+      "BMP (.bmp)",
+      "清空",
+      "移除",
+    ],
     fileInput: "input[type=file]",
     name: "tool",
-    // The frame only: the second Tool's own regions are still the outgoing layer's
-    // until #164 to #166, each of which adds the region it moved to this list.
-    outgoing: ['[data-slot="site-header"]', '[data-slot="site-footer"]'],
+    // The frame plus the two regions #164 moved. The file list and the outputs under
+    // them are still the outgoing layer's until #165 and #166, each of which adds the
+    // region it moved and the last of which can claim the whole document.
+    outgoing: [
+      '[data-slot="site-header"]',
+      '[data-slot="site-footer"]',
+      '[data-slot="converter-add"]',
+      '[data-slot="converter-formats"]',
+    ],
     path: "/tools/image-converter",
   },
   {
