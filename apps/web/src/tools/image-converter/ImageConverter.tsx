@@ -1,23 +1,12 @@
 "use client";
 
-import {
-  Alert,
-  Anchor,
-  Button,
-  Flex,
-  Group,
-  Paper,
-  Progress,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { Alert as PrimitiveAlert, AlertTitle } from "@/components/ui/alert";
-import { Button as PrimitiveButton } from "@/components/ui/button";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { useObjectUrl } from "@/hooks/use-object-url/use-object-url";
 
 import { addedSummary } from "./core/counts";
@@ -39,10 +28,14 @@ import { zipConversions } from "./zip";
  * it — because a Conversion has no settings beyond the format it is encoded to
  * (see `docs/adr/0010-no-output-settings.md`).
  *
- * The controls are Mantine components, so labels, roles and keyboard behaviour
- * come from the library rather than being re-derived here — which is also why
- * the file input is a `Dropzone`: it is clickable, droppable and reachable from
- * the keyboard (Space/Enter) in one element.
+ * The controls are the incoming layer's since #166 — the whole file is off the
+ * outgoing library, which is what makes this the ticket that lets the page be read
+ * as one layer. Labels, roles and keyboard behaviour come from Radix or from the
+ * platform rather than being re-derived here, and the two places a Primitive was the
+ * wrong tool say why in place: the file input (a replaced element, so a real
+ * `<button>` opens it and the input itself takes the file) and the row's stretched
+ * `<label for>` (measured in Chrome before it was chosen: a label whose control is a
+ * button does forward the click, which is what keeps "press anywhere on the row").
  */
 
 /**
@@ -103,7 +96,9 @@ export function ImageConverter() {
   const summary = addedSummary(entries.length, succeeded.length);
 
   return (
-    <Stack className="mt-10 sm:mt-12" gap="xl">
+    /* The page's own column, and the last thing that was the outgoing layer's: a
+       32px gap between the three steps, 40px/48px above the first of them. */
+    <div className="mt-10 flex flex-col gap-8 sm:mt-12">
       <section>
         {/*
           The region this batch moved (#164), and an anchor for two Instruments at
@@ -157,14 +152,14 @@ export function ImageConverter() {
             }}
           >
             <div className="flex flex-col items-center gap-3">
-              <PrimitiveButton
+              <Button
                 className="action-full-width add-files-button touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
                 disabled={running}
                 onClick={() => fileInput.current?.click()}
                 variant="outline"
               >
                 选择文件
-              </PrimitiveButton>
+              </Button>
               {/*
                 The input is what actually takes a file: the button above only
                 opens the picker. `sr-only` rather than `hidden` so that it stays
@@ -215,13 +210,13 @@ export function ImageConverter() {
                   does — a greyed control would owe the visitor a reason, and
                   the reason here is the one 取消 already names. */}
               {!running && (
-                <PrimitiveButton
+                <Button
                   className="touch-target h-[26px] border-input bg-card px-2 text-sm leading-none font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
                   onClick={clearAll}
                   variant="outline"
                 >
                   清空
-                </PrimitiveButton>
+                </Button>
               )}
             </div>
 
@@ -247,7 +242,7 @@ export function ImageConverter() {
                * a value this palette never measured (`apps/web/docs/design/colour.md`
                * holds the two measured error values).
                */
-              <PrimitiveAlert className="mt-4" variant="destructive">
+              <Alert className="mt-4" variant="destructive">
                 <AlertTitle>有文件没能加入</AlertTitle>
                 <div className="col-start-2 flex flex-col gap-1">
                   {refused.map((entry) => (
@@ -257,7 +252,7 @@ export function ImageConverter() {
                     </p>
                   ))}
                 </div>
-              </PrimitiveAlert>
+              </Alert>
             )}
           </div>
         )}
@@ -331,15 +326,23 @@ export function ImageConverter() {
         </div>
       </section>
 
-      {/* A Flex rather than a Group: on a narrow screen the buttons take the
-          width and the reason sits under them, which a Group cannot express. */}
-      <Flex
-        align={{ base: "stretch", sm: "center" }}
-        direction={{ base: "column", sm: "row" }}
-        gap="md"
-      >
+      {/*
+        The action row. A column below 640px and a row above it, rather than a
+        `Group`: on a narrow screen the buttons take the width and the reason sits
+        under them, which a `Group` cannot express. The three controls are the page's
+        own since #166, and all three carry `.touch-target` and a name — 转换 and the
+        ZIP are named in `touch-targets.mjs` and measured; 取消 cannot be, because it
+        exists only while a Batch runs and a declaration has to match something in the
+        state the claims run in.
+
+        The filled button's label colour moves with the layer, deliberately: the
+        outgoing layer painted it pure white, and this site's `text-primary-foreground`
+        is its own paper, because pure white is banned
+        (`apps/web/docs/design/colour.md`) and the ban is not waived for a label.
+      */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <Button
-          className="action-full-width"
+          className="action-full-width touch-target h-[42px] border border-transparent px-[22px] text-base leading-4 font-semibold"
           disabled={running || entries.length === 0 || enabledFormats.length === 0}
           onClick={() =>
             void start(
@@ -347,97 +350,124 @@ export function ImageConverter() {
               enabledFormats,
             )
           }
-          size="md"
         >
           {entries.length > 0 ? `转换 ${entries.length} 个文件` : "转换"}
         </Button>
         {running && (
-          <Button className="action-full-width" onClick={cancel} size="md" variant="default">
+          <Button
+            className="action-full-width touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
+            onClick={cancel}
+            variant="outline"
+          >
             取消
           </Button>
         )}
         {/* A greyed-out button with no reason is a dead end: say which of the
             conditions is unmet, next to the button that is waiting on it. */}
         {blocked !== null && (
-          <Text c="dimmed" size="sm">
-            {blocked}
-          </Text>
+          <p className="text-sm leading-[1.45] text-muted-foreground">{blocked}</p>
         )}
-      </Flex>
+      </div>
 
       <section aria-live="polite">
         {planned.length > 0 && (
           <div>
-            <Text size="sm">
+            <p className="text-sm leading-[1.45]">
               已完成 {outcomes.length} / {planned.length}
-            </Text>
-            <Progress mt="xs" value={(outcomes.length / planned.length) * 100} />
+            </p>
+            {/*
+              The track is this site's own hover surface rather than the registry's
+              `bg-primary/20`: an alpha of a token is a value nobody measured against
+              anything, and this palette has two values it can name instead — the
+              track is a surface, the bar is ink. `rounded-md` rather than the
+              registry's `rounded-full`: a pill container is a rejected direction
+              (`apps/web/docs/design.md`), and the outgoing bar was an 8px radius.
+            */}
+            <Progress
+              className="mt-2.5 h-2 rounded-md bg-secondary"
+              value={(outcomes.length / planned.length) * 100}
+            />
           </div>
         )}
 
         {failures.length > 0 && (
-          <Alert color="red" mt="md" title="有转换失败">
-            <Stack gap={4}>
+          /* The same box as the rejected list above, with `role="alert"`: this site's
+             card surface and the measured error colour as text. */
+          <Alert className="mt-4" variant="destructive">
+            <AlertTitle>有转换失败</AlertTitle>
+            <div className="col-start-2 flex flex-col gap-1">
               {failures.map((failure) => (
-                <Text key={failure.conversion.id} size="sm">
-                  <Text component="span" fw={500} inherit>
-                    {failure.conversion.outputName}
-                  </Text>
+                <p className="text-sm leading-[1.45]" key={failure.conversion.id}>
+                  <span className="font-medium">{failure.conversion.outputName}</span>
                   {`: ${failure.message}`}
-                </Text>
+                </p>
               ))}
-            </Stack>
+            </div>
           </Alert>
         )}
 
         {succeeded.length > 0 && (
-          <Stack gap="sm" mt="xl">
-            <Group justify="space-between">
-              <Title order={2} size="h4">
-                3. 下载
-              </Title>
+          <div className="mt-8 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-[18px] leading-[1.45] font-semibold">3. 下载</h2>
               <Button
+                className="touch-target h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary"
                 onClick={() => saveBlob(zipConversions(succeeded), "converted-images.zip")}
-                size="md"
-                variant="default"
+                variant="outline"
               >
                 打包成 ZIP 下载
               </Button>
-            </Group>
+            </div>
 
-            <Stack gap="xs">
+            <div className="flex flex-col gap-2.5">
               {outcomes.flatMap((outcome) =>
                 outcome.ok ? (
-                  <Paper key={outcome.conversion.id} p="xs" withBorder>
-                    <Group justify="space-between" wrap="nowrap">
-                      <Text size="sm" truncate>
+                  <div
+                    className="rounded-lg border border-border bg-background p-2.5"
+                    data-slot="output-row"
+                    key={outcome.conversion.id}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="truncate text-sm leading-[1.45]">
                         {outcome.conversion.outputName}
-                        <Text c="dimmed" component="span" inherit>
+                        <span className="text-muted-foreground">
                           {`  ${outcome.width}×${outcome.height}`}
-                        </Text>
-                      </Text>
+                        </span>
+                      </p>
                       <DownloadLink outcome={outcome} />
-                    </Group>
-                  </Paper>
+                    </div>
+                  </div>
                 ) : (
                   []
                 ),
               )}
-            </Stack>
-          </Stack>
+            </div>
+          </div>
         )}
       </section>
-    </Stack>
+    </div>
   );
 }
 
 function DownloadLink({ outcome }: { outcome: Extract<Outcome, { ok: true }> }) {
   const url = useObjectUrl(outcome.bytes, outcome.mime);
 
+  /*
+   * A real anchor with `download`, and the class is on it because it is the element
+   * that owns the click. It is a 28x20 line of text, which is under this site's
+   * floor on its own — the overlay is what makes it a target, and it is the reason
+   * this link is declared as a `carriers` selector in `touch-targets.mjs`: every
+   * match must carry the class, and a link that lost it would otherwise leave the
+   * report without moving a pixel.
+   */
   return (
-    <Anchor download={outcome.conversion.outputName} href={url} size="sm">
+    <a
+      className="touch-target text-sm leading-[1.45] text-foreground hover:underline"
+      download={outcome.conversion.outputName}
+      href={url}
+    >
       下载
-    </Anchor>
+    </a>
   );
 }
 

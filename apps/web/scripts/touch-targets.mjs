@@ -255,7 +255,16 @@ const PAGES = [
      * for the first time. It was never in this list because the outgoing layer's
      * `FileButton` drew it without the hit-area class, so the Instrument could not
      * see it at all: the control a file is handed to was the one control the check
-     * could not miss (#81's shape, found again here).
+     * could not miss (#81's shape, found again here). #166 named 转换 and the ZIP with
+     * it, and declared the download links as carriers, for the same reason — a 28x20
+     * line of text is under this site's floor, and its class is the only thing that
+     * makes it visible to this Instrument.
+     *
+     * `convert` is what makes the page's *own* reading possible: the outputs, the
+     * progress line and the failures only exist after a Batch has run, and this is
+     * the ticket that claims the whole document (#166). So the page is driven to the
+     * state its last region lives in — the same thing the cover generator's page
+     * does when a claim opens a tab or picks a ratio — and then the claims read it.
      */
     controls: [
       "切换到",
@@ -266,21 +275,21 @@ const PAGES = [
       "WebP (.webp)",
       "AVIF (.avif)",
       "BMP (.bmp)",
+      "转换",
       "清空",
       "移除",
+      "打包成 ZIP 下载",
     ],
+    // The links are named by the file they download, which is a name this Instrument
+    // cannot write down in advance (it is derived from the source's own name), so
+    // they are declared by selector: every match must carry the hit-area class.
+    carriers: ["a[download]"],
+    convert: true,
     fileInput: "input[type=file]",
     name: "tool",
-    // The frame plus the regions #164 and #165 moved. The outputs and the action row
-    // under them are still the outgoing layer's until #166, which adds its region and
-    // is the ticket that can claim the whole document.
-    outgoing: [
-      '[data-slot="site-header"]',
-      '[data-slot="site-footer"]',
-      '[data-slot="converter-add"]',
-      '[data-slot="converter-formats"]',
-      '[data-slot="converter-files"]',
-    ],
+    // The whole document: after #166 there is one layer on this page, which is what
+    // the claim is for.
+    outgoing: ["body"],
     path: "/tools/image-converter",
   },
   {
@@ -702,6 +711,63 @@ const STICKY = `(() => {
 function report(line) {
   // oxlint-disable-next-line no-console -- see above.
   console.log(line);
+}
+
+/**
+ * Run one Batch on the page, so that the claims can read the state its results live
+ * in (#166).
+ *
+ * It presses the page's own 转换 button with a **pointer sequence** rather than a
+ * lone `click()` — the incoming layer's buttons act on `mousedown`, which is the
+ * same finding `clickByText` records — and then waits for the transition that says
+ * the Batch produced something: a download link. Waiting for the *presence* of a
+ * result is deliberate; the failure mode this file already knows about is waiting for
+ * an absence, which passes before React has rendered anything at all.
+ *
+ * One target is enough: WebP is the format a fresh page already has on, so one file
+ * in is one file out, and what this is for is the state — the results, the progress
+ * line, the download links — not the codecs, which are the gate's to assert.
+ */
+async function convertOnce(client) {
+  /*
+   * First the transition that says the file has arrived: the 转换 button is disabled
+   * until something is queued and a target format is on, so waiting for it to be
+   * *enabled* is waiting for the state rather than for a sleep. Pressing it too early
+   * is silent — the button is disabled, the click does nothing, and the failure reads
+   * twenty seconds later as "the Batch never produced a download link", which names
+   * the wrong thing.
+   */
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const ready = await client.evaluate(`(() => {
+      const button = [...document.querySelectorAll('button')].find((el) =>
+        (el.innerText || '').trim().startsWith('转换'),
+      );
+      return button !== undefined && button.disabled === false;
+    })()`);
+    if (ready === true) break;
+    if (attempt === 39) throw new Error("the 转换 button never became pressable");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  const pressed = await client.evaluate(`(() => {
+    const button = [...document.querySelectorAll('button')].find((el) =>
+      (el.innerText || '').trim().startsWith('转换'),
+    );
+    if (button === undefined) return false;
+    const at = { bubbles: true, button: 0, cancelable: true };
+    button.dispatchEvent(new MouseEvent('mousedown', at));
+    button.dispatchEvent(new MouseEvent('mouseup', at));
+    button.click();
+    return true;
+  })()`);
+  if (pressed !== true) throw new Error("the page has no 转换 button to press");
+
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const links = await client.evaluate(`document.querySelectorAll('a[download]').length`);
+    if (links > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("the Batch never produced a download link");
 }
 
 /**
@@ -1328,6 +1394,7 @@ async function applyCase(client, shape, pointer, scheme) {
 async function openPage(client, baseUrl, page) {
   await client.navigate(`${baseUrl}${page.path}`);
   if (page.fileInput !== undefined) await client.setFile(page.fileInput, FIXTURE);
+  if (page.convert === true) await convertOnce(client);
 }
 
 /**
