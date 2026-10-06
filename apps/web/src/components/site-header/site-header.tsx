@@ -1,4 +1,3 @@
-import { Box, Container, Flex, Text } from "@mantine/core";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -12,16 +11,22 @@ import { siteName } from "@/lib/site";
  * home rather than a menu with one item in it. Height stays well under the 80px
  * ceiling, and it does not stick: with this little content a sticky bar would
  * cost attention it cannot pay back.
+ *
+ * Drawn by the incoming layer since #163. Every number here was read off the
+ * outgoing layer on the built page before it was replaced, which is the method the
+ * pilot used: the container is a 960px measure with 16px of padding either side and
+ * 16px above and below, the wordmark is 16px on a 1.55 line at weight 600 beside a
+ * 28px mark with 8px between them, and the hairline under the row is this site's
+ * own token — the same value the outgoing layer's `--mantine-color-default-border`
+ * resolved to, so it is a move and not a re-pick. `border-border` reads
+ * `--site-hairline` through the stylesheet's `@theme inline` block, which is where
+ * a value would otherwise be repeated.
  */
 export function SiteHeader() {
   return (
-    <Box
-      component="header"
-      data-slot="site-header"
-      style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}
-    >
-      <Container py="md" size="md">
-        <Flex align="center" gap="md" justify="space-between">
+    <header className="border-b border-b-border" data-slot="site-header">
+      <div className="mx-auto w-full max-w-[960px] px-4 py-4">
+        <div className="flex items-center justify-between gap-4">
           {/*
             The mark and the wordmark are one link home. The mark is the same
             character the tab shows — its crop and its sizes are in
@@ -29,17 +34,15 @@ export function SiteHeader() {
             already says what it is, so a screen reader reading both would hear
             the site name twice.
           */}
-          <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>
-            <Flex align="center" gap={8}>
-              <Image alt="" height={28} src="/brand/makursi.png" width={28} />
-              <Text fw={600}>{siteName}</Text>
-            </Flex>
+          <Link className="flex items-center gap-2 text-foreground no-underline" href="/">
+            <Image alt="" height={28} src="/brand/makursi.png" width={28} />
+            <span className="text-base leading-[1.55] font-semibold">{siteName}</span>
           </Link>
           {/* The scheme follows the operating system until this is used; ADR-0008
               records why a site that refused a toggle now has one. */}
           <ThemeToggle />
-        </Flex>
-      </Container>
-    </Box>
+        </div>
+      </div>
+    </header>
   );
 }

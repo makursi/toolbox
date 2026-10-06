@@ -222,18 +222,37 @@ const PREVIEW_MAX_SHARE = 0.45;
  * Instrument, so losing it is a failure rather than an absence — and each declared
  * selector must match at least one element, because a selector that matches nothing
  * would guard nothing and tell nobody.
+ *
+ * `outgoing` names the regions `no-outgoing-layer` scans on this page, and it is the
+ * one declaration here that *grows* as the round proceeds: it starts as the frame's
+ * anchors on a page whose body has not moved, gains a region in the ticket that moves
+ * that region, and reaches `body` in the ticket that makes the whole page true. A page
+ * that declares nothing is held to `body` (`context`), which is the strictest reading
+ * rather than a silence.
  */
 const PAGES = [
-  { controls: ["切换到"], name: "home", path: "/" },
+  {
+    controls: ["切换到"],
+    name: "home",
+    // The frame's three anchors, and not the hero: this page's own body is still the
+    // outgoing layer's until #167, and a scope may only claim what has moved.
+    outgoing: ['[data-slot="site-header"]', '[data-slot="site-footer"]', '[data-slot="tool-card"]'],
+    path: "/",
+  },
   {
     controls: ["切换到", "回到首页"],
     name: "not-found",
+    // The whole document, because the whole document is the frame on this page.
+    outgoing: ["body"],
     path: "/no-such-page",
   },
   {
     controls: ["切换到", "返回首页", "清空", "移除"],
     fileInput: "input[type=file]",
     name: "tool",
+    // The frame only: the second Tool's own regions are still the outgoing layer's
+    // until #164 to #166, each of which adds the region it moved to this list.
+    outgoing: ['[data-slot="site-header"]', '[data-slot="site-footer"]'],
     path: "/tools/image-converter",
   },
   {
@@ -245,6 +264,9 @@ const PAGES = [
     fileInput: ".cover-background-input",
     layout: true,
     name: "cover",
+    // The whole document: this page has been the incoming layer's since #132, and the
+    // frame joined it in #163.
+    outgoing: ["body"],
     path: "/tools/cover-generator",
     sections: [
       {
@@ -558,8 +580,8 @@ const DROPZONE = `(() => {
 })()`;
 
 /**
- * The outgoing layer's fingerprints on the pilot page: the class names its own
- * components carry (#132).
+ * The outgoing layer's fingerprints on the regions a page declares (#132, extended
+ * to every page by #163).
  *
  * Read off the *rendered* page rather than off the imports, because the two are not
  * the same claim. A dead import is a dead line, but a component that still renders —
@@ -568,18 +590,40 @@ const DROPZONE = `(() => {
  * to check rather than to trust. The prefix is matched on whole class names, so a
  * rename inside the library cannot make the claim pass by spelling alone.
  *
- * The scope is the page's own container (`[data-slot="tool-page"]`) rather than the
- * document: the site's header and footer are still the outgoing layer's, and this
- * ticket does not claim them. That they sit *outside* the tool page is the whole
- * reason this declaration can be as strict as it is.
+ * **The scope is declared per page, and that is the whole of #163's change to this
+ * claim.** Until then it scanned `[data-slot="tool-page"]`, because the frame and the
+ * second Tool were still the outgoing layer's and a whole-document scan would have
+ * been red by construction. A page now names the regions this round has moved on it —
+ * the frame's three anchors on the home and tool pages, the whole document where the
+ * whole document is true — and a page that names nothing is held to `body`, which is
+ * the strictest reading rather than the loosest. The list grows in the ticket that
+ * moves the next region, and it reaches `body` on a page in the ticket that makes
+ * that page true, which is how "the page is off the old layer" becomes something the
+ * Instrument reads instead of something a reader infers from the tickets.
+ *
+ * Every declared selector must match at least one element, for the reason the
+ * carriers below must: a scope that matches nothing scans nothing, and a claim that
+ * scans nothing prints the same word as a claim that found nothing.
  */
-const OUTGOING_LAYER = `(() => {
-  const scope = document.querySelector('[data-slot="tool-page"]') ?? document.body;
-  const names = [...scope.querySelectorAll('*')]
-    .flatMap((el) => String(el.className ?? '').split(/\\s+/))
-    .filter((name) => name.startsWith('mantine-'));
-  return JSON.stringify({ count: names.length, found: [...new Set(names)].slice(0, 6) });
+const readOutgoing = (selectors) => {
+  const expression = `(() => {
+  return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => {
+    const scopes = [...document.querySelectorAll(selector)];
+    const names = scopes
+      .flatMap((scope) => [...scope.querySelectorAll('*')])
+      .flatMap((el) => String(el.className ?? '').split(/\\s+/))
+      .filter((name) => name.startsWith('mantine-'));
+    return {
+      selector,
+      matched: scopes.length,
+      count: names.length,
+      found: [...new Set(names)].slice(0, 6),
+    };
+  }));
 })()`;
+  assertNoDanglingInterpolation("readOutgoing", expression);
+  return expression;
+};
 
 /**
  * The cover generator's tab row and preview, read at two scroll positions.
@@ -819,27 +863,37 @@ const CLAIMS = [
   },
   {
     name: "no-outgoing-layer",
-    about: "the pilot page renders nothing from the component layer it is leaving",
+    about: "every region a page declares renders nothing from the component layer it is leaving",
     falsification: {
       source:
-        "put one component of the outgoing layer back on the page — an injected style cannot add a class name, and a class name is what this reads",
+        "put one component of the outgoing layer back inside a declared region — an injected style cannot add a class name, and a class name is what this reads",
     },
     // Per section rather than per page, because the editor shows one panel at a time:
     // a scan of the page in whatever state the sweep happened to leave it would miss
     // a control left behind in the two panels that are not open. This way each panel
     // is opened and scanned in turn, and the shell is scanned three times over.
     per: "section",
-    only: (ctx) => ctx.page.layout === true,
-    read: (ctx) => ctx.read("outgoing", OUTGOING_LAYER),
-    judge: (outgoing) => {
-      const ok = outgoing.count === 0;
-      return [
-        {
+    // A page that declares no scope is held to `body` (`context`), so this is only
+    // ever false for a page that says so on purpose — and an empty list is that
+    // statement, not a gap.
+    only: (ctx) => ctx.outgoing.length > 0,
+    read: (ctx) => ctx.read("outgoing", readOutgoing(ctx.outgoing)),
+    judge: (read) =>
+      read.map((entry) => {
+        if (entry.matched === 0) {
+          return {
+            ok: false,
+            line: `  FAIL  nothing matches ${entry.selector} — a declaration that matches nothing guards nothing`,
+          };
+        }
+        const ok = entry.count === 0;
+        return {
           ok,
-          line: `  ${ok ? "PASS" : "FAIL"}  no element on this page carries the outgoing layer's class names — ${outgoing.count} found${ok ? "" : `: ${outgoing.found.join(", ")}`}`,
-        },
-      ];
-    },
+          line: `  ${ok ? "PASS" : "FAIL"}  ${entry.selector} renders nothing from the outgoing layer — ${entry.count} class name(s) found${
+            ok ? "" : `: ${entry.found.join(", ")}`
+          }`,
+        };
+      }),
   },
   {
     name: "section-isolation",
@@ -1166,6 +1220,10 @@ function context({ client, page, pointer, scheme, section, shape }) {
     client,
     narrow: shape.width < NARROW_BELOW,
     names: [...page.controls, ...(section?.controls ?? [])],
+    // The regions `no-outgoing-layer` scans on this page. A page that declares
+    // nothing is held to the whole document: the strictest reading is the one a
+    // silence gets, because "I did not say" is not "I claim less".
+    outgoing: page.outgoing ?? ["body"],
     page,
     pointer,
     presence: section?.presence,

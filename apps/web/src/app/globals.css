@@ -566,12 +566,15 @@
  * so the only part of the frame that belongs in the component is the width, which
  * is the part that responds. The 180px cap is inert on a wide screen, where the
  * frame is 220x165 anyway.
+ *
+ * The radius is not here: it is `rounded-md` on the element, because this rule used
+ * to read the outgoing layer's `--mantine-radius-sm` and a stylesheet that outlives
+ * the library may not name its variables (#163). The value is the same 4px.
  */
 .cover-frame {
   aspect-ratio: 4 / 3;
   background-color: var(--site-surface);
   border: 1px solid var(--site-hairline);
-  border-radius: var(--mantine-radius-sm);
   flex-shrink: 0;
   max-height: 180px;
   overflow: hidden;

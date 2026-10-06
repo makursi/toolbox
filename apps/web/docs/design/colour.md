@@ -54,7 +54,7 @@
 
 **配色只有唯一一个主人：Mantine 的配色管理器加它写在 `<html>` 上的 `data-mantine-color-scheme` 属性**（#126）。`ColorSchemeScript` 在首屏前读持久化的选择（没有选择时读操作系统，那是只有它能读的东西）并写下这个属性。**新层不另立机制**：`globals.css` 用一条 `@custom-variant dark` 把 Tailwind 的 `dark:` 变体定义在**同一个属性**上，而不是默认的 `prefers-color-scheme`，也没有 `.dark` 类、没有第二套主题库。留两套的代价不是风格问题：访客一旦手动选了与系统相反的配色，两个定义就会当场互相矛盾。
 
-`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，`variant="default"`、`size="compact-sm"`、带 `.touch-target`），**只有图标**（浅色下是月亮、深色下是太阳），图标写的是**它将要切到的模式**。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
+`ColorSchemeScript` 与 provider 都设为 `auto`：**默认跟随操作系统**。页头右侧有一个两态开关（`ThemeToggle`，带 `.touch-target`；**按钮自 #163 起是新层的 Primitive**，框是量出来的 32×26、1px 发丝边框、表面色填充、4px 圆角、14px 字——为什么不是从注册表的档位里挑的，见 `apps/web/docs/design/components.md`），**只有图标**（浅色下是月亮、深色下是太阳），图标写的是**它将要切到的模式**。**一旦点过，就不再跟随系统**，直到清除站点数据——这是知情的取舍，见 `docs/adr/0008-manual-colour-scheme-switch.md`。
 
 持久化由 Mantine 自带的 `localStorageColorSchemeManager` 完成（就是 provider 的默认值，没改一行配置），`ColorSchemeScript` 在首屏前读取它，所以没有闪白也没有 hydration 不匹配。
 
