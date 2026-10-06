@@ -359,6 +359,34 @@
 }
 
 /*
+ * A range's overlay is a marker, not a mask — and that has to be said in CSS,
+ * because the opposite was true until #172.
+ *
+ * On a range input this class is *only* the Instrument's marker: the input's own
+ * `h-11` is its 44px, and the walk reads that box rather than this pseudo-element
+ * (`apps/web/docs/design/components.md`). It was not only a marker. Chromium paints
+ * this `::after` above the UA's own slider thumb, so a finger that lands on the
+ * thumb lands on the overlay instead — and Chromium starts a range drag only when
+ * the touch hits the *thumb*: a touch on the track does nothing, while a mouse press
+ * anywhere on the track moves the value. That asymmetry is why a dead slider
+ * survived every check in this repository — the mouse path worked, the keyboard path
+ * worked, and `touch-targets.mjs` measures a control's box, not the thumb's — and it
+ * is the whole of the bug: with the overlay in the way there was nothing to drag, so
+ * the browser did the only other thing a touch can do and scrolled the page, which is
+ * exactly what the report describes.
+ *
+ * `pointer-events: none` is the whole of the repair: the overlay stops answering hit
+ * tests, so the touch reaches the UA's thumb, while the element is still the
+ * `.touch-target` the Instrument walks — `elementFromPoint` returns the input itself,
+ * which the walk counts, and the walk then reads the input's own 44px box (43 at this
+ * resolution) rather than the overlay's 46. Every other control keeps its overlay as
+ * the target; a range is the one whose platform needs the pointer on an inner element.
+ */
+input[type="range"].touch-target::after {
+  pointer-events: none;
+}
+
+/*
  * The Mantine `Button` clip override used to be here, and #166 deleted it: it existed
  * because a `Button` root carries `overflow: hidden`, which cut the 44px overlay down
  * to the button's own box — the header's colour switch measured 31x25 and 清空 45x27
@@ -477,6 +505,55 @@
     .cover-preview-pane {
       max-width: min(100%, calc(var(--cover-preview-max-height) * var(--cover-aspect)));
     }
+  }
+}
+
+/*
+ * A native range's thumb on a touch screen.
+ *
+ * The cover generator's sliders are native `input[type=range]` by decision (#128):
+ * the incoming layer's `Slider` renders its own thumb and passes it no props, so a
+ * one-value slider ships with no accessible name, while the platform takes a native
+ * range's name from the `<label for>` beside it. Native means the browser draws the
+ * thumb, and the browser's default thumb is about 16px — under the 44px this site
+ * owes a finger — so it is grown here. `appearance: none` is required on both
+ * pseudo-elements before a custom size is honoured; the two selectors cover
+ * WebKit/Blink and Firefox. The thumb reads `--site-text` (ink), the same value the
+ * elements already declare through `accent-[var(--site-text)]`, so no colour is
+ * added — the only colour on this site still carries meaning
+ * (`apps/web/docs/design/colour.md`).
+ *
+ * **What is deliberately *not* here is `touch-action: none`, and that is a decision
+ * with numbers behind it** (#172). The first attempt at this bug set it, on the
+ * theory that the page was stealing the gesture. The measurement says the page was
+ * never the problem — `.touch-target`'s overlay was, and with the overlay out of hit
+ * testing the thumb drags under the platform's own default (see the rule beside
+ * `.touch-target::after`). What the rule did buy was a dead zone: a diagonal touch
+ * that starts on the *track* — which is neither the thumb nor a drag handle — moved
+ * the page 415px with the default and 0px with the rule, and #172's own user story is
+ * that vertical scrolling keeps working outside the thumb. So it is absent, and the
+ * gate asserts both halves: the thumb drags, the track still scrolls.
+ *
+ * The rule is written against the element type rather than a class because it guards
+ * a *platform* behaviour of `input[type=range]` wherever the site uses one, and the
+ * site's own class (`.cover-field`) says "control in the cover editor", not "range".
+ */
+@layer components {
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: var(--site-text);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: 50%;
+    background-color: var(--site-text);
   }
 }
 

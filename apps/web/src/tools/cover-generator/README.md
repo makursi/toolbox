@@ -25,6 +25,8 @@ The page renders the ToolPage shell with the Tool's own title and description, a
 
 CI runs `fmt:check`, `check:readme`, `lint`, `typecheck`, `test`, `build` and `pnpm e2e`. The cover generator's behaviour gate (`e2e/cover-generator.spec.ts`) asserts the full compose-and-download flow with zero off-origin requests and zero console noise; the pure modules in `core/` are covered by `pnpm test`; everything browser-shaped is the checklist below.
 
+The touch specs (`#172`/`#175`) assert that a slider follows a finger drag without scrolling the page, and that a touch on the track — not the thumb — still scrolls it. Both are driven through Chromium's touch input channel, not a real device, so the mobile touch drag is still a hand check below, not a machine one.
+
 The instruments already cover this page: `ui-fingerprint` and `touch-targets` gained the `/tools/cover-generator` route in `PAGES`. A new fingerprint baseline is captured with `pnpm --filter @toolbox/web fingerprint capture` when the page changes, and `touch-targets` measures the page's hit areas at four widths in both schemes.
 
 ## Manual QA checklist
@@ -80,6 +82,7 @@ The instruments already cover this page: `ui-fingerprint` and `touch-targets` ga
 ### Styles (#59)
 
 - [ ] 字体大小 / 图标大小 / 图标圆角 / 间距 sliders change the preview and the export identically; 等比缩放 links them (pure `proportionalSizes`, unit-tested).
+- [ ] On a touch screen, dragging any slider thumb moves the value and does not scroll the page; vertical scrolling still works outside the slider itself (real device, not just the CI spec).
 - [ ] 颜色同步 plus 文字 / 图标 / 背景 colours: with sync on the library icon follows the text colour; a colour the visitor picks lands in the exported pixels.
 - [ ] 阴影 scope (全部 / 文字 / 图标 / 无) and colour render in both preview and export.
 
