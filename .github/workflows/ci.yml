@@ -31,19 +31,6 @@ jobs:
           runtime: node@24
           cache: true
 
-      # TEMPORARY (do not merge): oxfmt cannot run in the authoring environment
-      # (it spawns a worker the sandbox refuses), so the formatter runs here and
-      # hands the corrected file back as an artifact.
-      - name: TEMP format
-        run: |
-          pnpm exec oxfmt docs/drafts/shadcn-pilot.md || true
-          git diff --stat
-      - name: TEMP upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: formatted-draft
-          path: docs/drafts/shadcn-pilot.md
-
       # Whole-repository format check, not a Turborepo task — see ADR 0002.
       - name: Format
         run: pnpm fmt:check
