@@ -42,7 +42,7 @@ pnpm start
 ## 目录结构
 
 ```
-apps/web/     唯一的可部署物：Next.js App Router、Mantine、Tailwind CSS v4
+apps/web/     唯一的可部署物：Next.js App Router、Tailwind CSS v4，以及 src/components/ui 里一套自带的 Primitive
   src/        这个 App 本身：路由在 src/app，Tool 在 src/tools
   e2e/        门禁：站点「做什么」，Playwright，每个 PR 都跑
   scripts/    仪器：它「画成什么样」，以及真实可点区域有多大
