@@ -234,9 +234,9 @@ const PAGES = [
   {
     controls: ["切换到"],
     name: "home",
-    // The frame's three anchors, and not the hero: this page's own body is still the
-    // outgoing layer's until #167, and a scope may only claim what has moved.
-    outgoing: ['[data-slot="site-header"]', '[data-slot="site-footer"]', '[data-slot="tool-card"]'],
+    // The whole document since #167: the frame moved in #163, the cards with it, and
+    // this ticket moved the hero — so there is one layer on this page too.
+    outgoing: ["body"],
     path: "/",
   },
   {
