@@ -1,66 +1,8 @@
 #!/usr/bin/env node
+// The rules this script implements — what it reads, how a Reading is taken, what it does not read, and every exit-1 condition — are in apps/web/docs/design/instruments.md#touch-targets.
 /**
  * The touch-target instrument: the hit area of every `.touch-target` control, measured
  * in a real browser.
- *
- * `apps/web/docs/design/components.md` wants a 44px touch target, and the pre-flight
- * checklist claims no clickable control is under it at 360 / 375×667 / 390 / 768 /
- * 1024. That is a claim about the *rendered* page, so nothing short of a browser can
- * make it: `.touch-target` declares 44x44 on a pseudo-element, and a declaration
- * is not a hit area. On a Mantine `Button` the declaration was there and the hit
- * area was the button's own box, because the root clipped the overlay with
- * `overflow: hidden` — that is issue #29, and this script is what sees it.
- *
- * The method, so that the numbers mean something: walk out from the control's
- * centre one pixel at a time, asking `elementFromPoint` at each step, and stop
- * when either side stops answering. A 44px overlay reads 43, because 44 whole
- * pixels hold 43 interior sample points. The centre it walks out from is the real
- * one rather than a rounded one, so a control sitting at a fractional offset is
- * not reported smaller than it is — the walk requires both sides, which turns half
- * a pixel of bias into two or three pixels of apparent loss (#91). Requiring *both*
- * sides is deliberate: it also catches a target that grew into a neighbour, which
- * is the other way this fails.
- *
- * What it deliberately does not cover: anything that is not hit-testing — the
- * keyboard, focus order, the drawing. Those keep the one-off scripts and
- * `ui-fingerprint.mjs` (which answers "did anything move", not "is this big
- * enough"). The three controls the checklist needs a file for (清空 and a row's
- * remove cross, and the cover generator's 清除) get one through CDP, the
- * technique `apps/web/docs/design/log.md` already records.
- *
- * Four things about the reading itself, so that a number can be read without
- * reverse-engineering the walk. The walk stops at 120 steps each way, so a control
- * larger than 241px on an axis reads as 241 — far past the threshold this exists
- * for. A point counts as a hit when `elementFromPoint` returns the control **or
- * anything inside it**, which is deliberate: a target that grew over a neighbour
- * fails here rather than passing. A control is landed on whole pixels before it is
- * measured, because the walk answers in whole pixels while a row's top is a
- * fraction (#91). And horizontal overflow is read from the page's own
- * `documentElement`: a nested scroller is not searched, because a legitimately
- * scrollable list would then be reported as a defect.
- *
- * It grew more claims, all about the rendered page and none of them about a hit
- * area: every page names the controls it has to carry (#81 — a floor on the count
- * cannot tell 清除 from the ~50 icon rows that arrive on their own), the cover
- * generator's canvas column has to sit on the side of the breakpoint its layout
- * rule names (#80 — an `order` swap moves what a visitor sees without moving the
- * DOM, resizing anything or overflowing), and that page's preview has to stay
- * within the share of a short viewport its rule allows (#90 — a cap that is
- * silently removed would otherwise be invisible to every check here).
- *
- * Since #84 each width is measured on the desktop pointer first, and the narrow
- * widths again as a phone (`hover: none`): the site keeps 窄屏 and 触屏 apart, the
- * touch branch is allowed to grow a control, so the narrow *window* is the strict
- * case and the phone is the one no other check looks at. Waits are for React's own
- * hydration signal rather than for a sleep — and, since #135, for the page to stop
- * changing, which is the third half of the shared navigation and not this script's
- * (`cdp.mjs`): a control in the prerendered HTML
- * looks hydrated, and a click or a file dropped on it is silently lost.
- *
- * Every guarded property is a named **claim** (#98): a unit with its own reading,
- * its own predicate and the lines it prints, walked from `CLAIMS` below. Naming
- * them is what lets `--falsify` re-run a guard on a page it has just broken, rather
- * than writing a second version of the guard to test the first.
  *
  * Usage — Chrome has to be running already, because launching it is the part that
  * differs per machine:
@@ -78,58 +20,12 @@
  * command's *text* has a fourth copy, in `cdp.mjs`, where a browser that has gone is
  * reported — a failure nobody can act on is not worth printing (#99).
  *
- * `--falsify` is the in-place falsification run (#100): after a green pass it breaks
- * each geometry property the claims below guard, one at a time, by injecting a style
- * into the live page, re-runs **that claim** and requires it to go red. An injection
- * that leaves its claim green exits 1 — an injection that changes nothing proves
- * nothing. The injection is reliable because it is **unlayered**: this repository's
- * layer order is `theme → base → components → utilities` (declared at the top of
- * `apps/web/src/app/globals.css`; it had a fourth name in the middle until #168 took
- * the outgoing library out) and an unlayered rule outranks every layer, so an injected
- * rule wins whatever the stylesheet says.
- *
- * What `--falsify` cannot prove: anything structural or behavioural. Whether an
- * unpicked panel is still mounted, whether the chosen section is written to the URL,
- * the keyboard model — those are React props and event handlers rather than computed
- * styles, so the only place to inject them is the source, on CI (prior art: putting
- * `keepMounted` back and watching the gate's new assertion go red, PR #94). It proves
- * the claims it names and nothing else: a page line it does not mention is untouched
- * by the run.
- *
- * Since #109 every claim declares how it is shown to fail — `falsification` on the
- * claim: an injection entry in the list, or a named source route for a property no
- * style can break (a class, a mounted panel). A claim that declares neither fails the
- * run before a browser is asked for, the roster of routes is printed first so that
- * "proven by injection" is never a guess, and the whole mode runs in CI on the same
- * build and the same browser as the sweep: a guard that can no longer go red is a
- * guard that has stopped guarding.
- *
- * `CDP_PORT` overrides the debugging port. Exit code is 1 when a control probes
- * under 43, when a control the page says it must carry is missing, when a control
- * matching a declared selector has lost the hit-area class, when a control or a
- * panel another section owns is on the page while a section is open — or when a
- * section's own panel is not — when the cover
- * generator's two columns are on the wrong side of the breakpoint, when its preview
- * is taller than the share its rule allows or no longer fills its column, when its
- * tab row has scrolled away, or on horizontal overflow — and, under `--falsify`,
- * when an injection fails to turn its claim red or when any claim declares no way to
- * go red at all — so it gates a shell chain.
+ * `CDP_PORT` overrides the debugging port.
  */
 import { fileURLToPath } from "node:url";
 
 import { connect } from "./cdp.mjs";
 
-/**
- * The viewports this instrument measures: the four widths the pre-flight checklist
- * names, plus the phone the owner actually holds — each with the height it is
- * measured at (#89).
- *
- * 900 was the only height for as long as this script existed, because only the
- * width was ever under test. A symptom that a *short* screen produces and a tall
- * one hides — the cover generator's pinned preview eating half the viewport — is
- * invisible at 900, so the height became part of the case. 375×667 is the iPhone
- * SE: a width no check covered and a height no check had ever used.
- */
 const CASES = [
   { height: 900, width: 360 },
   { height: 667, width: 375 },
@@ -182,30 +78,10 @@ const SCHEMES = ["light", "dark"];
 /** The probe's resolution: a 44px span reads 43. */
 const MIN = 43;
 
-/**
- * The cover generator's narrow-screen preview cap, as a share of the viewport
- * height (#90). Repeated here rather than read back out of the stylesheet on
- * purpose: a guard that follows the implementation it guards cannot fail. The rule
- * and its reasoning are the Tool's own (`src/tools/cover-generator/rules.md`); the
- * number in the stylesheet is `.cover-preview-pane`.
- */
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
  * The four pages, and the controls each one has to carry **by name**.
- *
- * A floor on the count cannot carry this: the cover page renders ~50 icon result
- * rows the moment the lucide chunk lands, and 获取系统字体 carries the class too,
- * so "at least 4" was already true with no background image and no 清除 — the
- * control the file is dropped for was the one control the check could not miss
- * (#81). Every name below is awaited before the measurement, so a control that
- * never renders fails as a missing name rather than leaving the report quietly.
- *
- * The 404 page is the fourth, and it is not a Tool's: it is the frame's own page,
- * added by #161 before the frame moved. It carries the header's scheme switch and
- * one control of its own, the way home — a control that had never been measured
- * because this page had no declaration in either Instrument. Its path is a URL
- * nothing serves on purpose: Next renders this page for any miss.
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; `layout` asks for the cover generator's two-column
@@ -361,13 +237,6 @@ const PAGES = [
   },
 ];
 
-/**
- * A file for the controls that only exist once something has been dropped: 清空
- * and a row's remove cross in the Image Converter, and the cover generator's 清除,
- * which arrives with a background image (the Dropzone takes `image/*`). The Tool's
- * own cover is a real JPEG, so no fixture has to be committed and no encoder has
- * to live in this script; the file is never converted, only queued.
- */
 const FIXTURE = fileURLToPath(
   new URL("../public/tools/image-converter/cover.jpg", import.meta.url),
 );
@@ -582,26 +451,6 @@ const LAYOUT = `(() => {
   });
 })()`;
 
-/**
- * The cover generator's background drop zone, read as the one thing a pointer
- * changes about it (#130).
- *
- * The site already decided this shape for the Image Converter's drop zone
- * (`apps/web/src/app/globals.css`): with a pointer the dashed box is the drop target
- * and the hint says so, and on a touch pointer there is nothing to drag with, so the
- * box and its hint go and the file button inside is the whole of "add files", grown
- * to a thumb target. Two of those are drawing rather than hit areas — a border and a
- * `display` — so they are read here rather than inferred from the button's size, and
- * the button's own thumb size is the `hit-areas` claim's business in the same pass.
- *
- * **The pointer is read off the page, not off the pass.** Which of the two shapes is
- * right is the *environment's* answer, and a runner without a mouse answers "none":
- * the first CI run of this claim (2026-10-05) reported the touch shape on the desktop
- * pass at every width, because Chromium takes `hover` and `pointer` from the platform
- * and that platform has neither. `matchMedia` is therefore part of the reading and the
- * judgement follows it, so the claim says what the page does with the pointer it has
- * rather than what this file assumed the pass meant.
- */
 const DROPZONE = `(() => {
   const box = document.querySelector('.cover-dropzone');
   if (box === null) return JSON.stringify({ missing: true });
@@ -617,32 +466,6 @@ const DROPZONE = `(() => {
   });
 })()`;
 
-/**
- * The outgoing layer's fingerprints on the regions a page declares (#132, extended
- * to every page by #163).
- *
- * Read off the *rendered* page rather than off the imports, because the two are not
- * the same claim. A dead import is a dead line, but a component that still renders —
- * from a shared component, a provider, or one control a batch forgot — is exactly
- * what "every batch landed" cannot see, and the batches are what this ticket exists
- * to check rather than to trust. The prefix is matched on whole class names, so a
- * rename inside the library cannot make the claim pass by spelling alone.
- *
- * **The scope is declared per page, and that is the whole of #163's change to this
- * claim.** Until then it scanned `[data-slot="tool-page"]`, because the frame and the
- * second Tool were still the outgoing layer's and a whole-document scan would have
- * been red by construction. A page now names the regions this round has moved on it —
- * the frame's three anchors on the home and tool pages, the whole document where the
- * whole document is true — and a page that names nothing is held to `body`, which is
- * the strictest reading rather than the loosest. The list grows in the ticket that
- * moves the next region, and it reaches `body` on a page in the ticket that makes
- * that page true, which is how "the page is off the old layer" becomes something the
- * Instrument reads instead of something a reader infers from the tickets.
- *
- * Every declared selector must match at least one element, for the reason the
- * carriers below must: a scope that matches nothing scans nothing, and a claim that
- * scans nothing prints the same word as a claim that found nothing.
- */
 const readOutgoing = (selectors) => {
   const expression = `(() => {
   return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => {
@@ -663,16 +486,6 @@ const readOutgoing = (selectors) => {
   return expression;
 };
 
-/**
- * The cover generator's tab row and preview, read at two scroll positions.
- *
- * The row pins below the preview (#92), and "pinned" is a claim about the rendered
- * page rather than about a rule in a stylesheet. Halfway down the page is where that
- * claim is actually testable: the preview is on screen there if it is pinned at all,
- * and it is where a row offset that ignored the preview would overlap it. Reading
- * only at the end of the page proves nothing about the overlap — by then the
- * preview is far above the row whatever the offset is.
- */
 const STICKY = `(() => {
   // The row's own anchor rather than the outgoing library's class name: since #117
   // the tab row is the incoming layer's, and data-slot is the name that survived the
@@ -714,30 +527,7 @@ function report(line) {
   console.log(line);
 }
 
-/**
- * Run one Batch on the page, so that the claims can read the state its results live
- * in (#166).
- *
- * It presses the page's own 转换 button with a **pointer sequence** rather than a
- * lone `click()` — the incoming layer's buttons act on `mousedown`, which is the
- * same finding `clickByText` records — and then waits for the transition that says
- * the Batch produced something: a download link. Waiting for the *presence* of a
- * result is deliberate; the failure mode this file already knows about is waiting for
- * an absence, which passes before React has rendered anything at all.
- *
- * One target is enough: WebP is the format a fresh page already has on, so one file
- * in is one file out, and what this is for is the state — the results, the progress
- * line, the download links — not the codecs, which are the gate's to assert.
- */
 async function convertOnce(client) {
-  /*
-   * First the transition that says the file has arrived: the 转换 button is disabled
-   * until something is queued and a target format is on, so waiting for it to be
-   * *enabled* is waiting for the state rather than for a sleep. Pressing it too early
-   * is silent — the button is disabled, the click does nothing, and the failure reads
-   * twenty seconds later as "the Batch never produced a download link", which names
-   * the wrong thing.
-   */
   for (let attempt = 0; attempt < 40; attempt++) {
     const ready = await client.evaluate(`(() => {
       const button = [...document.querySelectorAll('button')].find((el) =>
@@ -789,21 +579,6 @@ async function waitForControls(client, names) {
   }
 }
 
-/**
- * Click the element whose own text is exactly `text`, among those matching
- * `selector`, and say whether one was there.
- *
- * One expression, because the two callers below both want the same thing from
- * controls whose visible text is the whole of what names them.
- *
- * It sends a **pointer sequence** rather than a lone `click()` event. The outgoing
- * component layer's controls answered `click`, and a programmatic one was enough
- * to open a section; the incoming layer's tab and toggle act on `mousedown`, so a
- * lone `click` left the row looking untouched and the sweep failed with "the 样式
- * tab never came to be selected" (#117). `mousedown`, `mouseup` and `click` is what
- * a pointer sends, and both layers answer it — so this is a re-derivation of how a
- * section is opened, not a workaround for one layer.
- */
 async function clickByText(client, selector, text) {
   return client.evaluate(`(() => {
     const target = [...document.querySelectorAll(${JSON.stringify(selector)})].find(
@@ -1581,13 +1356,6 @@ const FALSIFY_PAGE = "cover";
 
 /**
  * Put one rule in the live page, unlayered, and hand back the undo.
- *
- * Unlayered is what makes this reliable: every rule this site writes lives in one of
- * `theme`/`base`/`components`/`utilities` (declared at the top of
- * `apps/web/src/app/globals.css` — `mantine` was the fourth until #168), an unlayered
- * rule outranks all of them, and a `<style>` appended at runtime is unlayered by
- * definition. So the injection wins on layer order alone, with no `!important` and no
- * specificity contest to keep in step with the stylesheet it is breaking.
  *
  * The element is removed again rather than overridden, so the next entry starts from
  * the page as shipped.

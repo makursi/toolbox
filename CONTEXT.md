@@ -44,6 +44,10 @@ _Avoid_: app, repo
 Code that measures the rendered page and reports numbers: what is drawn where, and how big a hit area really is. Some instruments read the same page twice on one machine and compare the two readings; others read it at several widths and colour schemes and hold a threshold. An instrument **reaches the state it measures** where a region only exists in that state — dropping a file, pressing the page's own action. The numbers are the output.
 _Avoid_: checker, browser test, snapshot test — and "probe" as a name for the Instrument: to probe a point, or to check that the browser is still there, is what the word is for
 
+**Reading**:
+One number an Instrument takes off the rendered page, together with how it was sampled and what caps it: the walk's resolution (a 44px span reads 43, because 44 whole pixels hold 43 interior sample points), the cap (120 steps each way, so a wider control reads 241), and which pointer branch took it. It is one of a Claim's three parts, and its sampling is not an implementation detail — a number read without it is not the same word.
+_Avoid_: measurement (that is the act, not the number), metric, score, result
+
 **Gate**:
 A check that asserts what the site does and whose failure blocks a pull request. It runs unattended, on every change, against the build that ships. A finding that is only written down in prose — however many times it has been reproduced by hand — is not one yet.
 _Avoid_: test, CI check, regression suite
