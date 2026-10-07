@@ -348,7 +348,35 @@ test.describe("the cover generator", () => {
     page,
     context,
   }) => {
+    /*
+     * The grant comes before the page, and it is read back from the page before the
+     * button is pressed (#171).
+     *
+     * With the permission withheld — or not yet in effect — `queryLocalFonts()` never
+     * settles in headless Chrome, because there is no prompt to answer: measured on
+     * 2026-10-07, the withheld path left the control disabled for 30s with none of the
+     * three sentences on the page, while the granted path landed the list in 104–130ms.
+     * So a run whose grant missed the page fails as "the picker never enabled", which
+     * says nothing about why — the shape this test failed with five times in about
+     * fifteen runs on 2026-10-06. Reading the page's own permission state separates the
+     * two, and it is a check that can see its own subject.
+     */
+    await context.grantPermissions(["local-fonts"]);
     await open(page, COVER_PATH);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          navigator.permissions
+            // The DOM lib's `PermissionName` union does not carry `local-fonts` yet —
+            // the browser does, and this reads it back — so the cast is the assertion
+            // the types force. Rule off for this line, with the reason, rather than a
+            // reading that no longer says what it read.
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the union lags the browser
+            .query({ name: "local-fonts" as PermissionName })
+            .then((status) => status.state),
+        ),
+      )
+      .toBe("granted");
 
     // Since #130 the picker is the registry's own searchable list: a read-only input
     // that opens a `Command` of filtered families. Its name is the `<label for>` the
@@ -362,7 +390,6 @@ test.describe("the cover generator", () => {
     // column's 320px, which the wording was shortened to fit.
     await expect(page.getByText("还没读取系统字体，先按「获取系统字体」。")).toBeVisible();
 
-    await context.grantPermissions(["local-fonts"]);
     await page.getByRole("button", { name: "获取系统字体" }).click();
     await expect(picker).toBeEnabled();
 
