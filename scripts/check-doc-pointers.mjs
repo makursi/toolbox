@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 /**
  * Each instrument under `apps/web/scripts/` keeps one pointer line at the top of
- * its file, naming the Design doc module that owns its rules —
- * `apps/web/docs/design/instruments.md` today. The pointer is what a reader of a
- * 1800-line script is left with, and a pointer is exactly the kind of sentence
- * that rots: a script is renamed, or the module moves, and nothing says so.
+ * its file, naming the Design doc module that owns its rules (`rulesModule`
+ * below). The pointer is what a reader of a 1800-line script is left with, and a
+ * pointer is exactly the kind of sentence that rots: a script is renamed, or the
+ * module moves, and nothing says so.
+ *
+ * The pointer is pinned: it is the first comment line after the shebang, and it
+ * names the module. Nothing further down counts, however many documents it cites
+ * — otherwise a header citing the log or an ADR would be read as the pointer and
+ * the real one below it would go unchecked.
  *
  * This reads both directions of that pair, once per script:
  *
+ *   - the pointer names the module, so a pointer naming something else — an older
+ *     module, a citation — is a failure rather than a wrong answer;
  *   - the pointer names a document that exists, so a rename or a delete is a
  *     failure rather than a dangling path;
  *   - that document names the script's own file name, so a script that arrives
@@ -36,18 +43,27 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const instrumentsDirectory = "apps/web/scripts";
 
 /**
- * The pointer is the first comment line in the file's leading block that names a
- * markdown document. Only the leading block is read: the headers below it cite
- * the log and the ADRs too, and a citation is not a pointer.
+ * The one module that owns every instrument's rules. Renaming or moving it is a
+ * change to this line and to the four pointers that name it — nothing else in the
+ * tree is asked to find them.
+ */
+const rulesModule = "apps/web/docs/design/instruments.md";
+
+/**
+ * The pointer is the first comment line after the shebang: the first line that is
+ * neither the shebang nor blank, which has to be a comment naming a markdown
+ * document. Nothing below it counts, however many documents those lines name —
+ * the headers further down cite the log and the ADRs too, and a citation is not a
+ * pointer.
  */
 function pointerOf(source) {
   const lines = source.split("\n");
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index].trim();
     if (line === "" || line.startsWith("#!")) continue;
-    if (!line.startsWith("//")) break;
+    if (!line.startsWith("//")) return null;
     const match = /([\w./-]+\.md)(#[\w-]+)?/.exec(line);
-    if (match !== null) return { document: match[1], line: index + 1 };
+    return match === null ? null : { document: match[1], line: index + 1 };
   }
   return null;
 }
@@ -78,6 +94,12 @@ function audit(scripts, read) {
     const document = read(pointer.document);
     if (document === undefined) {
       problems.push(`${file} points at ${pointer.document}, which does not exist`);
+      continue;
+    }
+    if (pointer.document !== rulesModule) {
+      problems.push(
+        `${file} points at ${pointer.document}, not at ${rulesModule} — the pointer names the module that owns the rules`,
+      );
       continue;
     }
     if (!document.includes(script.name)) {

@@ -116,8 +116,7 @@ jobs:
           kill -0 "$BROWSER" 2>/dev/null || { echo "the browser's launcher is gone; the debugging port answered, continuing"; cat "$RUNNER_TEMP/chrome.log"; }
           pnpm --filter @toolbox/web touch-targets "http://127.0.0.1:$PORT"
           # The Instrument's own guards, on the same build and the same browser: five
-          # entries, five page loads, one green pass each. It exits 1 when an injection
-          # leaves its claim green or when a claim declares no way to go red at all —
-          # a guard that can no longer fail is a guard that has stopped guarding
-          # (#109, apps/web/docs/design/log.md item 3).
+          # entries, five page loads, one green pass each — a guard that can no longer
+          # fail is a guard that has stopped guarding (#109). What it exits 1 on is
+          # stated once, in apps/web/docs/design/instruments.md.
           pnpm --filter @toolbox/web touch-targets --falsify "http://127.0.0.1:$PORT"

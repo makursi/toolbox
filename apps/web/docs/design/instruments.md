@@ -2,9 +2,9 @@
 
 > **管什么**：两个量具各自读什么、一次读数怎么取出来、以及它们共用的那层连接。**和它一起读**：`apps/web/docs/design/components.md`（44px 那条规则与它的例外）、`apps/web/docs/design/checklist.md`（合并前要跑的那一遍）、`docs/adr/0012-playwright-for-the-browser-gate.md`（量具与门禁的分工）、`docs/adr/0015-the-shared-connection-layer-owns-the-navigation.md`（共享连接层的边界）。
 
-**量具（Instrument）是 `apps/web/scripts/` 里的 `node:` 脚本**：连上一个已经在跑的 Chrome，把渲染出来的页面读成数字；代码在那三个文件里，规则在本文件。`touch-targets` 与 `ui-fingerprint` 两节各自写全了它读什么、一次读数怎么取、它刻意不读什么，以及退出码 1 的条件（后者不进 CI）；`cdp` 一节写全两个量具共用的那层连接；每个具名 **Claim** 自己的话（它的 `about`、它的证伪路线、它印的行）跟着名册留在脚本里。两个量具共用的读数语义在下一节。
+**量具（Instrument）是 `apps/web/scripts/` 里的 `node:` 脚本**：连上一个已经在跑的 Chrome，把渲染出来的页面读成数字；代码在那四个文件里（`touch-targets.mjs`、`ui-fingerprint.mjs`、`cdp.mjs`、`cdp-response.mjs`），规则在本文件。`touch-targets` 与 `ui-fingerprint` 两节各自写全了它读什么、一次读数怎么取、它刻意不读什么，以及退出码 1 的条件（后者不进 CI）；`cdp` 一节写全两个量具共用的那层连接；每个具名 **Claim** 自己的话（它的 `about`、它的证伪路线、它印的行）跟着名册留在脚本里。两个量具共用的读数语义在下一节。
 
-**不归本文件**：44px 规则归 `apps/web/docs/design/components.md`；层顺序归 `apps/web/docs/design/checklist.md`；一个 Tool 自己的规则归它的 `rules.md`；量具与门禁谁断言什么归 `docs/adr/0012-playwright-for-the-browser-gate.md`。**用法也不在这里**（命令行、以及它要的那个已经跑着的 Chrome）：那待在每个脚本的头注释里，跑的地方就是查到它的地方。
+**不归本文件**：44px 规则归 `apps/web/docs/design/components.md`；层顺序归 `apps/web/docs/design/checklist.md`；一个 Tool 自己的规则归 `src/tools/<slug>/rules.md`；量具与门禁谁断言什么归 `docs/adr/0012-playwright-for-the-browser-gate.md`。**用法也不在这里**（命令行、以及它要的那个已经跑着的 Chrome）：那待在每个脚本的头注释里，跑的地方就是查到它的地方。
 
 ## 读数的语义
 
