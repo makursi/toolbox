@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream";
 
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
 
 import { open } from "./tool-page";
 
@@ -207,6 +207,136 @@ test.describe("the cover generator", () => {
   });
 
   /*
+   * #172: a slider answers a touch drag, not only the keyboard.
+   *
+   * What was wrong was not the gesture but the target: `.touch-target`'s overlay is
+   * painted above the UA's own thumb, and Chromium starts a range drag only when the
+   * touch hits the *thumb* — a touch on the track does nothing, while a mouse press on
+   * the track moves the value, which is the asymmetry that hid this. With the overlay
+   * in the way there was nothing to drag, so the browser scrolled the page instead:
+   * the report's symptom. `globals.css` takes the overlay out of hit testing, and
+   * *deliberately* leaves `touch-action` alone — the first attempt at this bug set
+   * `touch-action: none` on the element, which was not what restored the drag (this
+   * spec is green without it) and cost the visitor the ability to scroll over the
+   * slider's own track (415px of scroll became 0). Both halves are asserted below.
+   *
+   * The drag is driven at coordinates through real touch events, the way the switch
+   * test above drives a pointer press: Playwright's `touchscreen` only exposes `tap`,
+   * so the move between the press and the release is sent through the CDP
+   * `Input.dispatchTouchEvent` channel the tap itself uses — the same browser input
+   * pipeline a finger reaches, which is what moves a *native* thumb where a synthetic
+   * DOM event would not. The release point is asserted to stay inside the viewport
+   * for the same reason the switch's point is: a touch that lands nowhere is dropped,
+   * not failed.
+   */
+  test.describe("on a touch screen", () => {
+    test.use({ hasTouch: true, viewport: { width: 375, height: 667 } });
+
+    test("a slider follows a touch drag without scrolling the page", async ({ page }) => {
+      test.skip(
+        page.context().browser()?.browserType().name() !== "chromium",
+        "the touch drag is sent through the Chromium CDP input channel",
+      );
+
+      await open(page, COVER_PATH);
+      await showSection(page, "样式");
+
+      // 字体大小: 16–256, starting at 64 — the value the drag must move off.
+      const slider = page.getByRole("slider", { name: "字体大小" });
+      await expect(slider).toHaveValue("64");
+
+      await slider.scrollIntoViewIfNeeded();
+      const box = await slider.boundingBox();
+      if (box === null) throw new Error("the 字体大小 slider has no geometry to drag");
+
+      // The press has to land on the thumb, and the thumb is not at the value's share
+      // of the box: the browser keeps the whole thumb on the track, so its centre is
+      // inset by half the thumb's own width at each end — 12px of the 24 this site
+      // draws (`globals.css`) — and then takes the value's share of what is left. 64
+      // of 16–256 is 20%. Pressing at 20% of the box misses the thumb by 7px at this
+      // width, which is why the inset is derived rather than assumed.
+      const THUMB = 24;
+      const start = {
+        x: box.x + THUMB / 2 + 0.2 * (box.width - THUMB),
+        y: box.y + box.height / 2,
+      };
+      // Diagonal on purpose: a finger is never exactly horizontal, and the vertical
+      // component is what let a scroll steal the gesture in the report.
+      const end = { x: start.x + 80, y: start.y - 60 };
+      const viewport = page.viewportSize();
+      if (
+        viewport !== null &&
+        (end.x < 0 || end.y < 0 || end.x >= viewport.width || end.y >= viewport.height)
+      ) {
+        throw new Error(
+          `the drag ends at ${Math.round(end.x)},${Math.round(end.y)}, outside the ${viewport.width}×${viewport.height} viewport — a touch there would be dropped, not failed`,
+        );
+      }
+
+      // The scroll position the drag must not move: the slider was scrolled into
+      // view above, and `scrollIntoViewIfNeeded` may itself scroll the page, so
+      // "no scroll" means "unchanged by the drag", not "at the very top".
+      const scrollYBefore = await page.evaluate(() => window.scrollY);
+
+      const session = await page.context().newCDPSession(page);
+      await touchDrag(session, start, end);
+
+      await expect(slider).not.toHaveValue("64");
+      await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(scrollYBefore);
+    });
+
+    /*
+     * The other half of the rule, and the half `touch-action: none` would have taken
+     * away: a touch that starts on the track — not the thumb, and not a drag handle —
+     * is the page's to use, so it scrolls. #172's fourth user story says exactly that,
+     * and the first attempt at the fix broke it: with `touch-action: none` on the
+     * element, the same gesture moved the page 0px instead of 415.
+     */
+    test("a touch on the track still scrolls the page", async ({ page }) => {
+      test.skip(
+        page.context().browser()?.browserType().name() !== "chromium",
+        "the touch drag is sent through the Chromium CDP input channel",
+      );
+
+      await open(page, COVER_PATH);
+      await showSection(page, "样式");
+
+      const slider = page.getByRole("slider", { name: "字体大小" });
+      await slider.scrollIntoViewIfNeeded();
+      const box = await slider.boundingBox();
+      if (box === null) throw new Error("the 字体大小 slider has no geometry to scroll from");
+
+      // The far end of the track: 64 of 16–256 puts the thumb at 20%, so the last
+      // 12px before the input's edge is track and nothing else.
+      const start = { x: box.x + box.width - 12, y: box.y + box.height / 2 };
+      const end = { x: start.x - 20, y: start.y - 120 };
+      const viewport = page.viewportSize();
+      if (
+        viewport !== null &&
+        (end.x < 0 || end.y < 0 || end.x >= viewport.width || end.y >= viewport.height)
+      ) {
+        throw new Error(
+          `the drag ends at ${Math.round(end.x)},${Math.round(end.y)}, outside the ${viewport.width}×${viewport.height} viewport — a touch there would be dropped, not failed`,
+        );
+      }
+
+      const scrollYBefore = await page.evaluate(() => window.scrollY);
+
+      const session = await page.context().newCDPSession(page);
+      await touchDrag(session, start, end);
+
+      // A finger dragged up moves the page down, and at this width the page has
+      // content below the settings panel. The track answers the press itself — the
+      // platform moves the thumb to where it was touched, the same as a mouse press —
+      // but the *gesture* is still the page's, which is what `touch-action: none` took
+      // away and what this asserts.
+      await expect
+        .poll(async () => page.evaluate(() => window.scrollY))
+        .toBeGreaterThan(scrollYBefore);
+    });
+  });
+
+  /*
    * #78: the picker is disabled until 获取系统字体 is pressed, and reading the
    * machine's fonts needs a permission this browser has to be granted — the one
    * thing the gate can arrange and a visitor cannot. Without the grant the
@@ -386,4 +516,44 @@ async function readPngHeader(stream: Readable) {
  */
 async function showSection(page: Page, name: "内容" | "样式" | "导出") {
   await page.getByRole("tab", { name }).click();
+}
+
+/**
+ * Drag a finger from `start` to `end` through the browser's touch input channel.
+ *
+ * Playwright's public touchscreen exposes only `tap`, so the move a drag needs is
+ * sent over the same CDP `Input.dispatchTouchEvent` channel the tap uses — a
+ * `touchStart` at the press point, a few interpolated `touchMove`s along the way,
+ * and a `touchEnd` at the release. That channel is what reaches a native
+ * `input[type=range]` thumb, where a synthetic DOM event dispatched on the element
+ * would fire its listeners but never move the browser-drawn control.
+ *
+ * The few moves rather than one matter: the native slider samples the drag as it
+ * goes, and a single jump reads as a tap at the release point, not a drag.
+ */
+async function touchDrag(
+  session: CDPSession,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): Promise<void> {
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: start.x, y: start.y }],
+  });
+  for (const step of [1, 2, 3, 4]) {
+    const fraction = step / 4;
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        {
+          x: start.x + (end.x - start.x) * fraction,
+          y: start.y + (end.y - start.y) * fraction,
+        },
+      ],
+    });
+  }
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
 }
