@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   check:
-    name: format, readme, lint, types, test, build, e2e, hit areas
+    name: format, docs, lint, types, test, build, e2e, hit areas
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -36,9 +36,15 @@ jobs:
         run: pnpm fmt:check
 
       # One README in two languages, compared structurally — the script explains
-      # what it does read and what it deliberately does not.
-      - name: README
-        run: pnpm check:readme
+      # what it does read and what it deliberately does not. Then the instruments'
+      # pointers, both directions, and their own falsification run: a script with
+      # no section, or a section whose document moved, fails here rather than
+      # going quiet in review.
+      - name: Docs
+        run: |
+          pnpm check:readme
+          pnpm check:docs
+          pnpm check:docs --falsify
 
       - name: Lint
         run: pnpm lint
