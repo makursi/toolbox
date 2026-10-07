@@ -1,99 +1,8 @@
 #!/usr/bin/env node
+// The rules this script implements — what it reads, how a Reading is taken, what it does not read, and what makes it exit 1 — are in apps/web/docs/design/instruments.md#ui-fingerprint.
 /**
  * The UI fingerprint: a structural snapshot of the pages, and a comparison of
  * two of them.
- *
- * This exists because "nothing changed" is the one claim a refactor makes and
- * the one no other check in this repo can test. `pnpm test` covers the pure
- * modules, `tsc` covers the types, the build covers that it compiles — none of
- * them notice that a component moved and now renders a wrapper element, or that
- * a cover frame lost its width at one breakpoint. So: capture the pages at five
- * widths in both colour schemes before the change, capture them again after, and
- * compare.
- *
- * **What it compares (#124, re-armed by #133).** Geometry — an outline of our own
- * anchored regions, each with its box and its own text — plus the page's text, its
- * link targets and its horizontal overflow, and a list of computed-style properties
- * off every match of every anchor: layout, colour, typography and radius. Nothing it
- * reads is the outgoing component library's: no `mantine-*` name and no
- * content-hashed `m_*` class appears in a reading, because a change of component
- * layer moves every one of them *by construction*, and an instrument addressed to
- * the library cannot be the safety net for the change that removes it. That is also
- * why the outline stopped printing tag names: who renders the element is exactly
- * what is changing.
- *
- * **The narrowing, and its end.** #124 took colour, typography and radius out for
- * the length of the pilot: the incoming layer brings its own palette, its own type
- * scale and its own corner radii, so keeping them in would have turned this into a
- * machine for printing differences nobody will read. That was right while the
- * language was in flight and wrong the moment it settled — an instrument that
- * ignores colour cannot notice a colour that moved by accident — so #133 puts them
- * back, addressed through the same anchors, and **re-baselines**: the baseline
- * captured before the migration describes the old design, and comparing against it
- * would now report differences that are all intended. The new baseline is a
- * capture of the settled pilot page; `apps/web/docs/design/log.md` records that it
- * moved, why, and what it therefore can no longer tell anyone — anything about the
- * state the site was in before that capture.
- *
- * What the re-armed comparison still does not see is the same list it never saw,
- * kept here rather than dropped: see "what it deliberately does not cover" below,
- * and the fixed attribute list the outline reads.
- *
- * **The anchors, and the one rule that matters most.** Each page declares the
- * anchors it must carry **by name** — a `data-slot` attribute on our own
- * components, the same convention the incoming layer stamps on everything it
- * renders, so the two ends of the migration need no translation table. Every
- * declared anchor is read, and one that matches **zero elements fails the run**,
- * on the capture and on the comparison both. A selector matching nothing guards
- * nothing, and without that rule "nothing moved" and "nothing was measured" print
- * the same word. An anchor the page carries but no declaration names is still
- * visible in the outline — the walk finds every `data-slot` — so a stray one is a
- * difference rather than a silence.
- *
- * **A page may declare the file it is measured with** (`fileInput`, #165) **and the
- * Batch it runs** (`convert`, #166). Some regions only exist after something has been
- * dropped or converted — the second Tool's file list, its outputs — and an anchor the
- * captured state cannot carry fails the run, so the choice is between measuring those
- * regions and declaring nothing about them. The file goes in after the navigation has
- * settled, the page is settled again before anything is read, and the conversion is
- * driven the way the hit-area Instrument drives it (the page's own 转换 button, then a
- * wait for the first download link). Both halves of the file's half are the connection
- * layer's; the press is each Instrument's own, which is the part ADR-0015 leaves
- * unshared. This is coverage extended, not a second definition of "ready to measure".
- *
- * What it deliberately does not cover: end-to-end behaviour (a real file going
- * through a real Worker), console errors, and anything a keyboard or a pointer
- * does. `touch-targets.mjs` is the sibling that does measure one pointer
- * property — the hit area of every `.touch-target` control; the rest were
- * separate one-off scripts, and `apps/web/docs/design/log.md` records what they
- * found.
- *
- * One limit is written down here so that "identical" is never read as "nothing
- * could have changed": the outline reads a fixed list of attributes, so a control
- * that swaps one attribute for another with the same computed effect is invisible
- * unless it moves something.
- *
- * **A reading is taken on a page that has stopped changing** (#135, measured
- * 2026-10-05), because the first one after a navigation was not. Three things
- * arrive after the connection layer has said the navigation landed, and each of
- * them changed what the outline read: the `.reveal` entrance animation is a 12px
- * translate over 600ms, a page that lazily imports something grows when the chunk
- * lands (the cover generator's 50 icon rows are 236px of page), and Next appends
- * its route announcer element on its own schedule — mounting nothing and fetching
- * nothing, which is why it has no cheaper signal than a DOM mutation count.
- * Measured on one unchanged build in one unchanged browser, two runs of `capture`
- * differed at all three of those, and a cold browser profile differed from a warm
- * one on the same build. The wait itself is **not here**: it is the third half of
- * `navigate` in the shared connection layer, next to the hydration wait it belongs
- * with, because "ready to measure" is one property with one answer and a second
- * definition of it is the option ADR-0015 rejected. What is this file's is the
- * evidence that it was needed at all, and the readings below it.
- *
- * The view states are emulated on a page that is already loaded, one navigation
- * per page rather than one per state: the scheme is set, then the read waits out
- * its budget. That is a race this site has never lost, and it is the first suspect
- * if a scheme pair ever differs with nothing else on the page different. Each view
- * state is given 350 ms to settle before its reading is taken.
  *
  * Usage — the Chrome has to be running already, because launching it is the part
  * that differs per machine:
@@ -103,8 +12,7 @@
  *   node scripts/ui-fingerprint.mjs capture http://127.0.0.1:3111 before.json
  *   node scripts/ui-fingerprint.mjs compare before.json after.json
  *
- * `CDP_PORT` overrides the debugging port. Exit code is 1 when a comparison finds
- * a difference or a declared anchor matched nothing, so it can gate a shell chain.
+ * `CDP_PORT` overrides the debugging port.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -265,25 +173,6 @@ function report(line) {
   console.log(line);
 }
 
-/**
- * The outline: the anchored tree, each line carrying the anchor's name, the
- * handful of attributes that decide behaviour, the geometry, and an element's own
- * text.
- *
- * Two things it has to get right to be comparable across builds, and one it does
- * not read at all. Anchored elements are what it prints, and their children are
- * walked at one level deeper, so the shape of a region survives while the
- * elements the component library adds between our own — a wrapper div, a
- * generated label — are not part of the reading. The tag name is not printed
- * either: who renders the element is exactly what is changing (#124). And text
- * comes from the element's own text nodes rather than `innerText`, because
- * Mantine inlines `<style>` elements inside components and a document-wide
- * `textContent` would read their CSS as copy.
- *
- * A `data-slot` no page declaration names is still printed — the walk looks for
- * the attribute, not for the declared selectors — so an anchor someone adds
- * without declaring it shows up as a difference rather than as silence.
- */
 const OUTLINE = `(() => {
   const skip = new Set(['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT']);
   const lines = [];
@@ -316,29 +205,6 @@ const OUTLINE = `(() => {
   return lines.join('\\n');
 })()`;
 
-/**
- * The computed properties this compares, and the whole of what it reads off a
- * style — everything else about a box is its geometry, which the outline already
- * carries.
- *
- * **Four groups, and the last three are what #133 put back.** *Layout*: a border
- * width or a padding that moves moves boxes, and an `aspect-ratio` or a
- * `margin-left` is a rule the stylesheet states rather than a box that could be
- * measured. *Colour*: the painted background, the border and the text, which is
- * the group an instrument that only reads geometry is blind to. *Typography*: the
- * family, size, weight, letter spacing and leading, which are the values a type
- * scale is made of. *Radius*: all four corners, because a radius can be changed
- * one corner at a time.
- *
- * Every one of them is read off **our own anchors** rather than off a class the
- * component layer owns, which is the property that makes them safe to compare
- * across a layer swap at all (#126's rule for site rules, applied to the reading).
- *
- * Deliberately not here, and not a residual limit but a decision: box-shadow, which
- * this site writes in one place and states as a position (`apps/web/docs/design/colour.md`),
- * and anything from a `::before`/`::after` — the hit-area instrument owns the one
- * pseudo-element this site depends on.
- */
 const COMPARED_PROPERTIES = [
   // Layout.
   "aspect-ratio",
@@ -365,14 +231,6 @@ const COMPARED_PROPERTIES = [
   "border-top-right-radius",
 ];
 
-/**
- * Those properties, read off **every** match of every anchor the page declares —
- * all five of the Image Converter's format cards, not the first one, because a
- * reading that stops at the first match is a reading that cannot see the fifth
- * card change. An anchor that matches nothing is caught before this is ever read
- * (see `anchorReading`), so a `values: []` here is not silence: the run has
- * already failed on the declaration.
- */
 const stylesReading = (selectors) => `(() => {
   const props = ${JSON.stringify(COMPARED_PROPERTIES)};
   return JSON.stringify(${JSON.stringify(selectors)}.map((selector) => ({
@@ -384,23 +242,6 @@ const stylesReading = (selectors) => `(() => {
   })));
 })()`;
 
-/**
- * Which of a page's declared anchors exist, and how many elements each one
- * matches.
- *
- * This is the reading the whole instrument hangs on: a declared anchor matching
- * zero elements is a failure, and it is a failure on the capture and on the
- * comparison both. Without it a mistyped declaration — or a renamed attribute —
- * would leave an outline of nothing, and two outlines of nothing compare equal:
- * "nothing moved" printed for a page nothing looked at. The prior art is the
- * hit-area instrument's `carriers` rule (`touch-targets.mjs`), which fails the
- * same way for the same reason.
- *
- * It is one of two places the rule is applied, not the only one: an anchor can be
- * present at 1280px and absent at 360, and that is a view state rather than a page,
- * so the per-view style read answers the same question in every state of the matrix
- * (`stylesReading` records `values: []` for a selector that matched nothing).
- */
 const anchorReading = (
   selectors,
 ) => `JSON.stringify(${JSON.stringify(selectors)}.map((selector) => ({
@@ -408,34 +249,10 @@ const anchorReading = (
   matched: document.querySelectorAll(selector).length,
 })))`;
 
-/**
- * The file a page is measured with, when its anchors only exist after something
- * has been dropped (#165). It is the Tool's own cover — a real JPEG that is already
- * in the repository — so no fixture has to be committed and no encoder has to live
- * in this script. The file is never converted here, only queued.
- */
 const FIXTURE = fileURLToPath(
   new URL("../public/tools/image-converter/cover.jpg", import.meta.url),
 );
 
-/**
- * Run the page's own Batch, when the anchors a page declares live in the state its
- * results are in (#166: the second Tool's outputs, its progress line and its
- * failures). It presses the page's 转换 button with a **pointer sequence** — the
- * incoming layer's buttons act on `mousedown`, which is what `touch-targets.mjs`
- * records for the same reason — and waits for the transition that says a result
- * exists: a download link. Waiting for a presence rather than for an absence is the
- * rule this Instrument already records; a wait for "no progress bar" would pass
- * before React rendered one.
- *
- * One target is enough, because WebP is the format a fresh page already has on. The
- * codecs are not this Instrument's subject — the gate is what asserts the bytes —
- * this is only how the page is brought to the state being measured. The press is
- * this script's own copy rather than the connection layer's, for the reason
- * ADR-0015 gives about the parts that differ per Instrument: which page to visit and
- * what state to reach is each one's business. The drop and the wait after it are not
- * — those are `setFile` and `settle`.
- */
 async function convert(client) {
   const pressed = await client.evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find((el) =>
@@ -614,23 +431,12 @@ function firstDifference(before, after) {
  * two ways is two rules that will drift, and the reader of a red run has to be able
  * to grep for it.
  *
- * `where` is the view state when the miss is a state and not the page: an anchor can
- * be there at 1280 and gone at 360, and a state where it is gone measured nothing.
+ * `where` names the view state when the miss is a state rather than the page.
  */
 const unaddressedLine = (selector, page, where) =>
   `  FAIL  nothing matches ${selector} on ${page}${where} — a declaration that matches nothing guards nothing`;
 
-/**
- * What a page's anchor reading says, in the words a failure needs.
- *
- * Two failures live here and they are different ones. A file that carries no
- * anchor reading at all is a file from before this rule, or a hand-edited one, and
- * it cannot be told apart from a page nothing addressed — so it fails rather than
- * being treated as "no problems found", which is the whole shape of the mistake
- * this exists to prevent. And an anchor whose `matched` is 0 is a declaration that
- * guards nothing: the page may well have moved, but nothing on it was being looked
- * at, and the comparison would go on to print "nothing moved".
- */
+/** What a page's anchor reading says, in the words a failure needs. */
 function anchorProblems(pageName, side, record) {
   if (!Array.isArray(record.anchors) || record.anchors.length === 0) {
     return [
