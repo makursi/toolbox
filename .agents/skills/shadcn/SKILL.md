@@ -11,6 +11,8 @@ A framework for building ui, components and design systems. Components are added
 
 > **IMPORTANT:** Run all CLI commands using the project's package runner: `npx shadcn@latest`, `pnpm dlx shadcn@latest`, or `bunx --bun shadcn@latest` — based on the project's `packageManager`. Examples below use `npx shadcn@latest` but substitute the correct runner for the project.
 
+> **Local change (this clone), recorded here so a re-install does not drop it silently:** in `toolbox` the CLI is reached through the wrapper — `C:\Users\29634\.local\bin\shadcn <args>`, run from `apps/web/`, where `components.json` lives; the `info --json` line below takes the same substitution. The registry host is SNI-blocked on this machine, so the package runners above die in the TLS handshake. Same arguments as the CLI; `SHADCN_WRAPPER_INFO=1` prints what it resolved. Why, and the escape hatches: the `shadcn add` gotcha in `AGENTS.md`.
+
 ## Current Project Context
 
 ```json
