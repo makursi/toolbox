@@ -10,6 +10,8 @@
  * Signatures only. Nothing here decodes, and nothing here is asynchronous.
  */
 
+import { ascii, startsWith } from "./bytes";
+
 /** The formats this Tool puts into a PDF. */
 export type ImageFormat = "jpeg" | "png" | "webp";
 
@@ -89,14 +91,4 @@ function sniffIsoBmff(bytes: Uint8Array): SniffedFormat | null {
   for (const brand of brands) if (heicBrands.has(brand)) return "heic";
 
   return null;
-}
-
-function startsWith(bytes: Uint8Array, signature: number[]): boolean {
-  return signature.every((byte, index) => bytes[index] === byte);
-}
-
-function ascii(bytes: Uint8Array, offset: number, length: number): string | null {
-  if (offset + length > bytes.length) return null;
-
-  return String.fromCharCode(...bytes.subarray(offset, offset + length));
 }

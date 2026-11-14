@@ -1,3 +1,4 @@
+import { ascii } from "./bytes";
 import type { ImageSize } from "./geometry";
 import { readJpeg } from "./jpeg";
 import type { ExifOrientation } from "./orientation";
@@ -39,11 +40,6 @@ export function readImageHeader(format: ImageFormat, bytes: Uint8Array): ImageHe
   const size = format === "png" ? readPngSize(bytes) : readWebpSize(bytes);
 
   return size === null ? null : { size, orientation: 1 };
-}
-
-/** The stored pixel dimensions alone, for the callers that have no page to lay out. */
-export function readImageSize(format: ImageFormat, bytes: Uint8Array): ImageSize | null {
-  return readImageHeader(format, bytes)?.size ?? null;
 }
 
 const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -117,10 +113,4 @@ function little(bytes: Uint8Array, offset: number, length: number): number {
   }
 
   return value;
-}
-
-function ascii(bytes: Uint8Array, offset: number, length: number): string | null {
-  if (offset + length > bytes.length) return null;
-
-  return String.fromCharCode(...bytes.subarray(offset, offset + length));
 }

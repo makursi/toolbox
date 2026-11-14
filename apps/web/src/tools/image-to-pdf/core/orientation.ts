@@ -18,6 +18,8 @@
  * which is what lets the unit tests hold every one of the eight values.
  */
 
+import { ascii, startsWith } from "./bytes";
+
 /** The eight orientation values EXIF defines, in the order it defines them. */
 export type ExifOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
@@ -96,7 +98,7 @@ export function readExifOrientation(payload: Uint8Array): ExifOrientation | null
   // "Exif" and the two zero bytes that follow it.
   if (payload.byteLength < 14) return null;
   const signature = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
-  if (!signature.every((byte, index) => payload[index] === byte)) return null;
+  if (!startsWith(payload, signature)) return null;
 
   const tiff = 6;
   const order = ascii(payload, tiff, 2);
@@ -132,12 +134,6 @@ export function readExifOrientation(payload: Uint8Array): ExifOrientation | null
 /** The value if EXIF defines it, otherwise `null`. */
 function asOrientation(value: number): ExifOrientation | null {
   return ORIENTATIONS.find((orientation) => orientation === value) ?? null;
-}
-
-function ascii(bytes: Uint8Array, offset: number, length: number): string | null {
-  if (offset + length > bytes.byteLength) return null;
-
-  return String.fromCharCode(...bytes.subarray(offset, offset + length));
 }
 
 function u16(view: DataView, offset: number, little: boolean): number {
