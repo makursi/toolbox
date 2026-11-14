@@ -123,6 +123,14 @@ apps/web/e2e/
   image-to-pdf.spec.ts  what the gate asserts on every pull request
 ```
 
+The one asset this Tool ships, outside `src/`:
+
+```
+apps/web/public/tools/image-to-pdf/cover.jpg   the homepage card's cover (1440x1080, 4:3)
+                                              owner-supplied, wired by `meta.ts`; keeps its own
+                                              colour and is not re-licensed (design/assets.md)
+```
+
 A hook that knows nothing about this Tool goes to `src/hooks/` instead, and UI
 that no route owns goes to `src/components/`. The threshold is ownership, not how
 many places use it — the place that counts consumers is `packages/*`.
