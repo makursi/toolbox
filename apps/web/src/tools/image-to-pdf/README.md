@@ -5,8 +5,9 @@ chooses or drops several images at once and can add more later; every accepted
 file becomes one row, numbered, which can be removed, and one control clears the
 list. The row order is the page order: a row can be dragged by its handle, or
 moved with the keyboard by a visitor who does not use a pointer, and the file
-that comes out follows the list. The page size follows each image, so a mixed
-album becomes a mixed document without a question the image already answers.
+that comes out follows the list. The page's orientation follows each image, so a
+mixed album becomes a mixed document without a question the image already
+answers.
 
 What a file is, is decided by its bytes: JPEG, PNG and WebP are taken, and the
 name and the declared type are never consulted, which is why the file input has
@@ -63,8 +64,8 @@ produces a valid file, a handle on every row, and the document following the
 list. A PNG and a WebP are pages of the same document a JPEG is, with the same
 geometry rule, and an image beyond 40 M pixels is refused from its header with
 its own sentence. The whole path is real: the document is assembled by this
-repository, with no runtime PDF library. #200 adds the instruments, #201 the
-design notes.
+repository, with no runtime PDF library. #200 adds the instruments; #201 records
+this checklist and commits the design tree at `docs/agents/design-notes.md`.
 
 Nothing is uploaded: files are read with the File API, their first bytes are
 sniffed, their headers give the page's dimensions and its EXIF turn, and the
@@ -74,37 +75,51 @@ a PNG and a WebP are decoded there and written as samples.
 
 ## Layout
 
+Everything under `apps/web/src/tools/image-to-pdf/`, and the two files of the
+gate it owes:
+
 ```
-ImageToPdf.tsx        the page: input region, page list, paper row, pinned result row
-page-list/            the sortable list: two sensors, the rows, their announcements
-page-row/             one row: drag handle, page number, page miniature, name, remove
-paper-row/            the page-size row: A4 / Letter / 原始尺寸, one choice
-meta.ts               the Tool Registry entry
-rules.md              this Tool's own rules (page structure, input, ordering, geometry, the writer)
-README.md             this file: how it works, and what to check by hand
-core/                 pure, browser-free logic — the part `pnpm test` covers
-  sniff                the first bytes: JPEG, PNG, WebP, the four refused formats, or not an image
-  refusal              the sentences for an unsupported format, a non-image and a damaged header
-  limits               the four limits and the sentence each refusal is listed under
-  admission            one pure decision per batch: accepted pages and refusals, in input order
-  image-size           JPEG SOF, PNG IHDR and WebP's first chunk: the page's pixel dimensions
-  order                moving one page to another position: the one rule both reorder paths ask
-  orientation          the eight EXIF values, the matrix each produces, and the size swap
-  geometry             image pixels + paper + orientation -> page box + image rectangle (contain, centred)
-  jpeg                 a segment walk: dimensions, channels, frame type, EXIF turn, the route, passthrough
-  packing              decoded RGBA -> white-composited RGB samples -> a zlib (Flate) stream
-  pdf                  the PDF writer: pages in, PDF 1.7 bytes out (orientation is a content-stream matrix)
-  naming               图片-YYYY-MM-DD.pdf from a date
-  invalidation         the one rule: a changed paper or list makes a produced file stale
-  hints · failures     the sentences a visitor reads (including progress and the reorder announcements)
-  __tests__/           the tests for those modules
-hooks/                the Tool's React state
-  use-page-list        the pages added, in page order, and the refused files
-  use-pdf-build        one run, its progress and cancel, and the download URL's whole life
-  use-page-thumbnail   a small picture of one file, one decode at a time
-worker/               the browser-only half
-  worker.ts            sniffs each page, routes a JPEG, decodes the rest, reports progress, writes the document
-  builder.ts           the page side of the Worker protocol: progress, the result, and termination
+ImageToPdf.tsx          the page: input region, page list, paper row, pinned result row
+meta.ts                 the Tool Registry entry
+rules.md                this Tool's own rules (page structure, input, ordering, geometry, the writer)
+README.md               this file: what it does, its files, a run, and the checklist
+
+core/                   pure, browser-free logic; the part `pnpm test` covers
+  admission.ts          one pure decision per batch: accepted pages and refusals, in input order
+  failures.ts           the closed failure set, one sentence each
+  geometry.ts           image pixels + paper + orientation -> page box + image rectangle (contain, centred)
+  hints.ts              every sentence the page says that is not a field's content
+  image-size.ts         JPEG SOF, PNG IHDR and WebP's first chunk: the page's pixel dimensions
+  invalidation.ts       the one rule: a changed paper or list makes a produced file stale
+  jpeg.ts               a segment walk: dimensions, channels, frame type, EXIF turn, the route, passthrough
+  limits.ts             the four limits and the sentence each refusal is listed under
+  naming.ts             图片-YYYY-MM-DD.pdf from a date
+  order.ts              moving one page to another position: the one rule both reorder paths ask
+  orientation.ts        the eight EXIF values, the matrix each produces, and the size swap
+  packing.ts            decoded RGBA -> white-composited RGB samples -> a zlib (Flate) stream
+  pdf.ts                the PDF writer: pages in, PDF 1.7 bytes out (orientation is a content-stream matrix)
+  refusal.ts            the sentences for an unsupported format, a non-image and a damaged header
+  sniff.ts              the first 96 bytes: JPEG, PNG, WebP, the four refused formats, or not an image
+  __tests__/            one *.test.ts per module above
+
+hooks/                  the Tool's React state
+  use-page-list/use-page-list.ts            the pages added, in page order, and the refused files
+  use-page-thumbnail/use-page-thumbnail.ts  a small picture of one file, one decode at a time
+  use-pdf-build/use-pdf-build.ts            one run, its progress and cancel, and the download URL's whole life
+
+page-list/page-list.tsx   the sortable list: two sensors, the rows, their announcements
+page-row/page-row.tsx     one row: drag handle, page number, page miniature, name, remove
+paper-row/paper-row.tsx   the page-size row: A4 / Letter / 原始尺寸, one choice
+
+worker/                   the browser-only half
+  builder.ts            the page side of the Worker protocol: progress, the result, and termination
+  worker.ts             sniffs each page, routes a JPEG, decodes the rest, reports progress, writes the document
+```
+
+```
+apps/web/e2e/
+  image-to-pdf-page.ts  the gate's fixtures, the page actions, and the pdf-lib reader
+  image-to-pdf.spec.ts  what the gate asserts on every pull request
 ```
 
 A hook that knows nothing about this Tool goes to `src/hooks/` instead, and UI
@@ -194,8 +209,9 @@ checklist below.
 
 ## What CI covers, and what is still yours
 
-CI runs `fmt:check`, the docs checks, `lint`, `typecheck`, `test`, `build` and
-`pnpm e2e`. The gate (`apps/web/e2e/image-to-pdf.spec.ts`) drives the production
+CI runs `fmt:check`, the docs checks, `lint`, `typecheck`, `test`, `build`,
+`pnpm e2e`, and the hit-area instrument (`touch-targets`, with `--falsify`). The
+gate (`apps/web/e2e/image-to-pdf.spec.ts`) drives the production
 build in a real browser and covers the items marked **▣**: a real JPEG through
 the page's own file input, the action pressed, the download captured, and the
 file parsed with `pdf-lib` — a second implementation installed as a dev
@@ -268,15 +284,17 @@ download link as a carrier because its file name is today's date, and scans the
 whole document for the layer this site left. 取消 is deliberately not declared:
 it exists only while a run is in flight, and the instrument drives the page to
 the finished state. Its new claim, `pinned-action-row`, reads the result row at
-the top, halfway and bottom of a 390px page whose list really scrolls (the
-instrument hands the same fixture over eight times so the list is long enough),
-requires the row inside the viewport at all three, pinned to the bottom halfway,
-and clear of the last row at the end; `--falsify` injects `position: static` on
-the row in a 390×900 case and the claim has been watched go red. The fingerprint
-declares the five regions as anchors — the input region, the page-size row, the
-page list, a page row and the result row — and drives the page with one file and
-one conversion so that the list and the result row's content exist when it reads.
-`pdf-progress` is not declared because it exists only during a run.
+the top, halfway and bottom on every narrow case the instrument runs (360, 375
+and 390 px, in both schemes and both pointer passes) whose list really scrolls —
+the instrument hands the same fixture over eight times so the list is long
+enough — requires the row inside the viewport at all three, pinned to the bottom
+halfway, and clear of the last row at the end; `--falsify` injects
+`position: static` on the row in a 390×900 case and the claim has been watched go
+red. The fingerprint declares the five regions as anchors — the input region, the
+page-size row, the page list, a page row and the result row — and drives the page
+with one file and one conversion so that the list and the result row's content
+exist when it reads. `pdf-progress` is not declared because it exists only during
+a run.
 
 The unit tests hold what the gate cannot see: the exact wording of every refusal
 and limit sentence, the progress line and the fixed name 取消, the numbers behind
@@ -294,47 +312,122 @@ value outside 1-8, a cut segment), the display-size swap, `routeJpeg`'s three
 answers (passthrough, decode, unsupported), and the writer's content matrix for
 all eight values.
 
+`core/__tests__/pdf.test.ts` also holds the writer's structural invariants: every
+xref offset resolves to its own object header, `/Count` agrees with the page
+tree, every stream's `/Length` matches its data, every `/MediaBox` is the chosen
+paper, and the trailer points at the catalog.
+
 Still by hand: opening the produced PDF in a real reader (Playwright saves a
 file, it does not draw it), on a phone and in a second browser; a real photo from
-a phone, where the camera wrote the orientation tag and the manufacturer wrote
-the EXIF directory; a real progressive JPEG and a real CMYK JPEG, neither of
-which a browser can encode, so no fixture can be built inline (the gate's other
-decode-path specs share the same Worker code path, and the routing is unit
-tested, but the real files are a person's to try); a mirrored scan (values 2, 4,
-5 and 7), for the same reason; a touch drag on a real phone, where the platform
+a phone taken in portrait and one taken in landscape, where the camera wrote the
+orientation tag and the manufacturer wrote the EXIF directory; a real
+progressive JPEG and a real CMYK JPEG, neither of which a browser can encode, so
+no fixture can be built inline (the gate's PNG and WebP specs share the same
+Worker decode path, and the routing is unit tested, but the real files are a
+person's to try); a mirrored scan (values 2, 4, 5 and 7), where the gate proves
+the matrix for value 6 only; a touch drag on a real phone, where the platform
 decides whether a gesture that starts on the handle belongs to the drag or to the
 page's scroll (the gate dispatches `pointerType: "touch"` events, which is not
 the browser's gesture arbitration); the four limit refusals through the page
-rather than through `core/`; a PNG and a WebP page on a phone,
-where the canvas area limit is lower than the pixel limit; hearing the progress
-live region with a real screen reader, and whether the pinned row still fits
-转换, 取消 and the bar at 390px in dark mode; whether the handle, the paper row
-and its hint read well in dark mode and at 390px; and reordering with the
-keyboard at 390px.
+rather than through `core/`; a JPEG near 20 MB and twenty mixed-format images in
+one run; a PNG and a WebP page on a phone, where the canvas area limit is lower
+than the pixel limit; hearing the progress live region with a real screen reader,
+and whether the result row still fits 转换, 取消 and the bar at 390px in dark
+mode; whether the handle, the paper row and its hint read well in dark mode and
+at 390px; and reordering with the keyboard at 390px.
 
 ## Manual QA checklist
 
-- [ ] **▣** One JPEG goes through the page's own picker and becomes exactly one
-      row, numbered 第 1 页, with a miniature whose paper proportions and image
-      rectangle match what the geometry function says.
-- [ ] **▣** With the list empty, 转换 is disabled and the reason beside it says
-      which step is missing.
-- [ ] **▣** Pressing 转换 produces a download named `图片-YYYY-MM-DD.pdf` with
-      today's local date.
-- [ ] **▣** The downloaded file has a `%PDF-1.7` preamble, the binary comment
-      line, a classic xref table whose first offset resolves to object 1, a
-      trailer pointing at the catalog, and `%%EOF`.
-- [ ] **▣** It has one page, its `/MediaBox` is A4 in the image's orientation
-      (595.28 x 841.89 for a portrait photo), and each page's resources name
-      exactly one image XObject.
-- [ ] **▣** The image stream's bytes equal the JPEG that was picked: no decode,
-      no re-encode.
-- [ ] **▣** A JPEG whose stored pixels are portrait and whose `APP1/Exif` says
-      orientation 6 gets the swapped `/MediaBox` for the chosen paper, exactly one
-      image XObject whose bytes still equal the file, and a content stream whose
-      matrix is the quarter turn rather than the untouched placement.
-- [ ] A real photo from a phone opens upright in a desktop reader, on the phone
-      and in a second browser, with no white band where the turn did not happen.
+`▣` marks what the browser gate asserts on every pull request, from
+`apps/web/e2e/image-to-pdf.spec.ts`. An unmarked item is a person's: no machine
+here re-runs it. The unit tests hold the wording and the writer's structural
+invariants described above.
+
+### The gate already asserts
+
+- [ ] **▣** With the list empty, 转换 is disabled and its reason reads
+      还没有图片，先选择一张。
+- [ ] **▣** One JPEG through the page's own picker becomes exactly one row,
+      numbered 第 1 页, and 转换 is enabled.
+- [ ] **▣** The produced file is named `图片-YYYY-MM-DD.pdf` with today's local
+      date.
+- [ ] **▣** The file starts `%PDF-1.7`, carries the binary comment line, ends
+      `%%EOF`; `startxref` points at `xref`, and the xref's first entry resolves
+      to `1 0 obj`.
+- [ ] **▣** It has one page whose `/MediaBox` is A4 in the image's orientation,
+      one image XObject per page, and the image stream's bytes equal the JPEG that
+      was picked.
+- [ ] **▣** A portrait JPEG tagged EXIF orientation 6 gets A4 landscape: the
+      row's miniature has the swapped aspect ratio, the image XObject's bytes
+      still equal the file, and the content stream's matrix is the quarter turn
+      `[0 -h w 0 x y+h]` rather than the untouched `[w 0 0 h x y]`.
+- [ ] **▣** A mixed batch dropped as one gesture: the two JPEGs become rows in
+      input order; the GIF, the AVIF and the renamed text file are listed once
+      each in the refusal box, with their names and the two category sentences
+      (one for a recognised but unsupported format, one for a file that is not an
+      image at all).
+- [ ] **▣** A second batch appends at the end: the new row is 第 3 页, then
+      第 4 页; every row carries 移除 and 清空 is present; 清空 empties the list,
+      removes the refusal box and brings the full drop zone back.
+- [ ] **▣** The picker keeps the accessible name 选择图片 after the input region
+      collapses to 继续添加, and the collapsed line still accepts a drop.
+- [ ] **▣** The converted mixed batch has exactly the accepted pages in list
+      order, one image XObject each, with the first page landscape and the rest
+      portrait.
+- [ ] **▣** The page-size row is one radiogroup named 页面尺寸 with A4, Letter
+      and 原始尺寸; A4 is checked on a fresh page; 96 dpi and 不是一种纸 are
+      visible; converting once per paper gives 595.28 x 841.89, 612 x 792 and
+      pixels x 0.75.
+- [ ] **▣** Changing the paper removes the produced download and re-arms 转换;
+      the invalidation test also proves no alert appears.
+- [ ] **▣** Tab from 移除 reaches A4; the arrow keys change the choice and wrap
+      at both ends; `aria-checked` follows; a fresh A4 reports `data-state=on`
+      and the other two `off`.
+- [ ] **▣** A portrait and a landscape image in one run produce one document with
+      both page orientations.
+- [ ] **▣** Each row has one drag handle with the accessible name 拖动排序,
+      `.touch-target` on the control itself and
+      `aria-roledescription="可排序页面"`; each 移除 carries `.touch-target` too.
+- [ ] **▣** A keyboard reorder: Space lifts the row and announces the page and
+      total, the arrow keys move it with an announcement per position, Space
+      drops it; the rows renumber, the earlier download is gone with no alert,
+      and the next file's pages are the new order.
+- [ ] **▣** A pointer drag of a handle, hit-tested at its coordinates, reorders
+      the list and the next file's pages.
+- [ ] **▣** On a `hasTouch` 390x844 context, a dispatched touch pointer gesture at
+      the handle's coordinates reorders the list.
+- [ ] **▣** A transparent 64x48 PNG becomes an A4 landscape page; its one image
+      XObject is `/FlateDecode` with no `/DecodeParms`, and the decompressed
+      pixels are white where the fixture was transparent and red where it was
+      opaque.
+- [ ] **▣** A WebP becomes one A4 portrait page with one `/FlateDecode` image
+      XObject whose bytes are not the WebP file's.
+- [ ] **▣** A PNG whose `IHDR` claims 50 M pixels is refused at admission with the
+      4000 万像素 sentence, without a row and without a decode.
+- [ ] **▣** A run of twenty 800x600 PNGs: 取消 is visible and carries
+      `.touch-target`; the progress line reports a finished count strictly
+      between zero and the total while the run is still building; the progress
+      bar is visible; after 取消, 取消 and the progress are gone, there is no
+      download, no alert and an empty polite live region, 转换 is armed again,
+      and a late result does not arrive within 1.2 s; converting the same list
+      again gives twenty pages, one image each, all A4 landscape.
+- [ ] **▣** Invalidation: with a file produced, changing the paper, adding a
+      page, removing a row and a keyboard reorder each take the download away,
+      re-arm 转换, empty the result row's polite live region and show no alert; a
+      fully refused batch leaves the file in place; clearing takes it away and
+      leaves 转换 disabled with its reason and the empty-list line.
+- [ ] **▣** 取消 is not rendered before a run, after a cancel, or after a
+      completed run.
+
+### A person must still check
+
+- [ ] Open a produced file in a desktop reader, on a phone's reader and in a
+      second browser: every page draws, the whole image is visible and centred,
+      the pages are in list order, and a document with one portrait and one
+      landscape page shows both upright.
+- [ ] A real phone photo taken in portrait and one taken in landscape both open
+      upright, with no white band where a turn did not happen. The gate's tagged
+      photo is synthetic; the camera's own EXIF directory is not.
 - [ ] A real progressive JPEG (exported by a photo editor) stays in the list,
       转换 succeeds, and its page holds one `/FlateDecode` image XObject with no
       `/DCTDecode` stream: it was decoded, not handed to a JPEG encoder.
@@ -342,89 +435,48 @@ keyboard at 390px.
       samples with no `/Decode [1 0 1 0 1 0 1 0]` array and no inverted colours.
 - [ ] A mirrored scan (orientation 2, 4, 5 or 7) comes out as the scanner
       recorded it, with the page's proportions and the picture's placement right.
-- [ ] **▣** A mixed batch dropped at once: the two JPEGs become rows in the order
-      given, and the GIF, the AVIF and the renamed text file are listed once each
-      with the sentence for their category, under 有文件没能加入.
-- [ ] **▣** A second batch appends without renumbering or disturbing the first;
-      every row carries 移除 and 清空 is present while the list has pages; 清空
-      empties the list and brings the full drop zone back.
-- [ ] **▣** The picker's accessible name stays 选择图片 after the input region
-      collapses to the 继续添加 line, and that line still accepts a drop.
-- [ ] **▣** The converted mixed batch has exactly the accepted pages, in list
-      order, with one image XObject each.
-- [ ] **▣** The page-size row offers A4, Letter and 原始尺寸 as one single
-      choice, A4 checked on a fresh page, and explains 原始尺寸 as the image's
-      own pixels at 96 dpi rather than as a paper size.
-- [ ] **▣** Downloading once per paper gives the media box the choice promises:
-      A4 595.28 x 841.89, Letter 612 x 792, and 原始尺寸 the source's pixels x
-      0.75.
-- [ ] **▣** Changing the paper takes a produced download away and re-arms 转换,
-      without a banner.
-- [ ] **▣** Tab reaches the row at the checked choice and the arrow keys change
-      the choice (wrapping at both ends); the selected item differs by
-      `aria-checked` and `data-state`, not only by colour.
-- [ ] **▣** A portrait and a landscape image in one run produce one document
-      with pages of both orientations.
+      The gate proves the matrix for value 6 only; the other seven have unit
+      tests but no real file here.
+- [ ] A real transparent PNG (partial alpha, from a design tool) composites onto
+      white rather than black and opens correctly in a reader. The gate's
+      transparent fixture is built by the browser's own canvas encoder.
+- [ ] A real WebP from a camera or an editor becomes a page and opens correctly
+      in a reader. The gate's WebP is the browser's own encoder's output.
+- [ ] A JPEG close to 20 MB is accepted, converts without a second compression
+      and opens; a JPEG just over 20 MB is refused with the per-image sentence.
+- [ ] Twenty images of mixed formats (JPEG, PNG and WebP in one list) convert to
+      one file with twenty pages in list order, and the file opens in a reader.
+- [ ] Cancel a run that is long for real reasons, then convert the same list
+      again: the second file has every page, no partial file survives the cancel,
+      and nothing from the cancelled run appears late. The gate's run is twenty
+      800x600 PNGs.
+- [ ] Drag a row by its handle on a touch device: the finger that starts on the
+      handle moves the row, the page still scrolls from anywhere else, and the
+      next file has the reorder.
+- [ ] A twenty-first image is refused with the count sentence, a batch over
+      100 MB with the total sentence, and a genuine image over 4000 万像素 at
+      admission with the pixel sentence; each refused file appears once, with its
+      own name, under the refusal title 有文件没能加入.
 - [ ] Switching paper visibly reshapes every row: A4 and Letter draw different
       page proportions, and 原始尺寸 has no white bands.
+- [ ] The miniature is the page: the paper's proportions and the image's
+      letterboxing inside it match the produced file. The geometry is unit
+      tested; the gate reads the swapped aspect ratio of a tagged photo, not the
+      drawn rectangle.
 - [ ] The paper row and its hint read correctly in dark mode and at 390px, and
-      the pinned result row still sits inside the viewport while the list
-      scrolls.
-- [ ] The file opens in a desktop reader, in a phone's reader, and in a second
-      browser, with the whole image visible and centred.
-- [ ] A landscape JPEG produces a landscape page.
-- [ ] **▣** A transparent PNG becomes a page whose media box follows its own
-      dimensions; its image XObject is `/FlateDecode` with no `/DecodeParms`, and
-      decompressing the stream gives white where the PNG was transparent and the
-      source colour where it was opaque.
-- [ ] **▣** A WebP becomes a page the same way, with the media box its dimensions
-      ask for and exactly one image XObject.
-- [ ] **▣** A PNG whose header claims more than 40 M pixels is refused at
-      admission with the pixel sentence, without a row and without a decode.
-- [ ] A twenty-first image is refused with the count sentence, a file over 20 MB
-      with the per-image sentence, a batch over 100 MB with the total sentence,
-      and a genuine image over 4000 万像素 at admission with the pixel sentence;
-      each refused file appears once, with its own name.
-- [ ] Removing the row and pressing 清空 both take the produced download away,
-      without a banner.
-- [ ] **▣** With a file produced, adding at least one more image, removing a row,
-      and a keyboard reorder each take the download away and re-arm 转换, with no
-      banner, no error sentence and no stale progress line; a list that still has
-      pages never shows the empty-list reason.
-- [ ] **▣** Clearing a list that has a produced file takes the download away and
-      leaves 转换 disabled with its usual reason; a batch in which every file was
-      refused leaves the produced file in place, because the list did not change.
-- [ ] **▣** Every row carries one drag handle — a real `<button>`, the same
-      accessible name `拖动排序` on all of them, and `.touch-target` on the
-      button itself (`移除` is built the same way).
-- [ ] **▣** A pointer drag of a handle reorders the list, and the downloaded
-      file's page order is the new list order.
-- [ ] **▣** Focusing a handle and pressing Space, then the arrow keys, then
-      Space moves the row and announces the lift, the new position and the drop
-      in dnd-kit's live region.
-- [ ] **▣** The same move works on a `hasTouch` context at 390px with
-      `pointerType: "touch"` events dispatched at the handle's coordinates.
-- [ ] **▣** A reorder takes a produced download away and re-arms 转换, with no
-      banner and no error sentence.
-- [ ] **▣** While a run is in flight, 取消 appears beside 转换, the result row
-      reads 已完成 x / y 页 for a count between zero and the total, and the
-      progress bar is there; the line sits in a polite live region.
-- [ ] **▣** Pressing 取消 ends the run: the control, the progress and the bar are
-      gone, no download appears then or a moment later, there is no banner and no
-      error sentence, and 转换 is enabled again. Converting the same list again
-      produces a valid file with every page.
-- [ ] **▣** 取消 is not rendered once a run has ended.
+      the result row still fits 转换, 取消 and the progress bar at 390px in dark
+      mode.
 - [ ] A run's progress is readable and 取消 stops it on a real phone.
 - [ ] The progress live region announces each finished page with a real screen
-      reader, and the result row with 转换, 取消 and the bar still fits at 390px
-      in dark mode.
-- [ ] A touch drag on a real phone: a finger that starts on the handle drags the
-      row rather than scrolling the page, and the page still scrolls from
-      anywhere else.
-- [ ] Reordering with the keyboard at 390px, with the pinned result row in view.
+      reader, and the page-size row reads as one choice with its checked state
+      rather than as three unrelated buttons.
+- [ ] Reordering works with the keyboard at 390px, with the pinned result row in
+      view.
 - [ ] The page follows the site's dark mode without a white flash on load.
 - [ ] The whole flow works with the keyboard alone: Tab reaches 选择图片, Enter
-      opens the picker, the action and the download are reachable, the row's
-      移除 is a real button, and each row's handle reorders.
+      opens the picker, the action and the download are reachable, 移除 is a
+      button, and each handle reorders.
 
-The design notes and screenshot baseline (#201) are still to come.
+The design tree that produced this Tool, including the decisions this README
+records, is committed at `docs/agents/design-notes.md`. The fingerprint baseline
+the instruments were compared against is a local file, not a repository one.

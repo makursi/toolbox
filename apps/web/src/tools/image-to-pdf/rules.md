@@ -110,12 +110,12 @@
 - **透明像素压到白纸**：每通道 `c * a + 255 * (1 - a)`（`a` 是 alpha 的比例），在 `core/packing.ts` 的 `packRgb` 里做，因此有单测盯住「全透明 → 255,255,255」、半透明像素的取整和不透明像素保持原色。丢掉 alpha 会让透明区变成黑矩形，这正是这个模块存在的理由。
 - **压白不是界面颜色**：那是访客自己文件里的像素被压平，不是页面表面，所以站点「禁纯黑纯白」的规则不适用于它；参考 Tool 记录同一例外（`apps/web/src/tools/image-converter/rules.md` 第 21 条，站点规则在 `apps/web/docs/design/colour.md`）。
 - **`/FlateDecode` 是 zlib，不是 raw deflate**：压平后的 RGB 样本由 `core/packing.ts` 的 `flateRgb` 用 `fflate` 的 `zlibSync` 压。写出层写 `/ColorSpace /DeviceRGB`、`/BitsPerComponent 8`、`/Filter /FlateDecode`，**没有 `/DecodeParms`**：PNG predictor 的直通合法且省字节，但阅读器的支持没能验证，ADR-0020 记了这笔取舍。
-- **几何仍来自同一个函数**：`pageGeometry(解码后的尺寸, paper)`，所以与 JPEG 同尺寸、同方向得到同一组页面框与图片矩形。页面框跟解码后的像素走，不跟文件头：一页不该与自己的样本对着 letterbox。PNG 与 WebP 没有本工具读取的方向，按直立处理；从解码路径进来的 JPEG 则把头部里的方向一起传给几何函数。
+- **几何仍来自同一个函数**：`pageGeometry(解码后的尺寸, paper)`，所以与 JPEG 同尺寸、同方向得到同一组页面框与图片矩形。页面框跟解码后的像素走，不跟文件头：一页不该与自己的样本对着 letterbox。PNG 与 WebP 没有本工具读取的方向，按直立处理；从解码路径进来的 JPEG 也不把头部方向再传一次——浏览器的解码已经按 `from-image` 把它转正，位图尺寸就是「看到的」尺寸，再传一次会转两遍。旁路路径不能这么做，它的字节必须原样进 PDF，所以方向表只为旁路存在。
 - **像素上限在这里再查一次**：解码后的宽高乘积超过 `MAX_IMAGE_PIXELS`（4000 万）时，Worker 抛 `too-many-pixels`，句子复用 `core/limits.ts` 的那一句。准入已经用头部拒绝过一次，这一道是给「头部说谎」留的。
 
 ## PDF 写出层
 
-- **自己写，不用运行时 PDF 库**：PDF 1.7、经典 xref 表（没有对象流）、头部之后一行二进制注释、每个流精确的 `/Length`、trailer、`startxref`、`%%EOF`。理由与两个被否掉的库的代价见 `docs/adr/0020-the-pdf-writer-is-ours.md`。
+- **自己写，不用运行时 PDF 库**：PDF 1.7、经典 xref 表（没有对象流）、头部之后一行二进制注释、每个流精确的 `/Length`、trailer、`startxref`、`%%EOF`。理由与被否掉的三个库（`pdf-lib`、它的维护分支与 `pdfkit`）各自的代价见 `docs/adr/0020-the-pdf-writer-is-ours.md`。
 - 每页恰好一个 page 对象、一个 content stream、一个 image XObject。`/MediaBox` 来自几何函数；content stream 用一个矩阵把图片放到几何给的矩形上。**这个矩阵也承载 EXIF 方向**：值 1 是 `[w 0 0 h x y]`，其余七个值在同一个位置换成 §JPEG 路径 表里的矩阵与矩形的合成。
 - 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`；本票之后 4 通道 JPEG 走解码路径，所以写出层的这条是防御而不是主路径）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。只有 JPEG 类型的 `PdfImage` 带 `orientation`：解码出来的样本已经摆正，摆放对它是恒等矩阵。
 - **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。两种图像类型与方向矩阵都在这一层内部；#198 只扩展了矩阵，没有改 xref 与对象布局。
@@ -146,10 +146,19 @@
 - 失败码是闭集：`unreadable / unsupported / too-many-pixels / interrupted / unknown`，每码一句；认不出的错误回落到 `unknown`，原始错误只进 console。`too-many-pixels` 复用像素上限那一句（一个条件一句）；`unsupported` 的句子不点名格式。Worker、`builder.ts` 与 hook 三层都不会把原始错误文本带进界面。`core/__tests__/failures.test.ts` 盯住每个码的原文、五句互不相同，以及认不出的值回落到通用句。
 - **取消不是失败**，不进入这个闭集也不带句子：它由 `worker/builder.ts` 的 `BuildCancelled` 表示，hook 认得它并回到 `idle`。
 
-## 推迟给后续票
+## 推迟（不在本工具范围内）
 
-- #199：失效覆盖的测试与上面各票带来的新失效点；换纸这一条已随 #194 的控件落地。
-- #201：设计笔记与截图基线。
+- **手动旋转**：没有旋转控件。EXIF 方向不是它：把照片摆正属于正确性，这一版做了；让访客再转一次属于编辑，没有做。
+- **填满页面（裁切到纸张）、边距与页面方向控件**：fit 永远是 contain + centre，方向跟着图片走。
+- **输出体积或压缩控制**：没有质量、压缩或目标体积选项。
+- **HEIC、GIF（包括第一帧）与长图分页**：一张高图不会拆成多页。
+- **一页多图（拼版）**：一页恰好一张图。
+- **从剪贴板粘贴**。
+- **自定义文件名**：文件名由规则给出，界面没有文件名字段。
+- **单页全屏放大**。
+- **封面图**：本工具不带封面，Tool Card 按排版设置；不放占位图。
+- **站点级改动**：CSP、Tool 契约与 Tool Registry 的形状都不动。
+- **把输入管道抽成 Package**：第二个消费者出现之前不做。
 
 ## 已知风险
 
