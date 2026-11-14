@@ -81,7 +81,7 @@ const MIN = 43;
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
- * The four pages, and the controls each one has to carry **by name**.
+ * The five pages, and the controls each one has to carry **by name**.
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; a later claim that needs the page list to scroll also

@@ -295,10 +295,11 @@ enough — requires the row inside the viewport at all three, pinned to the bott
 halfway, and clear of the last row at the end; `--falsify` injects
 `position: static` on the row in a 390×900 case and the claim has been watched go
 red. The fingerprint declares the five regions as anchors — the input region, the
-page-size row, the page list, a page row and the result row — and drives the page
-with one file and one conversion so that the list and the result row's content
-exist when it reads. `pdf-progress` is not declared because it exists only during
-a run.
+page-size row, the page list, a page row and the result row — plus the page row's
+own miniature, whose proportions the preview promise rests on (a `data-slot` the
+page carries is declared per page), and drives the page with one file and one
+conversion so that the list and the result row's content exist when it reads.
+`pdf-progress` is not declared because it exists only during a run.
 
 The unit tests hold what the gate cannot see: the exact wording of every refusal
 and limit sentence, the progress line and the fixed name 取消, the numbers behind

@@ -119,6 +119,12 @@ const PAGES = [
      * later move can be proved to be a move, and so the outline keeps the shape
      * of the regions the page is made of.
      *
+     * `pdf-page-miniature` is the page row's own region, declared because the
+     * page carries it and this file's rule is that a `data-slot` a page carries
+     * is declared per page: it is a genuine region, the miniature whose
+     * proportions the page's preview promise rests on, so a later change to it
+     * has to show up as a difference rather than only in the outline.
+     *
      * `fileInput` is why this page has to be driven before it is measured:
      * `pdf-pages` and `pdf-page-row` only exist after a file has been added, so
      * a capture that navigated and stopped there would fail on two anchors that
@@ -127,7 +133,7 @@ const PAGES = [
      * conversion has run: the download link and the file's name are what the
      * converted state puts inside `pdf-result`, and that row is the region this
      * page's threshold is about. One file is enough — this Instrument reads the
-     * five regions, not a list long enough to scroll.
+     * regions, not a list long enough to scroll.
      *
      * `pdf-progress` is deliberately not declared: it exists only during a run,
      * and a run is over by the time a capture reads (the conversion is awaited
@@ -141,6 +147,7 @@ const PAGES = [
       "pdf-paper",
       "pdf-pages",
       "pdf-page-row",
+      "pdf-page-miniature",
       "pdf-result",
     ],
     convert: true,
