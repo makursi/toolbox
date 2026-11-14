@@ -122,6 +122,20 @@ function jpegSource(channels: 1 | 3 | 4, dimensions = { width: 600, height: 800 
   };
 }
 
+/**
+ * A page whose image is packed RGB samples: what a PNG or a WebP becomes after
+ * the browser decodes it (`core/packing.ts`). The bytes here stand for the
+ * zlib-wrapped stream; the writer copies them like it copies a JPEG.
+ */
+function rawSource(dimensions = { width: 600, height: 800 }): PdfImage {
+  return {
+    kind: "raw-rgb",
+    bytes: new Uint8Array([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]),
+    width: dimensions.width,
+    height: dimensions.height,
+  };
+}
+
 function page(paper: "a4" | "letter", image = jpegSource(3)): PdfPage {
   return { geometry: pageGeometry({ width: image.width, height: image.height }, paper), image };
 }
@@ -248,6 +262,62 @@ describe("the PDF writer", () => {
     // PDF's DeviceCMYK is the inverted convention; omitting /Decode prints
     // every CMYK JPEG with inverted ink.
     expect(cmykImage?.text).toContain("/Decode [1 0 1 0 1 0 1 0]");
+  });
+
+  it("writes raw samples as DeviceRGB through FlateDecode, with no predictor", () => {
+    const image = rawSource();
+    const inspected = inspectPdf(buildPdf([{ geometry: pageGeometry(image, "a4"), image }]));
+    const object = inspected.objects.find((one) => one.text.includes("/Subtype /Image"));
+
+    expect(object).toBeDefined();
+    expect(object?.text).toContain("/ColorSpace /DeviceRGB");
+    expect(object?.text).toContain("/BitsPerComponent 8");
+    expect(object?.text).toContain("/Filter /FlateDecode");
+    expect(object?.text).toContain(`/Width ${image.width}`);
+    expect(object?.text).toContain(`/Height ${image.height}`);
+
+    // The samples are written exactly as they arrived: zlib-wrapped RGB, not
+    // re-encoded and not passed through a PNG predictor. `docs/adr/0020` says no
+    // `/DecodeParms` precisely so no reader has to agree about a predictor.
+    expect(object?.text).not.toContain("/DecodeParms");
+    expect(object?.text).not.toContain("/DCTDecode");
+
+    const { data } = streamData(inspected, object!);
+    expect([...data]).toEqual([...image.bytes]);
+  });
+
+  it("gives a raw-samples page the same geometry a JPEG of those dimensions gets", () => {
+    // PNG and WebP are pages, not a second geometry: the same pixel dimensions
+    // and paper must produce the same media box and the same placement matrix
+    // as the passthrough path. Both readings are pulled from the files.
+    for (const dimensions of [
+      { width: 600, height: 800 },
+      { width: 1600, height: 900 },
+    ]) {
+      for (const paper of ["a4", "letter"] as const) {
+        const jpegPage = {
+          geometry: pageGeometry(dimensions, paper),
+          image: jpegSource(3, dimensions),
+        };
+        const rawPage = { geometry: pageGeometry(dimensions, paper), image: rawSource(dimensions) };
+
+        const jpegText = latin1(buildPdf([jpegPage]));
+        const rawText = latin1(buildPdf([rawPage]));
+
+        const box = (text: string) => /\/MediaBox \[0 0 [\d.]+ [\d.]+\]/.exec(text)?.[0];
+        const matrix = (text: string) =>
+          /q\n[\d.]+ 0 0 [\d.]+ [\d.]+ [\d.]+ cm\n\/Im0 Do\nQ/.exec(text)?.[0];
+
+        expect(
+          box(rawText),
+          `${String(dimensions.width)}x${String(dimensions.height)} ${paper}`,
+        ).toBe(box(jpegText));
+        expect(
+          matrix(rawText),
+          `${String(dimensions.width)}x${String(dimensions.height)} ${paper}`,
+        ).toBe(matrix(jpegText));
+      }
+    }
   });
 
   it("places the image with the rectangle the geometry function produced", () => {

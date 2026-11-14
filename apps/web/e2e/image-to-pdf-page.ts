@@ -104,6 +104,147 @@ export async function chooseFiles(page: Page, files: NamedBytes[]): Promise<void
 }
 
 /**
+ * A 64×48 PNG, transparent on the left half and opaque red on the right.
+ *
+ * Built by the browser's own canvas encoder in a page of its own, like the JPEG
+ * fixture: no binary enters the repository, and the bytes cannot disagree with
+ * the decoder that will read them back. It is landscape — 64 is wider than 48 —
+ * so the expected page is A4 in landscape, which also proves the orientation
+ * rule survived the decode path.
+ *
+ * Its pixels are checked before it is handed over, because every expectation
+ * downstream — the white left half, the red right half — is stated in terms of
+ * what the canvas actually encoded.
+ */
+export async function transparentPng(
+  context: BrowserContext,
+  name = "half-transparent.png",
+): Promise<NamedBytes> {
+  const builder = await context.newPage();
+
+  try {
+    const dataUrl = await builder.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 48;
+      const context2d = canvas.getContext("2d");
+      if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+      // The left half is never painted, so it stays transparent.
+      context2d.fillStyle = "#ff0000";
+      context2d.fillRect(32, 0, 32, 48);
+
+      return canvas.toDataURL("image/png");
+    });
+
+    const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+    expect(buffer.subarray(0, 8).toString("hex"), "the fixture is not a PNG").toBe(
+      "89504e470d0a1a0a",
+    );
+
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context2d = canvas.getContext("2d");
+      if (context2d === null) throw new Error("no 2d context to read the fixture in");
+
+      context2d.drawImage(image, 0, 0);
+      const at = (x: number, y: number): number[] => [...context2d.getImageData(x, y, 1, 1).data];
+
+      return {
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        left: at(8, 24),
+        right: at(56, 24),
+      };
+    }, dataUrl);
+
+    expect(decoded).toEqual({ width: 64, height: 48, left: [0, 0, 0, 0], right: [255, 0, 0, 255] });
+
+    return { name, mimeType: "image/png", buffer };
+  } finally {
+    await builder.close();
+  }
+}
+
+/**
+ * A 96×128 WebP, encoded by the browser's own WebP encoder.
+ *
+ * Portrait on purpose, so the page it becomes is A4 in portrait and the media
+ * box says the decode path kept the geometry rule. The declared type and the
+ * container are checked here; the pixels are not, because a lossy WebP's
+ * colours are its encoder's business and the gate only needs the geometry and
+ * the stream.
+ */
+export async function webp(context: BrowserContext, name = "photo.webp"): Promise<NamedBytes> {
+  const builder = await context.newPage();
+
+  try {
+    const dataUrl = await builder.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 96;
+      canvas.height = 128;
+      const context2d = canvas.getContext("2d");
+      if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+      context2d.fillStyle = "#f2efe8";
+      context2d.fillRect(0, 0, 96, 128);
+      context2d.fillStyle = "#2b2b2b";
+      context2d.fillRect(12, 16, 72, 64);
+
+      return canvas.toDataURL("image/webp", 0.9);
+    });
+
+    const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+    expect(buffer.subarray(0, 4).toString("latin1"), "the fixture is not RIFF").toBe("RIFF");
+    expect(buffer.subarray(8, 12).toString("latin1"), "the fixture is not WebP").toBe("WEBP");
+
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      return { width: image.naturalWidth, height: image.naturalHeight };
+    }, dataUrl);
+
+    expect(decoded).toEqual({ width: 96, height: 128 });
+
+    return { name, mimeType: "image/webp", buffer };
+  } finally {
+    await builder.close();
+  }
+}
+
+/**
+ * A PNG header that claims 50 M pixels, with no pixel data behind it.
+ *
+ * Admission reads the `IHDR` and must refuse it there: the file is 29 bytes, so
+ * anything that tried to decode it would fail with a different sentence, and a
+ * page that accepted it would be asking a decoder for a canvas nothing
+ * downloaded. This is the shape of fixture the pixel limit exists for.
+ */
+export function hugeHeaderPng(name = "panorama.png"): NamedBytes {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  // length (4) + "IHDR" (4) + 13-byte header payload. No CRC and no pixel data:
+  // only the first 24 bytes are ever read for the dimensions.
+  const ihdr = Buffer.alloc(8 + 13);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write("IHDR", 4, "latin1");
+  ihdr.writeUInt32BE(10_000, 8);
+  ihdr.writeUInt32BE(5_000, 12);
+  ihdr[16] = 8; // bit depth
+  ihdr[17] = 2; // colour type: truecolour
+
+  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, ihdr]) };
+}
+
+/**
  * Hand files to the Tool the way a drop does, on the region that accepts one.
  *
  * The region is the element the drop handlers are bound to, and it changes its
@@ -201,6 +342,8 @@ export type PdfFacts = {
   imagesPerPage: number[];
   /** The raw contents of every image XObject, in document order. */
   imageStreams: Buffer[];
+  /** Each image stream's `/Filter`, in the same order: `/DCTDecode` or `/FlateDecode`. */
+  imageFilters: (string | null)[];
 };
 
 /**
@@ -215,6 +358,7 @@ export async function inspectDownloadedPdf(path: string): Promise<PdfFacts> {
   const mediaBoxes: { width: number; height: number }[] = [];
   const imagesPerPage: number[] = [];
   const imageStreams: Buffer[] = [];
+  const imageFilters: (string | null)[] = [];
 
   for (const page of document.getPages()) {
     const box = page.getMediaBox();
@@ -234,7 +378,10 @@ export async function inspectDownloadedPdf(path: string): Promise<PdfFacts> {
     for (const name of names) {
       const stream = xobjects.lookup(name);
       if (!(stream instanceof PDFRawStream)) continue;
+
       imageStreams.push(Buffer.from(stream.contents));
+      const filter = stream.dict.lookup(PDFName.of("Filter"));
+      imageFilters.push(filter === undefined ? null : String(filter));
     }
   }
 
@@ -244,5 +391,6 @@ export async function inspectDownloadedPdf(path: string): Promise<PdfFacts> {
     mediaBoxes,
     imagesPerPage,
     imageStreams,
+    imageFilters,
   };
 }

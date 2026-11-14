@@ -32,11 +32,33 @@ export type JpegImage = {
 };
 
 /**
- * What may be embedded. It is a union of one today so that #195 can add a
- * raw-RGB `FlateDecode` kind without a caller changing: the writer picks the
- * stream's filter and colour space from the kind.
+ * An image the browser had to decode: PNG and WebP take this path today, and
+ * #198 gives progressive and four-channel JPEGs the same one. Its pixels are
+ * packed as RGB samples and zlib-compressed by `core/packing.ts`, already
+ * composited onto white page paper, so the stream carries `/Filter /FlateDecode`
+ * and **no `/DecodeParms`**.
+ *
+ * The PNG predictor that would preserve the original compressed bytes is a legal
+ * alternative and was deliberately not taken: it is one more thing every reader
+ * must agree about, and `docs/adr/0020-the-pdf-writer-is-ours.md` records why the
+ * unverified bytes were not worth the saved kilobytes. A predictor-free stream is
+ * readable by every PDF implementation there is.
  */
-export type PdfImage = JpegImage;
+export type RawRgbImage = {
+  kind: "raw-rgb";
+  /** Packed, white-composited, zlib-wrapped RGB samples. */
+  bytes: Uint8Array<ArrayBuffer>;
+  /** Pixel dimensions of the samples, not of the file it came from. */
+  width: number;
+  height: number;
+};
+
+/**
+ * What may be embedded. The writer picks the stream's filter and colour space
+ * from the kind, so a caller hands over the image it has and the layer that
+ * knows the PDF format decides how it is written.
+ */
+export type PdfImage = JpegImage | RawRgbImage;
 
 /** One page: the geometry the preview drew, and the image stream to embed. */
 export type PdfPage = {
@@ -134,8 +156,18 @@ function contentStream(rectangle: Rectangle): string {
   ].join("\n");
 }
 
-/** The image XObject's dictionary and its untouched JPEG bytes. */
+/** The image XObject's dictionary and its stream data, decided by the image's kind. */
 function imageObject(image: PdfImage): { dictionary: string; data: Uint8Array<ArrayBuffer> } {
+  if (image.kind === "raw-rgb") {
+    const dictionary =
+      `/Type /XObject /Subtype /Image /Width ${String(image.width)} ` +
+      `/Height ${String(image.height)} /ColorSpace /DeviceRGB ` +
+      `/BitsPerComponent 8 /Filter /FlateDecode ` +
+      `/Length ${String(image.bytes.byteLength)}`;
+
+    return { dictionary, data: image.bytes };
+  }
+
   const colour = colourSpaceFor(image.channels);
   const dictionary =
     `/Type /XObject /Subtype /Image /Width ${String(image.width)} ` +

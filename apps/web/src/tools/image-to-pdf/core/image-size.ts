@@ -12,7 +12,9 @@ import type { ImageFormat } from "./sniff";
  *
  * Nothing here decodes pixels. A header that stops before the dimensions is
  * `null`, which the caller turns into a refusal sentence rather than a guess.
- * #195's decode path, when it needs the same dimensions, reads them from here.
+ * Admission reads the same numbers to hold the pixel limit without a decode; the
+ * Worker's decode path takes its geometry from the dimensions the decoder
+ * reports, which is the first place a header's claim is checked against pixels.
  */
 export function readImageSize(format: ImageFormat, bytes: Uint8Array): ImageSize | null {
   if (format === "jpeg") {

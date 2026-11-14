@@ -1,19 +1,25 @@
 import { failureCode, PdfFailure, type PdfFailureCode } from "../core/failures";
 import { pageGeometry, type Paper } from "../core/geometry";
 import { canPassThrough, readJpeg } from "../core/jpeg";
+import { MAX_IMAGE_PIXELS } from "../core/limits";
+import { flateRgb } from "../core/packing";
 import { buildPdf, type PdfPage } from "../core/pdf";
 import { isAcceptedFormat, sniffFormat } from "../core/sniff";
 
 /**
  * The Worker side of one document.
  *
- * It receives the page sources and the paper, walks each JPEG's header itself so
+ * It receives the page sources and the paper, sniffs each page's bytes itself so
  * that nothing the page claims about its files is trusted, and writes the whole
  * document here. One request in, one response out; #197 adds progress messages
  * and a cancel to the same protocol.
  *
- * It needs no DOM, no canvas and no PDF library: the pure core does the work,
- * and everything expensive is on the page's behalf in this thread.
+ * Two image paths meet here and nowhere above. A baseline JPEG keeps its own
+ * bytes (`/Filter /DCTDecode`, no decode, no re-encode). A PNG or WebP cannot:
+ * there is no PDF filter that carries its compressed bytes through, so the
+ * browser decodes it here and the pixels go to the writer as raw RGB samples.
+ * Both paths end in one `PdfPage`, so the writer decides the stream from the
+ * image kind and nothing above this file grows a branch.
  */
 
 export type BuildRequest = {
@@ -45,12 +51,16 @@ type WorkerContext = {
 const context = self as unknown as WorkerContext;
 
 context.addEventListener("message", (event: MessageEvent<BuildRequest>) => {
-  respond(event.data);
+  void respond(event.data);
 });
 
-function respond(request: BuildRequest): void {
+async function respond(request: BuildRequest): Promise<void> {
   try {
-    const pages = request.pages.map((bytes) => toPage(bytes, request.paper));
+    const pages: PdfPage[] = [];
+    // One page at a time: a decode is the expensive step, and a document is one
+    // sequence of bytes anyway.
+    for (const source of request.pages) pages.push(await toPage(source, request.paper));
+
     const bytes = buildPdf(pages);
 
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage takes a transfer list, not a target origin.
@@ -68,13 +78,13 @@ function respond(request: BuildRequest): void {
 /**
  * One page source to one page of the document.
  *
- * The format and the header walk both run here rather than trusting anything
- * the page claims, and the passthrough predicate decides the path: a baseline
- * 1- or 3-channel JPEG keeps its original bytes; everything else is refused for
- * now, because #195 adds the decode path and writing a stream the predicate did
- * not approve would be the one way this Tool could produce a wrong file.
+ * The format and the header walk both run here rather than trusting anything the
+ * page claims. The passthrough predicate still decides the JPEG path: a baseline
+ * 1- or 3-channel JPEG keeps its original bytes, and progressive or 4-channel
+ * JPEGs are refused for now because #198 owns their decode, not this ticket.
+ * PNG and WebP are decoded because the writer cannot carry their own bytes.
  */
-function toPage(buffer: ArrayBuffer, paper: Paper): PdfPage {
+async function toPage(buffer: ArrayBuffer, paper: Paper): Promise<PdfPage> {
   const bytes = new Uint8Array(buffer);
   const format = sniffFormat(bytes);
 
@@ -82,23 +92,80 @@ function toPage(buffer: ArrayBuffer, paper: Paper): PdfPage {
   // a page list that changed underneath a run rather than a visitor-facing case.
   if (format === null || !isAcceptedFormat(format)) throw new PdfFailure("unreadable");
 
-  // PNG and WebP are accepted by the list; #195 adds their decode-and-write
-  // path. Until then their pages are refused with a sentence, not written as a
-  // stream this writer cannot verify.
-  if (format !== "jpeg") throw new PdfFailure("unsupported");
+  if (format === "jpeg") {
+    const info = readJpeg(bytes);
+    if (info === null) throw new PdfFailure("unreadable");
+    if (!canPassThrough(info)) throw new PdfFailure("unsupported");
 
-  const info = readJpeg(bytes);
-  if (info === null) throw new PdfFailure("unreadable");
-  if (!canPassThrough(info)) throw new PdfFailure("unsupported");
+    return {
+      geometry: pageGeometry(info, paper),
+      image: {
+        kind: "jpeg",
+        bytes,
+        width: info.width,
+        height: info.height,
+        channels: info.channels,
+      },
+    };
+  }
 
-  return {
-    geometry: pageGeometry(info, paper),
-    image: {
-      kind: "jpeg",
-      bytes,
-      width: info.width,
-      height: info.height,
-      channels: info.channels,
-    },
-  };
+  return decodedPage(bytes, paper);
+}
+
+/**
+ * A decoded image to a page of raw RGB samples.
+ *
+ * The geometry comes from the dimensions the decoder reported, not from the
+ * file's header: those are the pixels being written, and a page whose box
+ * disagreed with its own samples would letterbox the image against itself. The
+ * pixel limit is checked here as well as at admission because a header is a
+ * claim, and this is the first place that knows the true size.
+ */
+async function decodedPage(bytes: Uint8Array<ArrayBuffer>, paper: Paper): Promise<PdfPage> {
+  const bitmap = await decode(bytes);
+
+  try {
+    if (bitmap.width * bitmap.height > MAX_IMAGE_PIXELS) throw new PdfFailure("too-many-pixels");
+
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    // `alpha: true` (the default) on purpose: the composite onto white page
+    // paper is `core/packing.ts`'s job, where a unit test can hold it. Letting
+    // the canvas do it would flatten through an unspecified background and take
+    // the rule out of the tested layer.
+    const context2d = canvas.getContext("2d");
+    if (context2d === null) throw new PdfFailure("unknown");
+
+    context2d.drawImage(bitmap, 0, 0);
+    const pixels = context2d.getImageData(0, 0, bitmap.width, bitmap.height);
+    const samples = flateRgb(new Uint8Array(pixels.data.buffer), bitmap.width, bitmap.height);
+
+    return {
+      geometry: pageGeometry(bitmap, paper),
+      image: {
+        kind: "raw-rgb",
+        bytes: samples,
+        width: bitmap.width,
+        height: bitmap.height,
+      },
+    };
+  } finally {
+    // The bitmap holds decoded pixels; the samples above are their own copy.
+    bitmap.close();
+  }
+}
+
+/**
+ * Decode a blob in the browser's own decoder.
+ *
+ * A file that will not decode is the visitor-facing failure here, and the
+ * browser's message for it is written for a developer: "The source image could
+ * not be decoded." The error is kept as the cause and goes to the console; the
+ * sentence `unreadable` carries is the one the visitor reads.
+ */
+async function decode(bytes: Uint8Array<ArrayBuffer>): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(new Blob([bytes]));
+  } catch (error) {
+    throw new PdfFailure("unreadable", { cause: error });
+  }
 }

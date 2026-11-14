@@ -1,15 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
+import { unzlibSync } from "fflate";
 
 import {
   avifFile,
   chooseFiles,
   dropFiles,
   gifFile,
+  hugeHeaderPng,
   inspectDownloadedPdf,
   jpeg,
   open,
   renamedTextFile,
   todayPdfName,
+  transparentPng,
+  webp,
   type PdfFacts,
 } from "./image-to-pdf-page";
 
@@ -50,6 +54,23 @@ async function downloadPdf(page: Page): Promise<PdfFacts> {
   if (path === null) throw new Error("the download produced no file to read");
 
   return inspectDownloadedPdf(path);
+}
+
+/**
+ * The structural minimum every page this Tool writes must show: a preamble, a
+ * trailer the second implementation can follow, and an end marker. The xref
+ * offset is read here rather than left to `pdf-lib`, which reconstructs a broken
+ * table instead of refusing the file.
+ */
+function expectValidPdf(pdf: PdfFacts): void {
+  const text = pdf.bytes.toString("latin1");
+
+  expect(text.startsWith("%PDF-1.7\n")).toBe(true);
+  expect(text.trimEnd().endsWith("%%EOF")).toBe(true);
+
+  const startxref = /startxref\s+(\d+)/.exec(text);
+  expect(startxref, "the file has no startxref").not.toBeNull();
+  expect(text.startsWith("xref", Number(startxref?.[1]))).toBe(true);
 }
 
 test("one JPEG becomes a one-page A4 PDF the site wrote itself", async ({ page }) => {
@@ -137,8 +158,9 @@ test("one JPEG becomes a one-page A4 PDF the site wrote itself", async ({ page }
  * that comes out holds exactly the accepted files in the order they arrived.
  *
  * The converted batch is JPEG-only on purpose. PNG and WebP are accepted by the
- * sniffer and do become rows, but their pages are written by #195's decode
- * path; converting one of them here would be asserting #195's work.
+ * sniffer and do become rows, but their pages are written by the decode path
+ * (#195), which the two tests at the end of this file drive on their own so a
+ * failure names the format that broke.
  */
 test("a mixed batch keeps the accepted files and lists every refusal once", async ({ page }) => {
   await open(page);
@@ -367,4 +389,107 @@ test("a mixed album keeps each page in its own image's orientation", async ({ pa
   expect(pdf.pageCount).toBe(2);
   expectBox(pdf.mediaBoxes[0], A4_PORTRAIT);
   expectBox(pdf.mediaBoxes[1], A4_LANDSCAPE);
+});
+
+/**
+ * A PNG cannot go into a PDF the way a JPEG can, so the browser decodes it and
+ * the writer takes the pixels. This test reads those pixels back out of the
+ * downloaded file with `fflate`: the stream must be zlib (`/FlateDecode`, no
+ * predictor), and the transparent half of the fixture must have become white
+ * paper while the opaque half kept its own colour.
+ *
+ * It is deliberately the whole capability at the highest point: a real
+ * transparent PNG through the page's own input, the page's action, a download,
+ * and a second implementation decompressing it.
+ */
+test("a transparent PNG becomes a page whose pixels land on white paper", async ({ page }) => {
+  await open(page);
+
+  const png = await transparentPng(page.context());
+  await chooseFiles(page, [png]);
+
+  const rows = page.locator('[data-slot="pdf-page-row"]');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("第 1 页");
+
+  await page.getByRole("button", { name: "转换" }).click();
+
+  const pdf = await downloadPdf(page);
+  expectValidPdf(pdf);
+
+  // A 64x48 image is landscape, so A4 is used in its landscape orientation: the
+  // decode path is a page, not a second geometry.
+  expect(pdf.pageCount).toBe(1);
+  expectBox(pdf.mediaBoxes[0], A4_LANDSCAPE);
+  expect(pdf.imagesPerPage).toEqual([1]);
+
+  // Exactly one image XObject, written as raw RGB samples through Flate, and no
+  // predictor parameters anywhere in the file.
+  expect(pdf.imageFilters).toEqual(["/FlateDecode"]);
+  expect(pdf.bytes.toString("latin1")).not.toContain("/DecodeParms");
+
+  const samples = unzlibSync(pdf.imageStreams[0]!);
+  expect(samples).toHaveLength(64 * 48 * 3);
+
+  const at = (x: number, y: number): number[] => [
+    ...samples.subarray((y * 64 + x) * 3, (y * 64 + x) * 3 + 3),
+  ];
+
+  // (8, 24) and (56, 24) are the two halves' centres, 8px clear of the seam: the
+  // transparent half is paper white, the opaque half is the red the fixture set.
+  expect(at(8, 24)).toEqual([255, 255, 255]);
+  expect(at(56, 24)).toEqual([255, 0, 0]);
+});
+
+/** A WebP is decoded like a PNG and becomes the same kind of page. */
+test("a WebP becomes a page like any other", async ({ page }) => {
+  await open(page);
+
+  const photo = await webp(page.context());
+  await chooseFiles(page, [photo]);
+
+  const rows = page.locator('[data-slot="pdf-page-row"]');
+  await expect(rows).toHaveCount(1);
+
+  await page.getByRole("button", { name: "转换" }).click();
+
+  const pdf = await downloadPdf(page);
+  expectValidPdf(pdf);
+
+  expect(pdf.pageCount).toBe(1);
+  // Portrait 96x128 asks for portrait A4, the same box a JPEG of those
+  // dimensions gets.
+  expectBox(pdf.mediaBoxes[0], A4_PORTRAIT);
+  expect(pdf.imagesPerPage).toEqual([1]);
+  expect(pdf.imageFilters).toEqual(["/FlateDecode"]);
+
+  // The stream is the decoded image's samples, not the WebP file's bytes.
+  const samples = unzlibSync(pdf.imageStreams[0]!);
+  expect(samples).toHaveLength(96 * 128 * 3);
+  expect(pdf.imageStreams[0]?.equals(photo.buffer)).toBe(false);
+});
+
+/**
+ * The pixel limit is the one limit bytes cannot express: this file is 29 bytes
+ * and asks for 50 M pixels. It must be refused by the pure admission layer from
+ * the `IHDR` alone — a page that let it through would be asking a decoder for a
+ * canvas nothing downloaded, and the failure would arrive with a different
+ * sentence, if at all.
+ */
+test("a PNG whose header claims more than 40 M pixels is refused at admission", async ({
+  page,
+}) => {
+  await open(page);
+
+  await chooseFiles(page, [hugeHeaderPng()]);
+
+  // No row, no armed action: the file never became a page.
+  await expect(page.locator('[data-slot="pdf-page-row"]')).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "转换" })).toBeDisabled();
+
+  // The refusal names the file and the limit, from the header alone.
+  const refusalLines = page.locator('[data-slot="alert"] p');
+  await expect(refusalLines).toHaveCount(1);
+  await expect(refusalLines.first()).toContainText("panorama.png");
+  await expect(refusalLines.first()).toContainText("这张图片超过 4000 万像素的上限，没有加入。");
 });

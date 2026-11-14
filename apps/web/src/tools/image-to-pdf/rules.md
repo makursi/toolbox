@@ -1,6 +1,6 @@
 # image-to-pdf · 设计规则（工具级）
 
-> **管什么**：这个 Tool 自己的设计规则与词汇——页面结构、输入与准入、几何、JPEG 路径、PDF 写出面、命名与失效规则。**只约束 image-to-pdf；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/adr/0020-the-pdf-writer-is-ours.md`（写出层为什么是自己写的）。
+> **管什么**：这个 Tool 自己的设计规则与词汇——页面结构、输入与准入、几何、JPEG 路径、PNG 与 WebP 路径、PDF 写出面、命名与失效规则。**只约束 image-to-pdf；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/adr/0020-the-pdf-writer-is-ours.md`（写出层为什么是自己写的）。
 
 ## 词汇
 
@@ -34,11 +34,11 @@
   - 「认得出、但不收的格式」**所有格式共用一句**，不逐格式列名：拒绝格式的清单会过期，访客要的是「换成什么」。
   - 「根本不是图片」一句。
   - 已认可的图片若自己的头部读不出尺寸，用「已经损坏」一句；这不是第三种格式措辞。
-- **尺寸从各自头部读**（`core/image-size.ts`）：JPEG 走 `SOF`，PNG 读 `IHDR`，WebP 读首个 chunk（`VP8X` 画布、`VP8 ` 关键帧、`VP8L` 位流）。读不出尺寸的文件不进列表，行上的迷你页与 PDF 的几何都用同一个尺寸。
-- 三道限制，每道一句、句子点名这道限制（`core/limits.ts`）：**一个列表 20 张**、**单张 20 MB**、**合计 100 MB**。张数与合计都是按列表算的，所以第二批会撞到同一道上限。40 M 像素是 #195 的：它约束一次解码，不属于字节准入。
+- **尺寸从各自头部读**（`core/image-size.ts`）：JPEG 走 `SOF`，PNG 读 `IHDR`，WebP 读首个 chunk（`VP8X` 画布、`VP8 ` 关键帧、`VP8L` 位流）。读不出尺寸的文件不进列表；行上的迷你页用这个尺寸，PDF 的几何对 JPEG 用同一尺寸、对 PNG/WebP 用解码后的尺寸（见下一节）。
+- 四道限制，每道一句、句子点名这道限制（`core/limits.ts`）：**一个列表 20 张**、**单张 20 MB**、**合计 100 MB**、**单张 4000 万像素**。张数与合计都是按列表算的，所以第二批会撞到同一道上限。像素那道约束的是一次解码而不是一个文件：29 字节的 PNG 头也能要求 5000 万像素，所以它的数字来自头部尺寸，在准入阶段就拒绝，不等到解码。
 - **准入是一个纯函数**（`core/admission.ts`）：输入每个文件「字节说的格式 + 大小 + 头部给出的像素 + 列表已有的张数/字节」，按输入顺序返回每个文件的判决。hook 只负责读字节、按序追加；被拒的文件不消耗张数，也不占合计。
 - 一次添加是串行的：第二批看到第一批追加后的张数与合计，两批不会同时挤进同一道上限。
-- **PNG 与 WebP 在本票被准入、能成为页**，但把页面写进 PDF 是 #195 的解码路径。在此之前转换一个含它们的批次以 `unsupported` 的句子结束，而不是把一条未经确认的流写进 PDF。
+- **PNG 与 WebP 不只是准入**：它们经浏览器解码后成为页，路径见下一节。准入只看头部尺寸，解码发生在 Worker 里，所以一张头小、解码大的图仍会被 Worker 用同一句像素句子拒绝。
 
 ## 页面尺寸行
 
@@ -63,14 +63,23 @@
 - `core/jpeg.ts` 只走段头：从 `SOFn` 读出宽、高、通道数与帧类型；`SOF2` 是 progressive，`SOF0`/`SOF1` 是 baseline，其余帧类型一律不认。
 - **旁路条件**：帧是 baseline，且通道数是 1（灰度）或 3（YCbCr，`DCTDecode` 自己转成 `DeviceRGB`）。progressive 与 4 通道（CMYK/YCCK）走将来的解码路径，**本票先拒绝**，绝不把未经确认的流写进 PDF。
 - **EXIF 方向还没有解析**（#198 拥有 APP1）：`JpegInfo.orientation` 恒为 1，字段与注释已经把位置留好；#198 只改这个模块、矩阵和几何的交换，不改调用方。
-- Worker 收到每一页时先重新嗅探格式与头部，不信任页面送来的任何说法；不是 JPEG 的页在 #195 之前以一句拒绝结束。
+- Worker 收到每一页时先重新嗅探格式与头部，不信任页面送来的任何说法。**旁路谓词一字未动**：baseline 的 1/3 通道 JPEG 仍以原字节进 PDF，从不交给编码器，也不重编码。progressive 与 4 通道 JPEG 仍以 `unsupported` 拒绝，它们的解码路径是 #198 的。
+
+## PNG 与 WebP 路径
+
+- **浏览器解码，写出层拿像素**：PNG 与 WebP 没有能装下自己压缩字节的 PDF 过滤器，所以 Worker 用 `createImageBitmap(Blob)` 解码，画进 `OffscreenCanvas`，`getImageData` 拿回 RGBA。解码、canvas、`Blob` 都只在 `worker/` 里；`core/` 仍然只认字节和数字。
+- **透明像素压到白纸**：每通道 `c * a + 255 * (1 - a)`（`a` 是 alpha 的比例），在 `core/packing.ts` 的 `packRgb` 里做，因此有单测盯住「全透明 → 255,255,255」、半透明像素的取整和不透明像素保持原色。丢掉 alpha 会让透明区变成黑矩形，这正是这个模块存在的理由。
+- **压白不是界面颜色**：那是访客自己文件里的像素被压平，不是页面表面，所以站点「禁纯黑纯白」的规则不适用于它；参考 Tool 记录同一例外（`apps/web/src/tools/image-converter/rules.md` 第 21 条，站点规则在 `apps/web/docs/design/colour.md`）。
+- **`/FlateDecode` 是 zlib，不是 raw deflate**：压平后的 RGB 样本由 `core/packing.ts` 的 `flateRgb` 用 `fflate` 的 `zlibSync` 压。写出层写 `/ColorSpace /DeviceRGB`、`/BitsPerComponent 8`、`/Filter /FlateDecode`，**没有 `/DecodeParms`**：PNG predictor 的直通合法且省字节，但阅读器的支持没能验证，ADR-0020 记了这笔取舍。
+- **几何仍来自同一个函数**：`pageGeometry(解码后的尺寸, paper)`，所以与 JPEG 同尺寸、同方向得到同一组页面框与图片矩形。页面框跟解码后的像素走，不跟文件头：一页不该与自己的样本对着 letterbox。
+- **像素上限在这里再查一次**：解码后的宽高乘积超过 `MAX_IMAGE_PIXELS`（4000 万）时，Worker 抛 `too-many-pixels`，句子复用 `core/limits.ts` 的那一句。准入已经用头部拒绝过一次，这一道是给「头部说谎」留的。
 
 ## PDF 写出层
 
 - **自己写，不用运行时 PDF 库**：PDF 1.7、经典 xref 表（没有对象流）、头部之后一行二进制注释、每个流精确的 `/Length`、trailer、`startxref`、`%%EOF`。理由与两个被否掉的库的代价见 `docs/adr/0020-the-pdf-writer-is-ours.md`。
 - 每页恰好一个 page 对象、一个 content stream、一个 image XObject。`/MediaBox` 来自几何函数；content stream 用一个矩阵把图片放到几何给的矩形上。
-- 图像流的颜色空间由通道数决定：1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`。
-- **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。#195 加原始 RGB 的 `FlateDecode` 图像类型、#198 加 content-stream 矩阵，都只动这一层内部或它的 `PdfImage` 联合类型，不改调用方。
+- 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。
+- **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。两种图像类型都在这一层内部；#198 的 content-stream 矩阵同样只动这里，不改调用方。
 
 ## 命名与失效
 
@@ -81,20 +90,19 @@
 ## 报错
 
 - 浏览器或解码器自己的报错只进 console；访客读到的句子在纯函数层（`core/hints.ts`、`core/failures.ts`、`core/refusal.ts`、`core/limits.ts`），有单测能盯住措辞。
-- 失败码是闭集：`unreadable / unsupported / interrupted / unknown`，每码一句；认不出的错误回落到 `unknown`，原始错误只进 console。`unsupported` 的句子不点名 JPEG，因为 PNG/WebP 在 #195 之前也走它。Worker、`builder.ts` 与 hook 三层都不会把原始错误文本带进界面。
+- 失败码是闭集：`unreadable / unsupported / too-many-pixels / interrupted / unknown`，每码一句；认不出的错误回落到 `unknown`，原始错误只进 console。`too-many-pixels` 复用像素上限那一句（一个条件一句）；`unsupported` 的句子不点名格式。Worker、`builder.ts` 与 hook 三层都不会把原始错误文本带进界面。
 
 ## 推迟给后续票
 
-- #195：progressive 与 4 通道 JPEG 的浏览器解码路径、PNG/WebP 压白后的 `FlateDecode`、40 M 像素限制。
 - #196：拖拽 + 键盘重排；每行一个可访问名固定的拖拽把手。
 - #197：进度（每页一条）与取消（终止并替换 Worker）。
-- #198：EXIF 方向八值表与 content-stream 矩阵。
+- #198：EXIF 方向八值表与 content-stream 矩阵，以及 progressive 与 4 通道 JPEG 的浏览器解码路径。
 - #199：失效覆盖的测试与上面各票带来的新失效点；换纸这一条已随 #194 的控件落地。
 - #200：把这一页加进两个量具的 `PAGES`（本票只保证 `data-slot` 与固定的按钮名已就位）；#201：设计笔记与截图基线。
 
 ## 已知风险
 
-- 移动端 canvas 面积上限（约 1670 万像素）低于 4000 万像素的限制，会先画出一张空白页。这条是记录，不用上限去挡：上限会拒绝桌面能处理的图片。#195 的解码路径落地时要再读一次这一条。
+- 移动端 canvas 面积上限（约 1670 万像素）低于 4000 万像素的限制：一张像素数在限制以内但超过手机 canvas 上限的 PNG/WebP，解码时会先得到空白页或浏览器自己的失败。这条仍是记录，不用上限去挡——上限会拒绝桌面能处理的图片，而移动端真正的边界由浏览器决定。
 - 单测证明文件结构，门禁用另一种实现读回文件；**没有机器能证明真实阅读器画得对**。「在桌面阅读器、手机、第二个浏览器里各打开一次」留在 README 的手工清单里。
 
 ## 退出标准

@@ -150,7 +150,7 @@ function readFrame(
  * baseline carries 1 channel (gray) or 3 (YCbCr, which DCTDecode converts to
  * `DeviceRGB` itself). A progressive file needs a browser decode first, and a
  * 4-channel one is CMYK or YCCK, which needs the decode path's colour handling;
- * both are #195's work, so both are refused here rather than written wrongly.
+ * both are #198's work, so both are refused here rather than written wrongly.
  */
 export function canPassThrough(info: JpegInfo): boolean {
   return info.frame === "baseline" && (info.channels === 1 || info.channels === 3);

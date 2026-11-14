@@ -30,6 +30,7 @@ const TOO_MANY = "一个列表最多 20 张图片，这张没有加入。";
 const TOO_LARGE = "这张图片超过 20 MB 的单张上限，没有加入。";
 const OVER_TOTAL = "所有图片合计不能超过 100 MB，这张没有加入。";
 const DAMAGED = "这张图片已经损坏，读不出来，换一张再试。";
+const TOO_MANY_PIXELS = "这张图片超过 4000 万像素的上限，没有加入。";
 
 describe("admitImages", () => {
   it("takes JPEG, PNG and WebP, in input order, with the format the bytes named", () => {
@@ -90,6 +91,45 @@ describe("admitImages", () => {
 
     expect(decision?.ok).toBe(false);
     if (decision && !decision.ok) expect(decision.message).toBe(DAMAGED);
+  });
+
+  it("refuses an image over 40 M pixels from its header, before any decode", () => {
+    // 10000 x 5000 is 50 M pixels: a small file can still ask for a canvas no
+    // page should allocate, which is why the pixel limit exists beside the byte
+    // limits.
+    const [decision] = admitImages(
+      [file("panorama.png", 100, "png", { width: 10_000, height: 5000 })],
+      list(),
+    );
+
+    expect(decision?.ok).toBe(false);
+    if (decision && !decision.ok) expect(decision.message).toBe(TOO_MANY_PIXELS);
+  });
+
+  it("takes an image of exactly 40 M pixels and refuses the next one", () => {
+    const decisions = admitImages(
+      [
+        file("exact.png", 100, "png", { width: 8000, height: 5000 }),
+        file("over.webp", 100, "webp", { width: 8000, height: 5001 }),
+      ],
+      list(),
+    );
+
+    expect(decisions[0]?.ok).toBe(true);
+    expect(decisions[1]?.ok).toBe(false);
+    if (decisions[1] && !decisions[1].ok) expect(decisions[1].message).toBe(TOO_MANY_PIXELS);
+  });
+
+  it("does not spend the count or the total on a file refused for its pixels", () => {
+    const decisions = admitImages(
+      [
+        file("huge.png", 10 * MB, "png", { width: 20_000, height: 20_000 }),
+        file("fits.png", 10 * MB, "png", { width: 100, height: 100 }),
+      ],
+      list(19, 89 * MB),
+    );
+
+    expect(decisions.map((decision) => decision.ok)).toEqual([false, true]);
   });
 
   it("counts the existing list, so a second batch can hit the twenty-image limit", () => {
