@@ -1,14 +1,18 @@
 # 素材投递处（inbox）
 
-把候选图丢进这个目录就行，文件名用 `<slug>.<扩展名>`（例如 `image-converter.jpg`），丢完跟我说一声，我负责裁切、压缩、转格式，并接到 `apps/web/public/`、`apps/web/src/app/` 与代码里。
+把候选图丢进这个目录就行，文件名用 `<slug>.<扩展名>`（例如 `image-converter.jpg`），丢完跟我说一声，我负责裁切、压缩、转格式，并接到 `apps/web/public/`、`apps/web/src/app/` 与代码里。**值得留的原图会提交到 `apps/web/assets/tools/<slug>/cover.<扩展名>`，然后这个目录清空。**
 
 **这个目录下的图片不进 git**（`.gitignore` 只放行这份说明），所以毛坯、大文件、还在挑的候选都可以随便放，不用怕污染版本库。
+
+**这里是投递口，不是档案。** 处理完就删：留在这个目录里的图既不在 git 里，也没有第二个副本，等于早就删了，只是还没执行。要留的原图走 `apps/web/assets/tools/<slug>/`：那里进 git，且与 `apps/web/public/tools/<slug>/` 同形同路径，只差一级根目录。
 
 ---
 
 ## 一、工具的封面图：三张都已入位（2026-09-17 起，最后一张 2026-11-14）
 
 三个 Tool 的卡片都有封面了：`image-converter`、`cover-generator` 与 `image-to-pdf`，各自落在 `apps/web/public/tools/<slug>/cover.jpg`。**这一项不再缺。**
+
+**2026-11-14 清过一次这个目录**：`image-converter` 与 `image-to-pdf` 的原图先提交进 `apps/web/assets/tools/<slug>/`（前者与上线封面逐字节相同，后者是 1920×1080 的原图，上线的是它裁出的 1440×1080），再删掉三张没有任何接线的图：一张与上线封面逐字节相同的副本、一张当年落选的去色版、一张从未使用的页面截图。所以现在这里只剩这份说明；`cover-generator` 没有源件（它上线的是一张 1920×1080 的 16:9 原图，没有留下可再裁的母本）。
 
 以后再加 Tool，仍然按下面这张表投递一张封面（没有也能上，卡片退回纯文字，不放占位图）：
 
