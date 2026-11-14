@@ -9,8 +9,8 @@ The Image to PDF Tool needs PDF bytes from a browser, with no server, keeping th
 site's promise that a file never leaves the device. The decision is that **this
 repository writes the PDF**, in one replaceable layer behind
 `apps/web/src/tools/image-to-pdf/core/pdf.ts`: pages in (geometry plus an encoded
-image), PDF 1.7 bytes out. It is about 400 lines with its structural tests, in the
-same tradition as the hand-written BMP encoder.
+image), PDF 1.7 bytes out. It is about 280 lines, with its structural tests, in
+the same tradition as the hand-written BMP encoder.
 
 The requirement that settles it is not the page assembly — that is a catalog, a
 page tree and three objects per page. It is **what happens to a JPEG**. A phone
@@ -55,16 +55,25 @@ checked against a second implementation rather than against itself.
 
 ## Considered Options
 
-- **`pdf-lib` as a runtime dependency.** Rejected. It has been frozen upstream
-  since 2021; it is about 177 KB gzip, most of it font metrics this Tool never
-  uses; its pako dependency has a known bundler fault; and it still would not
-  handle EXIF orientation or WebP, leaving this repository owning the two hard
-  parts while shipping the library anyway.
-- **The maintained fork of that library.** Rejected: same embedders, same two
-  gaps, about 26 MB unpacked.
-- **`pdfkit`.** Rejected: it is the one library that rotates JPEGs by EXIF
-  itself, but it is a Node-flavoured entry, about 10 MB unpacked, and it offers a
-  streaming API to contort around a one-image-per-page document.
+Each of the three PDF libraries was costed before it was rejected. The numbers
+are the ones the design note recorded; the reason each is rejected is that the
+cost buys no answer to this Tool's two hard parts, EXIF orientation and WebP.
+
+- **`pdf-lib` as a runtime dependency.** Rejected at about 177 KB gzip, most of
+  it font metrics this Tool never uses, on a package frozen upstream since 2021.
+  It would still leave EXIF orientation and WebP to this repository, because it
+  does not apply the orientation tag and does not decode a WebP; its pako
+  dependency also carries a known bundler fault. The bundle is paid and the two
+  hard parts stay.
+- **The maintained fork of `pdf-lib`.** Rejected at about 26 MB unpacked. It
+  fixes the abandonment and not the shape: same embedders, same two gaps, so the
+  trade is a much larger install for the same remaining work.
+- **`pdfkit`.** Rejected at about 10 MB unpacked. It is the one candidate that
+  rotates JPEGs by EXIF itself, but it is a Node-flavoured entry with a streaming
+  API this one-image-per-page document would have to be contorted around, and it
+  still does not take WebP. The one hard part it does solve, JPEG orientation, is
+  the content-stream matrix this repository writes itself, which is cheaper than
+  the install and keeps the original bytes untouched.
 - **A server-side generator.** Rejected before it was costed: it breaks the
   site's one promise for exactly the documents where the promise matters most.
 - **The browser's own print dialog.** Rejected: it hands the visitor a preview
