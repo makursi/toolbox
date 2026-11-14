@@ -2,11 +2,13 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import { DEFAULT_PAPER, type Paper } from "./core/geometry";
 import {
   addHeading,
+  addMoreLabel,
   buildingHint,
   clearLabel,
   convertLabel,
@@ -16,6 +18,7 @@ import {
   onDevicePromise,
   pagesHeading,
   pickLabel,
+  refusedTitle,
 } from "./core/hints";
 import { usePageList } from "./hooks/use-page-list/use-page-list";
 import { usePdfBuild } from "./hooks/use-pdf-build/use-pdf-build";
@@ -44,26 +47,29 @@ const SECONDARY_ACTION =
   "h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary";
 
 export function ImageToPdf() {
-  const { pages, addFiles, remove, clear } = usePageList();
+  const { pages, refused, addFiles, remove, clear } = usePageList();
   const { status, result, failure, start, reset } = usePdfBuild();
   const input = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const paper: Paper = DEFAULT_PAPER;
   const building = status === "building";
+  const empty = pages.length === 0;
 
   /**
    * Add files, then invalidate any produced document.
    *
    * Every change to the list has to take the download away: a file that does not
    * match the preview is the worst thing this page can hand over. The
-   * invalidation is not an error state, so it shows no banner.
+   * invalidation is not an error state, so it shows no banner. A batch where
+   * every file was refused did not change the list, so it does not invalidate
+   * anything either: the document on screen is still the list on screen.
    */
   const add = useCallback(
     async (files: readonly File[]) => {
       if (files.length === 0) return;
-      await addFiles(files);
-      reset();
+      const added = await addFiles(files);
+      if (added > 0) reset();
     },
     [addFiles, reset],
   );
@@ -91,14 +97,24 @@ export function ImageToPdf() {
         <h2 className="text-[18px] leading-[1.45] font-semibold">{addHeading}</h2>
 
         {/*
-          The dashed box invites a drop; the button and the file input behind it
-          are the keyboard and pointer path. The input carries no `accept`: the
-          format is decided by the bytes, never by a declared type, and #193
-          turns that decision into the refusal sentences.
+          The dashed box invites a drop while the list is empty; once it holds
+          pages the same target becomes one 「继续添加」 line. The picker is the
+          same real `<button>选择图片</button>` in both states, because the
+          hit-area instrument declares a control by name and a name that changes
+          with state cannot be declared.
+
+          The file input carries no `accept`: the format is decided by the bytes,
+          never by a declared type. It stays mounted across the two states so a
+          pick in progress is not interrupted by the collapse.
         */}
         <div
-          className="add-dropzone dropzone-pad dropzone-touch-flat mt-3 rounded-lg border border-dashed border-input bg-card"
+          className={
+            empty
+              ? "add-dropzone dropzone-pad dropzone-touch-flat mt-3 rounded-lg border border-dashed border-input bg-card"
+              : "add-dropzone mt-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2"
+          }
           data-dragging={dragging || undefined}
+          data-dropzone
           onDragLeave={(event) => {
             const entering = event.relatedTarget;
             if (!(entering instanceof Node) || !event.currentTarget.contains(entering)) {
@@ -115,41 +131,77 @@ export function ImageToPdf() {
             if (!building) void add([...event.dataTransfer.files]);
           }}
         >
-          <div className="flex flex-col items-center gap-3">
-            <Button
-              className={`action-full-width add-files-button touch-target ${SECONDARY_ACTION}`}
-              disabled={building}
-              onClick={() => input.current?.click()}
-              variant="outline"
-            >
-              {pickLabel}
-            </Button>
+          {empty ? (
+            <div className="flex flex-col items-center gap-3">
+              <Button
+                className={`action-full-width add-files-button touch-target ${SECONDARY_ACTION}`}
+                disabled={building}
+                onClick={() => input.current?.click()}
+                variant="outline"
+              >
+                {pickLabel}
+              </Button>
 
-            {/*
-              `sr-only` rather than `hidden` keeps it focusable for a screen
-              reader's own file-picking path. Its value is cleared after every
-              pick, or choosing the same file twice would fire no change event.
-            */}
-            <input
-              className="sr-only"
-              disabled={building}
-              multiple
-              onChange={(event) => {
-                const picked = [...(event.currentTarget.files ?? [])];
-                event.currentTarget.value = "";
-                void add(picked);
-              }}
-              ref={input}
-              type="file"
-            />
+              <p className="drag-hint text-sm leading-[1.45] text-muted-foreground">
+                也可以把文件拖到这里
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm leading-[1.45] text-muted-foreground">{addMoreLabel}</p>
+              <Button
+                className={`add-files-button touch-target shrink-0 ${SECONDARY_ACTION}`}
+                disabled={building}
+                onClick={() => input.current?.click()}
+                variant="outline"
+              >
+                {pickLabel}
+              </Button>
+            </>
+          )}
 
-            <p className="drag-hint text-sm leading-[1.45] text-muted-foreground">
-              也可以把文件拖到这里
-            </p>
-          </div>
+          {/*
+            `sr-only` rather than `hidden` keeps it focusable for a screen
+            reader's own file-picking path. Its value is cleared after every
+            pick, or choosing the same file twice would fire no change event.
+          */}
+          <input
+            className="sr-only"
+            disabled={building}
+            multiple
+            onChange={(event) => {
+              const picked = [...(event.currentTarget.files ?? [])];
+              event.currentTarget.value = "";
+              void add(picked);
+            }}
+            ref={input}
+            type="file"
+          />
         </div>
 
         <p className="mt-2.5 text-xs leading-[1.4] text-muted-foreground">{onDevicePromise}</p>
+
+        {/*
+          The refused files, in the site's existing rejection box. One sentence
+          per file, in the order the files were chosen; a refused file never
+          becomes a row, so the list of refusals is the only place it appears.
+        */}
+        {refused.length > 0 && (
+          <Alert className="mt-4" variant="destructive">
+            <AlertTitle>{refusedTitle}</AlertTitle>
+            <div className="col-start-2 flex flex-col gap-1">
+              {refused.map((entry, index) => (
+                <p
+                  className="text-sm leading-[1.45]"
+                  key={`${entry.name}:${entry.message}:${String(index)}`}
+                >
+                  <span className="font-medium">{entry.name}</span>
+                  {`: ${entry.message}`}
+                </p>
+              ))}
+            </div>
+          </Alert>
+        )}
       </section>
 
       {pages.length > 0 && (

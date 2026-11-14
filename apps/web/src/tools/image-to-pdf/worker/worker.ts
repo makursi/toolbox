@@ -2,6 +2,7 @@ import { failureCode, PdfFailure, type PdfFailureCode } from "../core/failures";
 import { pageGeometry, type Paper } from "../core/geometry";
 import { canPassThrough, readJpeg } from "../core/jpeg";
 import { buildPdf, type PdfPage } from "../core/pdf";
+import { isAcceptedFormat, sniffFormat } from "../core/sniff";
 
 /**
  * The Worker side of one document.
@@ -67,16 +68,26 @@ function respond(request: BuildRequest): void {
 /**
  * One page source to one page of the document.
  *
- * The header walk runs here rather than trusting dimensions sent from the page,
- * and the passthrough predicate decides the path: a baseline 1- or 3-channel
- * JPEG keeps its original bytes; everything else is refused for now, because
- * #195 adds the decode path and writing a stream the predicate did not approve
- * would be the one way this Tool could produce a wrong file.
+ * The format and the header walk both run here rather than trusting anything
+ * the page claims, and the passthrough predicate decides the path: a baseline
+ * 1- or 3-channel JPEG keeps its original bytes; everything else is refused for
+ * now, because #195 adds the decode path and writing a stream the predicate did
+ * not approve would be the one way this Tool could produce a wrong file.
  */
 function toPage(buffer: ArrayBuffer, paper: Paper): PdfPage {
   const bytes = new Uint8Array(buffer);
-  const info = readJpeg(bytes);
+  const format = sniffFormat(bytes);
 
+  // A page only reaches the Worker after admission, so this is a guard against
+  // a page list that changed underneath a run rather than a visitor-facing case.
+  if (format === null || !isAcceptedFormat(format)) throw new PdfFailure("unreadable");
+
+  // PNG and WebP are accepted by the list; #195 adds their decode-and-write
+  // path. Until then their pages are refused with a sentence, not written as a
+  // stream this writer cannot verify.
+  if (format !== "jpeg") throw new PdfFailure("unsupported");
+
+  const info = readJpeg(bytes);
   if (info === null) throw new PdfFailure("unreadable");
   if (!canPassThrough(info)) throw new PdfFailure("unsupported");
 

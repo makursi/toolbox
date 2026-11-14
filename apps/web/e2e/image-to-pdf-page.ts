@@ -27,16 +27,18 @@ export async function open(page: Page): Promise<void> {
 export type NamedBytes = { name: string; mimeType: string; buffer: Buffer };
 
 /**
- * A portrait JPEG, built by the browser's own canvas encoder.
+ * A JPEG, built by the browser's own canvas encoder.
  *
  * It is built in a page of its own, not in the page about to upload it: a
  * fixture that is generated and handed over in one renderer is the habit the
  * repository's Gotchas warn about, and a separate page is free here.
  *
- * Portrait on purpose: A4 is used in the image's orientation, so a 3:4 photo
- * makes the expected media box the portrait pair a reader recognises.
+ * Portrait by default on purpose: A4 is used in the image's orientation, so a
+ * 3:4 photo makes the expected media box the portrait pair a reader recognises.
+ * The options are what the batch spec uses to tell two pages apart by their
+ * shape and to prove page order rather than only page count.
  */
-export async function portraitJpeg(
+export async function jpeg(
   context: BrowserContext,
   options: { width?: number; height?: number; name?: string } = {},
 ): Promise<NamedBytes> {
@@ -99,6 +101,86 @@ export async function portraitJpeg(
 /** Hand files to the Tool the way the picker does, through its own file input. */
 export async function chooseFiles(page: Page, files: NamedBytes[]): Promise<void> {
   await page.locator('input[type="file"]').first().setInputFiles(files);
+}
+
+/**
+ * Hand files to the Tool the way a drop does, on the region that accepts one.
+ *
+ * The region is the element the drop handlers are bound to, and it changes its
+ * shape rather than its identity when the list fills up, which is why the
+ * selector is the attribute rather than a class. The bytes are base64 in the
+ * payload because a page's arguments cross into the renderer as JSON.
+ */
+export async function dropFiles(page: Page, files: NamedBytes[]): Promise<void> {
+  await page.locator("[data-dropzone]").evaluate(
+    (element, entries) => {
+      const transfer = new DataTransfer();
+      for (const entry of entries) {
+        const binary = atob(entry.base64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+      }
+
+      element.dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+    },
+    files.map((file) => ({
+      name: file.name,
+      mimeType: file.mimeType,
+      base64: file.buffer.toString("base64"),
+    })),
+  );
+}
+
+/**
+ * A real 1×1 GIF: a format the sniffer recognises and the Tool does not take.
+ *
+ * The bytes are the format's own smallest example, so the refusal under test is
+ * the one a visitor's animated sticker would get, not a made-up prefix.
+ */
+export function gifFile(name = "sticker.gif"): NamedBytes {
+  return {
+    name,
+    mimeType: "image/gif",
+    buffer: Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
+  };
+}
+
+/**
+ * An AVIF-looking file: a real ISO-BMFF `ftyp` box with the `avif` brand.
+ *
+ * It is not decodable AVIF, because this Tool never decodes it: the gate's
+ * subject is the sniff at the byte level, and the file's purpose is to carry
+ * the container a phone or an editor actually writes when it says AVIF.
+ */
+export function avifFile(name = "photo.avif"): NamedBytes {
+  const body = Buffer.concat([
+    Buffer.from("ftyp"),
+    Buffer.from("avif"),
+    Buffer.from([0, 0, 0, 0]),
+    Buffer.from("mif1"),
+    Buffer.from("avif"),
+  ]);
+  const size = Buffer.alloc(4);
+  size.writeUInt32BE(body.length + size.length);
+
+  return { name, mimeType: "image/avif", buffer: Buffer.concat([size, body]) };
+}
+
+/**
+ * Text renamed to `.png`, with the declared type to match.
+ *
+ * Both the name and the declared type lie; the bytes do not. This is the case
+ * the input's missing `accept` attribute exists for, and the one that must be
+ * refused as "not an image" rather than reach the decoder.
+ */
+export function renamedTextFile(name = "not-really.png"): NamedBytes {
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.from("this is a text file with a picture's name\n", "utf8"),
+  };
 }
 
 /** `图片-YYYY-MM-DD.pdf`, in the browser's (this machine's) local calendar day. */

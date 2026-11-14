@@ -1,74 +1,155 @@
 import { useCallback, useRef, useState } from "react";
 
-import { readJpeg, type JpegInfo } from "@/tools/image-to-pdf/core/jpeg";
+import { admitImages, type Candidate } from "@/tools/image-to-pdf/core/admission";
+import type { ImageSize } from "@/tools/image-to-pdf/core/geometry";
+import { readImageSize } from "@/tools/image-to-pdf/core/image-size";
+import {
+  isAcceptedFormat,
+  sniffByteLength,
+  sniffFormat,
+  type ImageFormat,
+} from "@/tools/image-to-pdf/core/sniff";
 
 /**
- * The pages a visit is working on, in page order.
+ * The pages a visit is working on, in page order, and the files that were
+ * refused.
  *
- * A page is one image: its file, and the dimensions the Tool read from the
- * file's own header. The dimensions are kept rather than re-read at render time
- * because the miniature and the PDF are both drawn from them.
+ * A page is one image: its file, the format the bytes named, and the dimensions
+ * read from its own header. The dimensions are kept rather than re-read at
+ * render time because the miniature and the PDF are both drawn from them.
  *
- * Admission here is minimal on purpose: a file whose header cannot be walked
- * never becomes a page. #193 owns the refusal sentences, the limits and the
- * other two formats, and widens this hook rather than replacing it.
+ * Admission is one pure decision per batch (`core/admission.ts`): this hook only
+ * reads the bytes, asks it, and appends the accepted pages. The refusals are
+ * kept beside the pages so one clear action clears both; an empty list with a
+ * refusal under it is still showing why the last batch did not arrive.
  */
+
+/** A file that was refused before it could join the list, and the sentence it is listed under. */
+export type RefusedFile = { name: string; message: string };
 
 /** One page in the list. */
 export type PageEntry = {
   id: number;
   file: File;
+  /** The format the file's bytes name, never the one its name claims. */
+  format: ImageFormat;
   width: number;
   height: number;
 };
 
 /**
- * How much of a file is read to find its frame header. EXIF thumbnails can push
- * the `SOF` past 64 KB, so this is generous; a file whose header is somehow
- * later than this is read whole.
+ * How much of a file is read to find its header. A JPEG's `SOF` can sit behind
+ * a large EXIF thumbnail, so this is generous; a file whose header is somehow
+ * later than this is read whole. PNG's `IHDR` and WebP's first chunk are in the
+ * first few dozen bytes, so they never need the second read.
  */
 const headBytes = 512 * 1024;
 
 export function usePageList() {
   const [pages, setPages] = useState<PageEntry[]>([]);
-  // Read only inside `addFiles`, which awaits between files: a counter that
-  // moves synchronously is what keeps two adds from handing out the same id.
+  const [refused, setRefused] = useState<RefusedFile[]>([]);
+  // The rendered pages, readable synchronously: admission depends on what the
+  // list already holds, and a second add must see the first one's pages.
+  const current = useRef<PageEntry[]>([]);
+  // Adds run one after another. Two batches that both read the same totals
+  // could otherwise both fit under a limit that only one of them should.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  // Read only inside the queued add: a counter that moves synchronously is what
+  // keeps two adds from handing out the same id.
   const nextId = useRef(0);
 
-  const addFiles = useCallback(async (incoming: readonly File[]) => {
-    if (incoming.length === 0) return;
+  const addFiles = useCallback((incoming: readonly File[]): Promise<number> => {
+    if (incoming.length === 0) return Promise.resolve(0);
 
-    const accepted: PageEntry[] = [];
+    const job = queue.current.then(async () => {
+      const candidates: Candidate[] = [];
 
-    for (const file of incoming) {
-      const info = await readJpegFile(file);
-      if (info === null) continue;
-      accepted.push({ id: nextId.current++, file, width: info.width, height: info.height });
-    }
+      for (const file of incoming) {
+        // Extensions lie, so the format comes from the bytes themselves.
+        const head = new Uint8Array(await file.slice(0, sniffByteLength).arrayBuffer());
+        const format = sniffFormat(head);
+        const pixels =
+          format !== null && isAcceptedFormat(format) ? await readPixels(file, format) : null;
 
-    if (accepted.length > 0) setPages((previous) => [...previous, ...accepted]);
+        candidates.push({ name: file.name, size: file.size, format, pixels });
+      }
+
+      const decisions = admitImages(candidates, {
+        count: current.current.length,
+        bytes: totalBytes(current.current),
+      });
+
+      const accepted: PageEntry[] = [];
+      const rejections: RefusedFile[] = [];
+
+      for (const [index, file] of [...incoming].entries()) {
+        const decision = decisions[index];
+        if (decision === undefined) continue;
+
+        if (!decision.ok) {
+          rejections.push({ name: file.name, message: decision.message });
+          continue;
+        }
+
+        accepted.push({
+          id: nextId.current++,
+          file,
+          format: decision.format,
+          height: decision.pixels.height,
+          width: decision.pixels.width,
+        });
+      }
+
+      current.current = [...current.current, ...accepted];
+      setPages(current.current);
+      if (rejections.length > 0) setRefused((previous) => [...previous, ...rejections]);
+
+      return accepted.length;
+    });
+
+    queue.current = job.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return job;
   }, []);
 
   const remove = useCallback((id: number) => {
-    setPages((previous) => previous.filter((page) => page.id !== id));
+    current.current = current.current.filter((page) => page.id !== id);
+    setPages(current.current);
   }, []);
 
-  const clear = useCallback(() => setPages([]), []);
+  const clear = useCallback(() => {
+    current.current = [];
+    setPages([]);
+    setRefused([]);
+  }, []);
 
-  return { pages, addFiles, remove, clear };
+  return { pages, refused, addFiles, remove, clear };
+}
+
+/** The bytes the list already holds, which the total limit is measured against. */
+function totalBytes(pages: readonly PageEntry[]): number {
+  return pages.reduce((total, page) => total + page.file.size, 0);
 }
 
 /**
- * The header of one file, read from as much of its start as the frame needs.
+ * One file's dimensions from its own header.
  *
  * The first read is the cheap one; a `SOF` beyond it (an EXIF thumbnail can be
- * larger than 512 KB) means the segment was cut, so the whole file is read and
- * the walk runs again. A file that is not a JPEG is `null` either way.
+ * larger than 512 KB) means the header was cut, so the whole file is read and
+ * the walk runs again. `null` means no header this Tool can read, which
+ * admission turns into a refusal rather than a page with no shape.
  */
-async function readJpegFile(file: File): Promise<JpegInfo | null> {
+async function readPixels(file: File, format: ImageFormat): Promise<ImageSize | null> {
   const head = new Uint8Array(await file.slice(0, headBytes).arrayBuffer());
-  const info = readJpeg(head);
-  if (info !== null || file.size <= headBytes) return info;
+  const size = readImageSize(format, head);
 
-  return readJpeg(new Uint8Array(await file.arrayBuffer()));
+  // Only a JPEG's frame can sit beyond the first read. PNG's IHDR and WebP's
+  // first chunk are at the start, so reading a large PNG again would only
+  // re-confirm that its header is missing.
+  if (format !== "jpeg" || size !== null || file.size <= headBytes) return size;
+
+  return readImageSize(format, new Uint8Array(await file.arrayBuffer()));
 }

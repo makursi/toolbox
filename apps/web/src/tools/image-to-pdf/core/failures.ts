@@ -13,7 +13,7 @@ export type PdfFailureCode = "unreadable" | "unsupported" | "interrupted" | "unk
 
 const sentences: Record<PdfFailureCode, string> = {
   unreadable: "这张图片读不出来，换一张再试。",
-  unsupported: "这张 JPEG 暂时无法直接写入 PDF，换一张再试。",
+  unsupported: "这张图片暂时无法直接写入 PDF，换一张再试。",
   interrupted: "生成被中断了，请再试一次。",
   unknown: "生成 PDF 失败，请再试一次。",
 };

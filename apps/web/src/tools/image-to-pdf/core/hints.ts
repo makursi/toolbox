@@ -3,8 +3,9 @@
  *
  * They live here, in the pure layer, so a test can hold the wording rather than
  * a browser having to read it out of the DOM. The Tool has one main action and
- * one reason it can be unavailable; #193 adds the refusal sentences beside them,
- * and #197 the progress words.
+ * one reason it can be unavailable; the refusal sentences beside them are in
+ * `core/refusal.ts` and `core/limits.ts`, and #197's progress words will join
+ * them here.
  */
 
 /** The picker's accessible name. It never changes with state, so an instrument can declare it once. */
@@ -24,6 +25,12 @@ export const buildingHint = "正在生成 PDF。";
 
 /** The heading over the input region. */
 export const addHeading = "添加图片";
+
+/** The one line that replaces the full drop zone once the list has pages. */
+export const addMoreLabel = "继续添加";
+
+/** The heading over the list of files that were refused. */
+export const refusedTitle = "有文件没能加入";
 
 /** The heading over the page list. */
 export const pagesHeading = "页面";
