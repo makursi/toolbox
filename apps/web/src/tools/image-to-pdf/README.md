@@ -106,7 +106,7 @@ core/                   pure, browser-free logic; the part `pnpm test` covers
 hooks/                  the Tool's React state
   use-page-list/use-page-list.ts            the pages added, in page order, and the refused files
   use-page-thumbnail/use-page-thumbnail.ts  a small picture of one file, one decode at a time
-  use-pdf-build/use-pdf-build.ts            one run, its progress and cancel, and the download URL's whole life
+  use-pdf-build/use-pdf-build.ts            one run, its progress and cancel, and the bytes it produced
 
 page-list/page-list.tsx   the sortable list: two sensors, the rows, their announcements
 page-row/page-row.tsx     one row: drag handle, page number, page miniature, name, remove
@@ -192,15 +192,18 @@ many places use it — the place that counts consumers is `packages/*`.
    run starts from a new Worker. The page returns to the state it had before
    转换: no download, no progress, no banner, `转换` armed again, the list
    untouched. Cancelling is not a failure and writes nothing to the console.
-8. **Download.** The result's object URL is created when the build succeeds and
-   revoked when the result is invalidated, cancelled or the page unmounts. Every
-   change to the document (the paper, adding at least one page, removing one,
-   clearing the list, reordering) goes through one door in `ImageToPdf.tsx` and
-   asks `core/invalidation.ts`, which puts the result row back at "not converted
+8. **Download.** The finished result is an element of its own (`DownloadLink`):
+   `usePdfBuild` holds the built bytes and the name `core/naming.ts` derives,
+   and the element asks the shared `useObjectUrl` hook for a `blob:` URL, which
+   is revoked when the element unmounts. Invalidating the result, cancelling a
+   run or leaving the page therefore releases it by construction. Every change
+   to the document (the paper, adding at least one page, removing one, clearing
+   the list, reordering) goes through one door in `ImageToPdf.tsx` and asks
+   `core/invalidation.ts`, which puts the result row back at "not converted
    yet": the link goes away and 转换 is armed again, or, after 清空, disabled
    with its usual reason, with no banner. A batch where every file was refused
-   does not invalidate, and neither does a row dropped where it started: the list
-   on screen did not change.
+   does not invalidate, and neither does a row dropped where it started: the
+   list on screen did not change.
 
 The pure parts — `sniff`, `refusal`, `limits`, `admission`, `image-size`,
 `order`, `orientation`, `geometry`, `jpeg`, `packing`, `pdf`, `naming`,

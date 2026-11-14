@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useObjectUrl } from "@/hooks/use-object-url/use-object-url";
 
 import { DEFAULT_PAPER, type Paper } from "./core/geometry";
 import {
@@ -135,8 +136,10 @@ export function ImageToPdf() {
 
   return (
     <div className="mt-10 flex flex-col gap-8 sm:mt-12">
-      {/* The input region. Its `data-slot` is the anchor the fingerprint will
-          declare once #200 adds this page to the instruments' lists. */}
+      {/*
+        The input region. Its `data-slot` is one of the anchors the fingerprint
+        declares for this page (#200).
+      */}
       <section data-slot="pdf-add">
         <h2 className="text-[18px] leading-[1.45] font-semibold">{addHeading}</h2>
 
@@ -355,24 +358,43 @@ export function ImageToPdf() {
           )}
 
           {status === "done" && result !== null && (
-            <>
-              <p className="min-w-0 truncate text-sm leading-[1.45]">{result.name}</p>
-              {/*
-                A real anchor with `download`, and the class is on it because it
-                owns the click. Its text is small, so the overlay is what makes
-                it a 44px target.
-              */}
-              <a
-                className="touch-target text-sm leading-[1.45] font-semibold text-foreground hover:underline"
-                download={result.name}
-                href={result.url}
-              >
-                {downloadLabel}
-              </a>
-            </>
+            <DownloadLink bytes={result.bytes} name={result.name} />
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The finished file: its name and the download.
+ *
+ * It is an element of its own because the URL's whole life belongs to the
+ * shared `useObjectUrl` hook: the URL is derived from the bytes during render
+ * and revoked when this element goes away. Invalidating a produced file clears
+ * the run's result, cancelling a run clears it, and leaving the page unmounts
+ * it, so every exit revokes by construction — the same one lifecycle the Image
+ * Converter keeps for its downloads (#191).
+ *
+ * The bytes are immutable for this element's life: a new run is a new result.
+ */
+function DownloadLink({ bytes, name }: { bytes: Uint8Array<ArrayBuffer>; name: string }) {
+  const url = useObjectUrl(bytes, "application/pdf");
+
+  return (
+    <>
+      <p className="min-w-0 truncate text-sm leading-[1.45]">{name}</p>
+      {/*
+        A real anchor with `download`, and the class is on it because it owns the
+        click. Its text is small, so the overlay is what makes it a 44px target.
+      */}
+      <a
+        className="touch-target text-sm leading-[1.45] font-semibold text-foreground hover:underline"
+        download={name}
+        href={url}
+      >
+        {downloadLabel}
+      </a>
+    </>
   );
 }
