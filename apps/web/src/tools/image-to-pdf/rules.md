@@ -1,6 +1,6 @@
 # image-to-pdf · 设计规则（工具级）
 
-> **管什么**：这个 Tool 自己的设计规则与词汇——页面结构、输入与准入、页面顺序、几何、JPEG 路径、PNG 与 WebP 路径、PDF 写出面、命名与失效规则。**只约束 image-to-pdf；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/adr/0020-the-pdf-writer-is-ours.md`（写出层为什么是自己写的）。
+> **管什么**：这个 Tool 自己的设计规则与词汇——页面结构、输入与准入、页面顺序、几何、JPEG 路径（含 EXIF 方向与两条回退规则）、PNG 与 WebP 路径、PDF 写出面、命名与失效规则。**只约束 image-to-pdf；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/adr/0020-the-pdf-writer-is-ours.md`（写出层为什么是自己写的）。
 
 ## 词汇
 
@@ -12,6 +12,7 @@
 - **添加（add）**：一次选择或一次拖放带来的一批文件。批次里的文件按访客给出的顺序走，第二批接在第一批后面。
 - **拒绝（refusal）**：一个文件没有进入页面列表，连同它的一句理由。被拒的文件不占页面列表的一行，也不占张数或总字节。
 - **旁路（passthrough）**：把 JPEG 的原始字节直接作为 `DCTDecode` 图像流写进 PDF，不解码、不重编码。
+- **EXIF 方向（orientation）**：JPEG 的 `APP1/Exif` 里记录的 1–8 值，说明这张照片要转多少次、镜像哪一边才能正着看。它不是一条像素操作：在旁路路径上它是 content stream 的一个矩阵（`cm`），原始字节与像素一个都不动。
 - **生成（build）**：一次从页面列表到一个 PDF 文件的完整运行。生成状态只有 `idle / building / done / failed` 四种。
 
 ## 页面结构
@@ -61,19 +62,39 @@
 
 ## 几何
 
-- **只有一个几何函数**：`core/geometry.ts` 的 `pageGeometry(image, paper)`，输入图片像素尺寸与纸张，输出以点为单位的页面框和图片在页面上的矩形。预览行与 PDF writer 都调它，没有第二份实现。
+- **只有一个几何函数**：`core/geometry.ts` 的 `pageGeometry(image, paper, orientation)`，输入图片**存储的**像素尺寸、纸张和 EXIF 方向，输出以点为单位的页面框和图片在页面上的矩形。预览行与 PDF writer 都调它，没有第二份实现。
 - 数字：A4 = `595.28 x 841.89` pt，Letter = `612 x 792` pt，原始尺寸 = 像素 x `0.75`。三者都是导出常量，单测直接断言它们。
-- **方向跟着图片走**：横图用横向的纸张，竖图用纵向的；正方形算纵向。没有方向控件，也不问访客。
+- **方向跟着图片走**：横向的纸用于横向的图，纵向的纸用于纵向的图；正方形算纵向。没有方向控件，也不问访客。这里的「横竖」是访客**看到**的那一面，不是文件里存的那一面：EXIF 5–8 会把两边换过来，函数在排版前先做这个交换（`core/orientation.ts` 的 `displaySize`），否则一张被标记为竖看的照片会用自己的存储方向去跟自己的页面框对不齐。
 - **Fit 永远是 contain + centre**：取两个比例中较小的一个，两个轴都居中。没有裁切、没有边距参数、没有 fill-page。
-- 原始尺寸页面就是 `像素 x 0.75` 本身，因此 contain 恰好填满整页。
+- 原始尺寸页面就是 `像素 x 0.75` 本身（仍然是交换后的「看到的」像素），因此 contain 恰好填满整页。
 - **列表每一行都从 `pageGeometry` 画**：缩略图高度固定 56px，宽度由页面比例决定，所以换纸时行会变宽变窄；图片矩形按页面的百分比定位。原始尺寸下行与图片同形、没有白边，这一点由 `core/__tests__/geometry.test.ts` 的「miniature」两条断言盯住。
+- 缩略图本身也按同一个方向摆正：`usePageThumbnail` 用 `core/orientation.ts` 的 `canvasMatrix` 在 canvas 里画一遍，所以换纸时改变的是页面比例，方向不会在行与文件之间各说各话。
 
 ## JPEG 路径
 
-- `core/jpeg.ts` 只走段头：从 `SOFn` 读出宽、高、通道数与帧类型；`SOF2` 是 progressive，`SOF0`/`SOF1` 是 baseline，其余帧类型一律不认。
-- **旁路条件**：帧是 baseline，且通道数是 1（灰度）或 3（YCbCr，`DCTDecode` 自己转成 `DeviceRGB`）。progressive 与 4 通道（CMYK/YCCK）走将来的解码路径，**本票先拒绝**，绝不把未经确认的流写进 PDF。
-- **EXIF 方向还没有解析**（#198 拥有 APP1）：`JpegInfo.orientation` 恒为 1，字段与注释已经把位置留好；#198 只改这个模块、矩阵和几何的交换，不改调用方。
-- Worker 收到每一页时先重新嗅探格式与头部，不信任页面送来的任何说法。**旁路谓词一字未动**：baseline 的 1/3 通道 JPEG 仍以原字节进 PDF，从不交给编码器，也不重编码。progressive 与 4 通道 JPEG 仍以 `unsupported` 拒绝，它们的解码路径是 #198 的。
+- `core/jpeg.ts` 只走段头：从 `SOFn` 读出存储的宽、高、通道数与帧类型；`SOF2` 是 progressive，`SOF0`/`SOF1` 是 baseline，其余帧类型一律不认。方向来自 `APP1/Exif` 的 `IFD0`（tag `0x0112`），由 `core/orientation.ts` 解析。
+- **八个方向值都是一段 content-stream 矩阵**，不是一次像素操作：解析出来的值放进 `JpegInfo.orientation`，`core/pdf.ts` 把它写进 `cm`。负的缩放比例在 `cm` 里合法，所以四个镜像值和四个旋转值一样便宜。值、含义与矩阵：
+
+  | 值  | 含义                   | `[a b c d e f]`   |
+  | --- | ---------------------- | ----------------- |
+  | 1   | 原样                   | `[1 0 0 1 0 0]`   |
+  | 2   | 水平镜像               | `[-1 0 0 1 1 0]`  |
+  | 3   | 旋转 180°              | `[-1 0 0 -1 1 1]` |
+  | 4   | 垂直镜像               | `[1 0 0 -1 0 1]`  |
+  | 5   | 水平镜像 + 顺时针 270° | `[0 -1 -1 0 1 1]` |
+  | 6   | 顺时针 90°             | `[0 -1 1 0 0 1]`  |
+  | 7   | 水平镜像 + 顺时针 90°  | `[0 1 1 0 0 0]`   |
+  | 8   | 顺时针 270°            | `[0 1 -1 0 1 0]`  |
+
+  矩阵作用在图片的**单位正方形**上（原点在存储图片的左下角、y 向上，PDF 的约定）；写出层把它与几何函数给的矩形合成，本身不知道 1–8 的名字。表与八个矩阵各有单测（`core/__tests__/orientation.test.ts`），并逐个断言存储图的四个角落在显示图的哪个角。
+
+- **两条回退规则**：
+  1. **读不出方向就是 1（直立）**。没有 `APP1`、`APP1` 不是 Exif、目录里没有 `0x0112`、值不在 1–8：都按直立处理，与一个完全忽略这个 tag 的阅读器一致。方向读不出来不是拒绝理由，文件照常入列表。
+  2. **旁路走不了就交给浏览器解码**。progressive（`SOF2`）与 4 通道（CMYK/YCCK）不能作为 `DCTDecode` 流正确写出，所以它们离开旁路，由 Worker 解码成原始 RGB 样本；两者都**从不交给 JPEG 编码器**，因为那是在已有的一次有损之上再加一次。
+- **路由是一个纯函数**（`core/jpeg.ts` 的 `routeJpeg`）：baseline 1/3 通道 → `passthrough`；progressive 或 4 通道 → `decode`；其余帧（lossless、算术编码）→ `unsupported`，因为 PDF 过滤器与浏览器解码器都不认它，写进去只会得到空白页。`canPassThrough` 的含义没有变，路由在它之上。
+- **尺寸交换发生在几何层**：`displaySize` 只对 5–8 交换两边，`pageGeometry` 用它排版；图像流自己的 `/Width`、`/Height` 仍是**存储**尺寸，因为它写的是存储的样本。像素数不变，所以像素上限对两种读法都成立。
+- **解码路径也走同一个矩阵**：Worker 用 `imageOrientation: "none"` 向浏览器要**存储的**像素，解码后的页面拿文件头里的方向调 `pageGeometry`，写出层用同一个矩阵摆正。这样 1–8 的规则只存在一张表里，不取决于浏览器的 EXIF 实现。解码后的 4 通道 JPEG 已经由浏览器变成 RGB，所以它的页面写 `DeviceRGB`，**没有 CMYK 的 `/Decode` 数组**。
+- Worker 收到每一页时先重新嗅探格式与头部，不信任页面送来的任何说法。**旁路谓词一字未动**：baseline 的 1/3 通道 JPEG 仍以原字节进 PDF，从不交给编码器，也不重编码；方向只加了一个矩阵。
 
 ## PNG 与 WebP 路径
 
@@ -81,15 +102,15 @@
 - **透明像素压到白纸**：每通道 `c * a + 255 * (1 - a)`（`a` 是 alpha 的比例），在 `core/packing.ts` 的 `packRgb` 里做，因此有单测盯住「全透明 → 255,255,255」、半透明像素的取整和不透明像素保持原色。丢掉 alpha 会让透明区变成黑矩形，这正是这个模块存在的理由。
 - **压白不是界面颜色**：那是访客自己文件里的像素被压平，不是页面表面，所以站点「禁纯黑纯白」的规则不适用于它；参考 Tool 记录同一例外（`apps/web/src/tools/image-converter/rules.md` 第 21 条，站点规则在 `apps/web/docs/design/colour.md`）。
 - **`/FlateDecode` 是 zlib，不是 raw deflate**：压平后的 RGB 样本由 `core/packing.ts` 的 `flateRgb` 用 `fflate` 的 `zlibSync` 压。写出层写 `/ColorSpace /DeviceRGB`、`/BitsPerComponent 8`、`/Filter /FlateDecode`，**没有 `/DecodeParms`**：PNG predictor 的直通合法且省字节，但阅读器的支持没能验证，ADR-0020 记了这笔取舍。
-- **几何仍来自同一个函数**：`pageGeometry(解码后的尺寸, paper)`，所以与 JPEG 同尺寸、同方向得到同一组页面框与图片矩形。页面框跟解码后的像素走，不跟文件头：一页不该与自己的样本对着 letterbox。
+- **几何仍来自同一个函数**：`pageGeometry(解码后的尺寸, paper)`，所以与 JPEG 同尺寸、同方向得到同一组页面框与图片矩形。页面框跟解码后的像素走，不跟文件头：一页不该与自己的样本对着 letterbox。PNG 与 WebP 没有本工具读取的方向，按直立处理；从解码路径进来的 JPEG 则把头部里的方向一起传给几何函数。
 - **像素上限在这里再查一次**：解码后的宽高乘积超过 `MAX_IMAGE_PIXELS`（4000 万）时，Worker 抛 `too-many-pixels`，句子复用 `core/limits.ts` 的那一句。准入已经用头部拒绝过一次，这一道是给「头部说谎」留的。
 
 ## PDF 写出层
 
 - **自己写，不用运行时 PDF 库**：PDF 1.7、经典 xref 表（没有对象流）、头部之后一行二进制注释、每个流精确的 `/Length`、trailer、`startxref`、`%%EOF`。理由与两个被否掉的库的代价见 `docs/adr/0020-the-pdf-writer-is-ours.md`。
-- 每页恰好一个 page 对象、一个 content stream、一个 image XObject。`/MediaBox` 来自几何函数；content stream 用一个矩阵把图片放到几何给的矩形上。
-- 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。
-- **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。两种图像类型都在这一层内部；#198 的 content-stream 矩阵同样只动这里，不改调用方。
+- 每页恰好一个 page 对象、一个 content stream、一个 image XObject。`/MediaBox` 来自几何函数；content stream 用一个矩阵把图片放到几何给的矩形上。**这个矩阵也承载 EXIF 方向**：值 1 是 `[w 0 0 h x y]`，其余七个值在同一个位置换成 §JPEG 路径 表里的矩阵与矩形的合成。
+- 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`；本票之后 4 通道 JPEG 走解码路径，所以写出层的这条是防御而不是主路径）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。两种 `PdfImage` 都带 `orientation`，摆放是图片的共性，滤镜才是种类的差别。
+- **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。两种图像类型与方向矩阵都在这一层内部；#198 只扩展了矩阵，没有改 xref 与对象布局。
 
 ## 命名与失效
 
@@ -105,13 +126,14 @@
 ## 推迟给后续票
 
 - #197：进度（每页一条）与取消（终止并替换 Worker）。
-- #198：EXIF 方向八值表与 content-stream 矩阵，以及 progressive 与 4 通道 JPEG 的浏览器解码路径。
 - #199：失效覆盖的测试与上面各票带来的新失效点；换纸这一条已随 #194 的控件落地。
 - #200：把这一页加进两个量具的 `PAGES`（本票只保证 `data-slot` 与固定的按钮名已就位）；#201：设计笔记与截图基线。
 
 ## 已知风险
 
 - 移动端 canvas 面积上限（约 1670 万像素）低于 4000 万像素的限制：一张像素数在限制以内但超过手机 canvas 上限的 PNG/WebP，解码时会先得到空白页或浏览器自己的失败。这条仍是记录，不用上限去挡——上限会拒绝桌面能处理的图片，而移动端真正的边界由浏览器决定。
+- **浏览器对 `createImageBitmap` 的 EXIF 处理不一致**：有的实现默认 `from-image`、有的根本不转。所以解码路径显式要 `imageOrientation: "none"`（存储像素），再由本工具的表转一次；方向规则只有一处，不外包给浏览器。
+- 八个值里，镜像的四个（2、4、5、7）没有真实扫描件可以在这台机器上重放；矩阵与角点有单测，真实阅读器里的样子留在 README 的手工清单里。
 - 单测证明文件结构，门禁用另一种实现读回文件；**没有机器能证明真实阅读器画得对**。「在桌面阅读器、手机、第二个浏览器里各打开一次」留在 README 的手工清单里。
 
 ## 退出标准

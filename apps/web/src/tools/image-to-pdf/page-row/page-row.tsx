@@ -41,8 +41,14 @@ export function PageRow({
   disabled: boolean;
   onRemove: () => void;
 }) {
-  const thumbnail = usePageThumbnail(entry.file);
-  const geometry = pageGeometry({ width: entry.width, height: entry.height }, paper);
+  const thumbnail = usePageThumbnail(entry.file, entry.orientation);
+  // The stored dimensions and the turn go in together, so the miniature is laid
+  // out for the picture as a visitor sees it, exactly as the PDF page is.
+  const geometry = pageGeometry(
+    { width: entry.width, height: entry.height },
+    paper,
+    entry.orientation,
+  );
 
   /*
    * The row is the draggable node; the handle is its activator. dnd-kit's

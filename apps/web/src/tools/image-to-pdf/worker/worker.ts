@@ -1,7 +1,8 @@
 import { failureCode, PdfFailure, type PdfFailureCode } from "../core/failures";
 import { pageGeometry, type Paper } from "../core/geometry";
-import { canPassThrough, readJpeg } from "../core/jpeg";
+import { readJpeg, routeJpeg } from "../core/jpeg";
 import { MAX_IMAGE_PIXELS } from "../core/limits";
+import type { ExifOrientation } from "../core/orientation";
 import { flateRgb } from "../core/packing";
 import { buildPdf, type PdfPage } from "../core/pdf";
 import { isAcceptedFormat, sniffFormat } from "../core/sniff";
@@ -15,11 +16,12 @@ import { isAcceptedFormat, sniffFormat } from "../core/sniff";
  * and a cancel to the same protocol.
  *
  * Two image paths meet here and nowhere above. A baseline JPEG keeps its own
- * bytes (`/Filter /DCTDecode`, no decode, no re-encode). A PNG or WebP cannot:
- * there is no PDF filter that carries its compressed bytes through, so the
- * browser decodes it here and the pixels go to the writer as raw RGB samples.
- * Both paths end in one `PdfPage`, so the writer decides the stream from the
- * image kind and nothing above this file grows a branch.
+ * bytes (`/Filter /DCTDecode`, no decode, no re-encode) and its EXIF turn
+ * becomes a content-stream matrix. A progressive or four-channel JPEG, a PNG or
+ * a WebP cannot take that path: the browser decodes it here and the pixels go to
+ * the writer as raw RGB samples, with the same matrix from the same header. Both
+ * paths end in one `PdfPage`, so the writer decides the stream from the image
+ * kind and nothing above this file grows a branch.
  */
 
 export type BuildRequest = {
@@ -79,10 +81,12 @@ async function respond(request: BuildRequest): Promise<void> {
  * One page source to one page of the document.
  *
  * The format and the header walk both run here rather than trusting anything the
- * page claims. The passthrough predicate still decides the JPEG path: a baseline
- * 1- or 3-channel JPEG keeps its original bytes, and progressive or 4-channel
- * JPEGs are refused for now because #198 owns their decode, not this ticket.
- * PNG and WebP are decoded because the writer cannot carry their own bytes.
+ * page claims. `routeJpeg` is the one decision about a JPEG: a baseline 1- or
+ * 3-channel file keeps its original bytes and is turned by the writer's matrix;
+ * a progressive or four-channel one is decoded into RGB samples; a frame neither
+ * path can read is refused with the `unsupported` sentence. PNG and WebP are
+ * decoded for the same reason a progressive JPEG is: no PDF filter carries their
+ * compressed bytes.
  */
 async function toPage(buffer: ArrayBuffer, paper: Paper): Promise<PdfPage> {
   const bytes = new Uint8Array(buffer);
@@ -95,16 +99,22 @@ async function toPage(buffer: ArrayBuffer, paper: Paper): Promise<PdfPage> {
   if (format === "jpeg") {
     const info = readJpeg(bytes);
     if (info === null) throw new PdfFailure("unreadable");
-    if (!canPassThrough(info)) throw new PdfFailure("unsupported");
+
+    const route = routeJpeg(info);
+    if (route === "unsupported") throw new PdfFailure("unsupported");
+    if (route === "decode") return decodedPage(bytes, paper, info.orientation);
 
     return {
-      geometry: pageGeometry(info, paper),
+      // The page is laid out for the dimensions a visitor sees; the image
+      // stream keeps the stored ones, because those are its samples.
+      geometry: pageGeometry(info, paper, info.orientation),
       image: {
         kind: "jpeg",
         bytes,
         width: info.width,
         height: info.height,
         channels: info.channels,
+        orientation: info.orientation,
       },
     };
   }
@@ -120,8 +130,19 @@ async function toPage(buffer: ArrayBuffer, paper: Paper): Promise<PdfPage> {
  * disagreed with its own samples would letterbox the image against itself. The
  * pixel limit is checked here as well as at admission because a header is a
  * claim, and this is the first place that knows the true size.
+ *
+ * `orientation` is the EXIF turn the *file* carried. The decoder is asked for
+ * the stored pixels (`imageOrientation: "none"`), so the samples and the
+ * dimensions are the recorded picture and the writer applies the same matrix a
+ * passed-through JPEG gets. Letting the decoder turn the picture instead would
+ * put the same rule in a browser's hands on one path and in a tested table on
+ * the other.
  */
-async function decodedPage(bytes: Uint8Array<ArrayBuffer>, paper: Paper): Promise<PdfPage> {
+async function decodedPage(
+  bytes: Uint8Array<ArrayBuffer>,
+  paper: Paper,
+  orientation: ExifOrientation = 1,
+): Promise<PdfPage> {
   const bitmap = await decode(bytes);
 
   try {
@@ -140,12 +161,13 @@ async function decodedPage(bytes: Uint8Array<ArrayBuffer>, paper: Paper): Promis
     const samples = flateRgb(new Uint8Array(pixels.data.buffer), bitmap.width, bitmap.height);
 
     return {
-      geometry: pageGeometry(bitmap, paper),
+      geometry: pageGeometry({ width: bitmap.width, height: bitmap.height }, paper, orientation),
       image: {
         kind: "raw-rgb",
         bytes: samples,
         width: bitmap.width,
         height: bitmap.height,
+        orientation,
       },
     };
   } finally {
@@ -157,14 +179,18 @@ async function decodedPage(bytes: Uint8Array<ArrayBuffer>, paper: Paper): Promis
 /**
  * Decode a blob in the browser's own decoder.
  *
- * A file that will not decode is the visitor-facing failure here, and the
- * browser's message for it is written for a developer: "The source image could
- * not be decoded." The error is kept as the cause and goes to the console; the
- * sentence `unreadable` carries is the one the visitor reads.
+ * `imageOrientation: "none"` is explicit rather than assumed: it asks for the
+ * pixels as the file stores them, which is what lets the tested orientation
+ * matrix be the only thing that turns a picture, on this path and the
+ * passthrough one alike. A file that will not decode is the visitor-facing
+ * failure here, and the browser's message for it is written for a developer:
+ * "The source image could not be decoded." The error is kept as the cause and
+ * goes to the console; the sentence `unreadable` carries is the one the visitor
+ * reads.
  */
 async function decode(bytes: Uint8Array<ArrayBuffer>): Promise<ImageBitmap> {
   try {
-    return await createImageBitmap(new Blob([bytes]));
+    return await createImageBitmap(new Blob([bytes]), { imageOrientation: "none" });
   } catch (error) {
     throw new PdfFailure("unreadable", { cause: error });
   }

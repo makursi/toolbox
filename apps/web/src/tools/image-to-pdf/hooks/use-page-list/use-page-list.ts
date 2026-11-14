@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 
 import { admitImages, type Candidate } from "@/tools/image-to-pdf/core/admission";
-import type { ImageSize } from "@/tools/image-to-pdf/core/geometry";
-import { readImageSize } from "@/tools/image-to-pdf/core/image-size";
+import { readImageHeader, type ImageHeader } from "@/tools/image-to-pdf/core/image-size";
 import { movePage } from "@/tools/image-to-pdf/core/order";
+import type { ExifOrientation } from "@/tools/image-to-pdf/core/orientation";
 import {
   isAcceptedFormat,
   sniffByteLength,
@@ -15,9 +15,10 @@ import {
  * The pages a visit is working on, in page order, and the files that were
  * refused.
  *
- * A page is one image: its file, the format the bytes named, and the dimensions
- * read from its own header. The dimensions are kept rather than re-read at
- * render time because the miniature and the PDF are both drawn from them.
+ * A page is one image: its file, the format the bytes named, the dimensions read
+ * from its own header, and the EXIF turn that header carries. All of them are
+ * kept rather than re-read at render time, because the miniature and the PDF are
+ * both drawn from them.
  *
  * Admission is one pure decision per batch (`core/admission.ts`): this hook only
  * reads the bytes, asks it, and appends the accepted pages. The refusals are
@@ -34,8 +35,11 @@ export type PageEntry = {
   file: File;
   /** The format the file's bytes name, never the one its name claims. */
   format: ImageFormat;
+  /** The stored dimensions: what the page's geometry is laid out from. */
   width: number;
   height: number;
+  /** The EXIF turn the header carried; 1 for a PNG or a WebP. */
+  orientation: ExifOrientation;
 };
 
 /**
@@ -64,15 +68,20 @@ export function usePageList() {
 
     const job = queue.current.then(async () => {
       const candidates: Candidate[] = [];
+      // The turn travels beside the dimensions: the decision below only reads
+      // the pixels, and the accepted page keeps the orientation the same read
+      // found.
+      const orientations: ExifOrientation[] = [];
 
       for (const file of incoming) {
         // Extensions lie, so the format comes from the bytes themselves.
         const head = new Uint8Array(await file.slice(0, sniffByteLength).arrayBuffer());
         const format = sniffFormat(head);
-        const pixels =
-          format !== null && isAcceptedFormat(format) ? await readPixels(file, format) : null;
+        const header =
+          format !== null && isAcceptedFormat(format) ? await readHeader(file, format) : null;
 
-        candidates.push({ name: file.name, size: file.size, format, pixels });
+        candidates.push({ name: file.name, size: file.size, format, pixels: header?.size ?? null });
+        orientations.push(header?.orientation ?? 1);
       }
 
       const decisions = admitImages(candidates, {
@@ -97,6 +106,7 @@ export function usePageList() {
           file,
           format: decision.format,
           height: decision.pixels.height,
+          orientation: orientations[index] ?? 1,
           width: decision.pixels.width,
         });
       }
@@ -155,21 +165,22 @@ function totalBytes(pages: readonly PageEntry[]): number {
 }
 
 /**
- * One file's dimensions from its own header.
+ * One file's header from its own bytes: the dimensions and, for a JPEG, the
+ * EXIF turn.
  *
  * The first read is the cheap one; a `SOF` beyond it (an EXIF thumbnail can be
  * larger than 512 KB) means the header was cut, so the whole file is read and
  * the walk runs again. `null` means no header this Tool can read, which
  * admission turns into a refusal rather than a page with no shape.
  */
-async function readPixels(file: File, format: ImageFormat): Promise<ImageSize | null> {
+async function readHeader(file: File, format: ImageFormat): Promise<ImageHeader | null> {
   const head = new Uint8Array(await file.slice(0, headBytes).arrayBuffer());
-  const size = readImageSize(format, head);
+  const header = readImageHeader(format, head);
 
   // Only a JPEG's frame can sit beyond the first read. PNG's IHDR and WebP's
   // first chunk are at the start, so reading a large PNG again would only
   // re-confirm that its header is missing.
-  if (format !== "jpeg" || size !== null || file.size <= headBytes) return size;
+  if (format !== "jpeg" || header !== null || file.size <= headBytes) return header;
 
-  return readImageSize(format, new Uint8Array(await file.arrayBuffer()));
+  return readImageHeader(format, new Uint8Array(await file.arrayBuffer()));
 }
