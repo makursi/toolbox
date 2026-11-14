@@ -949,10 +949,13 @@ test("a PNG whose header claims more than 40 M pixels is refused at admission", 
  * is the run that follows: after the cancel, the same list converts again and
  * the file a second implementation reads has every page and the right media box.
  *
- * The first run has to be long enough to interrupt. `largePngs` is sixteen
- * 1600x1200 PNGs, which cost the Worker seconds of decode and deflate; the spec
- * waits for a progress count that is neither 0 nor the total, so the run that was
- * cancelled is one that had already done real work.
+ * The cancel is pressed on an event, not a clock: the spec waits until a page
+ * has been reported finished while the document is still incomplete, so 取消 is
+ * pressed into a Worker that is provably working rather than one that merely
+ * started. The fixture is the Tool's own page limit, twenty 800x600 PNGs, which
+ * costs the Worker a decode and a deflate per page without asking the parallel
+ * suite for a large canvas; the run is short in wall time but long enough that
+ * "click after the first finished page" cannot race its end.
  */
 test("a cancelled run leaves nothing behind, and converting again produces a valid file", async ({
   page,
@@ -968,27 +971,39 @@ test("a cancelled run leaves nothing behind, and converting again produces a val
 
   const convert = page.getByRole("button", { name: "转换" });
   const cancel = page.getByRole("button", { name: "取消" });
+  const progress = page.locator('[data-slot="pdf-progress"]');
 
   // The cancel control only exists while a run does.
   await expect(cancel).toHaveCount(0);
 
   await convert.click();
 
-  await expect(cancel).toBeVisible();
+  /*
+   * Wait for the event that makes the cancel meaningful: the page has reported
+   * a finished page, and the document is not complete yet. Reading the same
+   * numbers the visitor reads keeps this on the page's public surface. If the
+   * run ever became too short to show this state, the poll times out rather than
+   * letting the test press 取消 after the run it meant to interrupt.
+   */
+  await expect
+    .poll(
+      async () => {
+        const text = (await progress.textContent()) ?? "";
+        const match = /已完成 (\d+) \/ (\d+) 页/.exec(text);
+        const done = Number(match?.[1] ?? 0);
+        const planned = Number(match?.[2] ?? 0);
+
+        return done > 0 && done < planned ? done : 0;
+      },
+      { message: "the run never reported a finished page while it was still building" },
+    )
+    .toBeGreaterThan(0);
 
   // 取消 carries the hit-area class itself, like every control on this page,
   // and its name is fixed so the instrument can declare it.
+  await expect(cancel).toBeVisible();
   await expect(cancel).toHaveClass(/\btouch-target\b/);
-
-  // Progress, one message per finished page: the line and the site's bar are
-  // both there while the run is in flight, inside the pinned result row.
-  const progress = page.locator('[data-slot="pdf-progress"]');
-  await expect(progress).toBeVisible();
   await expect(page.getByRole("progressbar")).toBeVisible();
-
-  await expect(progress).toHaveText(
-    new RegExp(`已完成 [1-${String(total - 1)}] / ${String(total)} 页`),
-  );
 
   await cancel.click();
 
@@ -1002,13 +1017,14 @@ test("a cancelled run leaves nothing behind, and converting again produces a val
   await expect(convert).toBeEnabled();
 
   /*
-   * Give a Worker that was merely asked to stop enough time to finish and
-   * deliver. The full run is measured at roughly 1.5 s on this machine and the
-   * cancel lands about 0.3 s in, so a run that survived the cancel would have a
-   * file about a second later; three seconds is comfortably past that. The
-   * Worker is terminated instead, so nothing arrives.
+   * Nothing from the cancelled run may arrive late. This is the only clock left,
+   * and it is bounded by the run it is proving dead: the full run is measured at
+   * about 1.0 s on this machine and the cancel lands about a third in, so a
+   * Worker that had merely been asked to stop would have delivered about 0.7 s
+   * later; 1.2 s is comfortably past that. The Worker is terminated instead, so
+   * nothing does.
    */
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(1200);
   await expect(page.locator("a[download]")).toHaveCount(0);
   await expect(cancel).toHaveCount(0);
   await expect(convert).toBeEnabled();
