@@ -68,7 +68,7 @@
 - **Fit 永远是 contain + centre**：取两个比例中较小的一个，两个轴都居中。没有裁切、没有边距参数、没有 fill-page。
 - 原始尺寸页面就是 `像素 x 0.75` 本身（仍然是交换后的「看到的」像素），因此 contain 恰好填满整页。
 - **列表每一行都从 `pageGeometry` 画**：缩略图高度固定 56px，宽度由页面比例决定，所以换纸时行会变宽变窄；图片矩形按页面的百分比定位。原始尺寸下行与图片同形、没有白边，这一点由 `core/__tests__/geometry.test.ts` 的「miniature」两条断言盯住。
-- 缩略图本身也按同一个方向摆正：`usePageThumbnail` 用 `core/orientation.ts` 的 `canvasMatrix` 在 canvas 里画一遍，所以换纸时改变的是页面比例，方向不会在行与文件之间各说各话。
+- 缩略图本身也已是正着的：`createImageBitmap` 的解码默认 `from-image`，浏览器会把 EXIF 方向直接应用在它给出的位图上，所以行里画的是一张已经摆正的图，而几何给它的页面框也是按交换后的比例算的，两者不会各说各话。
 
 ## JPEG 路径
 
@@ -93,7 +93,7 @@
   2. **旁路走不了就交给浏览器解码**。progressive（`SOF2`）与 4 通道（CMYK/YCCK）不能作为 `DCTDecode` 流正确写出，所以它们离开旁路，由 Worker 解码成原始 RGB 样本；两者都**从不交给 JPEG 编码器**，因为那是在已有的一次有损之上再加一次。
 - **路由是一个纯函数**（`core/jpeg.ts` 的 `routeJpeg`）：baseline 1/3 通道 → `passthrough`；progressive 或 4 通道 → `decode`；其余帧（lossless、算术编码）→ `unsupported`，因为 PDF 过滤器与浏览器解码器都不认它，写进去只会得到空白页。`canPassThrough` 的含义没有变，路由在它之上。
 - **尺寸交换发生在几何层**：`displaySize` 只对 5–8 交换两边，`pageGeometry` 用它排版；图像流自己的 `/Width`、`/Height` 仍是**存储**尺寸，因为它写的是存储的样本。像素数不变，所以像素上限对两种读法都成立。
-- **解码路径也走同一个矩阵**：Worker 用 `imageOrientation: "none"` 向浏览器要**存储的**像素，解码后的页面拿文件头里的方向调 `pageGeometry`，写出层用同一个矩阵摆正。这样 1–8 的规则只存在一张表里，不取决于浏览器的 EXIF 实现。解码后的 4 通道 JPEG 已经由浏览器变成 RGB，所以它的页面写 `DeviceRGB`，**没有 CMYK 的 `/Decode` 数组**。
+- **解码路径不叠加第二次旋转**：浏览器解码时默认就会按 EXIF 摆正（`from-image`），返回的位图已经是正着的、尺寸也已经是「看到的」那一组，所以解码后的页面直接用它给的尺寸调 `pageGeometry`，不做第二次变换。旁路路径不能这么做——它的字节必须原样进 PDF——方向表因此只为旁路存在。解码后的 4 通道 JPEG 已经由浏览器变成 RGB，所以它的页面写 `DeviceRGB`，**没有 CMYK 的 `/Decode` 数组**。
 - Worker 收到每一页时先重新嗅探格式与头部，不信任页面送来的任何说法。**旁路谓词一字未动**：baseline 的 1/3 通道 JPEG 仍以原字节进 PDF，从不交给编码器，也不重编码；方向只加了一个矩阵。
 
 ## PNG 与 WebP 路径
@@ -109,7 +109,7 @@
 
 - **自己写，不用运行时 PDF 库**：PDF 1.7、经典 xref 表（没有对象流）、头部之后一行二进制注释、每个流精确的 `/Length`、trailer、`startxref`、`%%EOF`。理由与两个被否掉的库的代价见 `docs/adr/0020-the-pdf-writer-is-ours.md`。
 - 每页恰好一个 page 对象、一个 content stream、一个 image XObject。`/MediaBox` 来自几何函数；content stream 用一个矩阵把图片放到几何给的矩形上。**这个矩阵也承载 EXIF 方向**：值 1 是 `[w 0 0 h x y]`，其余七个值在同一个位置换成 §JPEG 路径 表里的矩阵与矩形的合成。
-- 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`；本票之后 4 通道 JPEG 走解码路径，所以写出层的这条是防御而不是主路径）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。两种 `PdfImage` 都带 `orientation`，摆放是图片的共性，滤镜才是种类的差别。
+- 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`；本票之后 4 通道 JPEG 走解码路径，所以写出层的这条是防御而不是主路径）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。只有 JPEG 类型的 `PdfImage` 带 `orientation`：解码出来的样本已经摆正，摆放对它是恒等矩阵。
 - **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。两种图像类型与方向矩阵都在这一层内部；#198 只扩展了矩阵，没有改 xref 与对象布局。
 
 ## 命名与失效
@@ -132,7 +132,7 @@
 ## 已知风险
 
 - 移动端 canvas 面积上限（约 1670 万像素）低于 4000 万像素的限制：一张像素数在限制以内但超过手机 canvas 上限的 PNG/WebP，解码时会先得到空白页或浏览器自己的失败。这条仍是记录，不用上限去挡——上限会拒绝桌面能处理的图片，而移动端真正的边界由浏览器决定。
-- **浏览器对 `createImageBitmap` 的 EXIF 处理不一致**：有的实现默认 `from-image`、有的根本不转。所以解码路径显式要 `imageOrientation: "none"`（存储像素），再由本工具的表转一次；方向规则只有一处，不外包给浏览器。
+- **浏览器对 `createImageBitmap` 的 EXIF 处理**：解码路径依赖浏览器把照片摆正，`from-image` 是标准默认值（Chromium 实测如此）。本工具不为解码路径再转一次，否则同一张照片会被转两遍；而旁路路径不依赖任何浏览器行为，矩阵由本工具的表算出。哪一天某个浏览器的解码不摆正，受影响的是它的解码路径，旁路路径与方向表不受影响。
 - 八个值里，镜像的四个（2、4、5、7）没有真实扫描件可以在这台机器上重放；矩阵与角点有单测，真实阅读器里的样子留在 README 的手工清单里。
 - 单测证明文件结构，门禁用另一种实现读回文件；**没有机器能证明真实阅读器画得对**。「在桌面阅读器、手机、第二个浏览器里各打开一次」留在 README 的手工清单里。
 

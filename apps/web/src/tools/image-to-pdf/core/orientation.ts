@@ -25,8 +25,8 @@ export type ExifOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export const ORIENTATIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const satisfies readonly ExifOrientation[];
 
 /**
- * An affine matrix in the six-number order PDF's `cm` operator and canvas's
- * `setTransform` share: `x' = a x + c y + e`, `y' = b x + d y + f`.
+ * An affine matrix in the six-number order PDF's `cm` operator uses:
+ * `x' = a x + c y + e`, `y' = b x + d y + f`.
  */
 export type Matrix = readonly [number, number, number, number, number, number];
 
@@ -80,30 +80,6 @@ export function displaySize(size: Size, orientation: ExifOrientation): Size {
   return swapsSides(orientation)
     ? { width: size.height, height: size.width }
     : { width: size.width, height: size.height };
-}
-
-/**
- * The same transform in canvas coordinates, where y runs down and the bitmap the
- * browser hands back is still the stored picture.
- *
- * The row's miniature is drawn from this and the page's placement from
- * `orientationMatrix`, so both readings of the same picture land the same way up;
- * the arithmetic below is the y-down translation of the matrix above, not a
- * second table that could drift from it.
- */
-export function canvasMatrix(orientation: ExifOrientation, stored: Size, display: Size): Matrix {
-  const [a, b, c, d, e, f] = orientationMatrix(orientation);
-
-  // `+ 0` keeps a mirrored axis from answering `-0`: the transform is the same
-  // picture, and an exact identity is easier to assert and to read.
-  return [
-    (display.width / stored.width) * a + 0,
-    -(display.height / stored.width) * b + 0,
-    -(display.width / stored.height) * c + 0,
-    (display.height / stored.height) * d + 0,
-    display.width * (c + e) + 0,
-    display.height * (1 - f - d) + 0,
-  ];
 }
 
 /**

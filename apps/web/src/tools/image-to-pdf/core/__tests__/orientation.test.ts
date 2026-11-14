@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  canvasMatrix,
   displaySize,
   ORIENTATIONS,
   orientationMatrix,
@@ -185,40 +184,6 @@ describe("the size swap", () => {
     expect(displaySize(stored, 6)).toEqual({ width: 128, height: 96 });
     expect(displaySize(stored, 7)).toEqual({ width: 128, height: 96 });
     expect(displaySize(stored, 8)).toEqual({ width: 128, height: 96 });
-  });
-});
-
-describe("the thumbnail transform", () => {
-  /**
-   * Canvas coordinates run downwards, and the bitmap a browser hands back is the
-   * stored picture. This matrix is what puts that picture on the miniature the
-   * same way the PDF puts it on the page, so the two cannot disagree about a
-   * rotated photo.
-   */
-  it("turns a 96x128 stored picture into the 128x96 upright one for value 6", () => {
-    const stored = { width: 96, height: 128 };
-    const display = displaySize(stored, 6);
-    const matrix = canvasMatrix(6, stored, display);
-
-    // Orientation 6 is a quarter turn clockwise: the recorded top-left corner
-    // becomes the upright picture's top-right one.
-    expect(apply(matrix, [0, 0])).toEqual([128, 0]);
-    expect(apply(matrix, [96, 0])).toEqual([128, 96]);
-    expect(apply(matrix, [0, 128])).toEqual([0, 0]);
-  });
-
-  it("mirrors without turning for values 2 and 4", () => {
-    const stored = { width: 96, height: 128 };
-    const display = displaySize(stored, 1);
-
-    expect(apply(canvasMatrix(2, stored, display), [0, 0])).toEqual([96, 0]);
-    expect(apply(canvasMatrix(4, stored, display), [0, 0])).toEqual([0, 128]);
-  });
-
-  it("leaves an upright picture exactly where it was", () => {
-    const stored = { width: 96, height: 128 };
-
-    expect(canvasMatrix(1, stored, stored)).toEqual([1, 0, 0, 1, 0, 0]);
   });
 });
 

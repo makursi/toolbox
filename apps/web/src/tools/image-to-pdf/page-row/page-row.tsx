@@ -41,9 +41,10 @@ export function PageRow({
   disabled: boolean;
   onRemove: () => void;
 }) {
-  const thumbnail = usePageThumbnail(entry.file, entry.orientation);
-  // The stored dimensions and the turn go in together, so the miniature is laid
-  // out for the picture as a visitor sees it, exactly as the PDF page is.
+  // The browser's decode already applies the EXIF turn, so the miniature's
+  // picture is upright; the geometry is laid out for the turned dimensions, and
+  // the two agree on the aspect ratio.
+  const thumbnail = usePageThumbnail(entry.file);
   const geometry = pageGeometry(
     { width: entry.width, height: entry.height },
     paper,

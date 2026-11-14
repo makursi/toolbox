@@ -132,24 +132,24 @@ function jpegSource(
  * A page whose image is packed RGB samples: what a PNG, a WebP or a decoded
  * JPEG becomes after the browser decodes it (`core/packing.ts`). The bytes here
  * stand for the zlib-wrapped stream; the writer copies them like it copies a
- * JPEG.
+ * JPEG. A decoded image arrives upright, so its type carries no orientation.
  */
-function rawSource(
-  dimensions = { width: 600, height: 800 },
-  orientation: ExifOrientation = 1,
-): PdfImage {
+function rawSource(dimensions = { width: 600, height: 800 }): PdfImage {
   return {
     kind: "raw-rgb",
     bytes: new Uint8Array([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]),
     width: dimensions.width,
     height: dimensions.height,
-    orientation,
   };
 }
 
 function page(paper: "a4" | "letter", image = jpegSource(3)): PdfPage {
   return {
-    geometry: pageGeometry({ width: image.width, height: image.height }, paper, image.orientation),
+    geometry: pageGeometry(
+      { width: image.width, height: image.height },
+      paper,
+      image.kind === "jpeg" ? image.orientation : 1,
+    ),
     image,
   };
 }
@@ -392,33 +392,6 @@ describe("the PDF writer", () => {
 
       expect(contentMatrices(text)[0], `orientation ${String(orientation)}`).toEqual(
         expected[orientation],
-      );
-    }
-  });
-
-  it("gives a decoded image the same turn as a passed-through one", () => {
-    // A progressive or CMYK JPEG is decoded and written as samples, but it is
-    // the same picture on the same page: the turn cannot depend on which path
-    // the image took.
-    const rectangle: PageGeometry = {
-      page: { width: 200, height: 100 },
-      image: { x: 10, y: 20, width: 80, height: 40 },
-    };
-
-    for (const orientation of [5, 6, 7, 8] as const) {
-      const passed = latin1(
-        buildPdf([
-          { geometry: rectangle, image: jpegSource(3, { width: 80, height: 40 }, orientation) },
-        ]),
-      );
-      const decoded = latin1(
-        buildPdf([
-          { geometry: rectangle, image: rawSource({ width: 80, height: 40 }, orientation) },
-        ]),
-      );
-
-      expect(contentMatrices(decoded)[0], `orientation ${String(orientation)}`).toEqual(
-        contentMatrices(passed)[0],
       );
     }
   });

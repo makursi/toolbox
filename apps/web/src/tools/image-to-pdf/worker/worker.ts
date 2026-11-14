@@ -2,7 +2,6 @@ import { failureCode, PdfFailure, type PdfFailureCode } from "../core/failures";
 import { pageGeometry, type Paper } from "../core/geometry";
 import { readJpeg, routeJpeg } from "../core/jpeg";
 import { MAX_IMAGE_PIXELS } from "../core/limits";
-import type { ExifOrientation } from "../core/orientation";
 import { flateRgb } from "../core/packing";
 import { buildPdf, type PdfPage } from "../core/pdf";
 import { isAcceptedFormat, sniffFormat } from "../core/sniff";
@@ -19,9 +18,9 @@ import { isAcceptedFormat, sniffFormat } from "../core/sniff";
  * bytes (`/Filter /DCTDecode`, no decode, no re-encode) and its EXIF turn
  * becomes a content-stream matrix. A progressive or four-channel JPEG, a PNG or
  * a WebP cannot take that path: the browser decodes it here and the pixels go to
- * the writer as raw RGB samples, with the same matrix from the same header. Both
- * paths end in one `PdfPage`, so the writer decides the stream from the image
- * kind and nothing above this file grows a branch.
+ * the writer as raw RGB samples. Both paths end in one `PdfPage`, so the writer
+ * decides the stream from the image kind and nothing above this file grows a
+ * branch.
  */
 
 export type BuildRequest = {
@@ -102,7 +101,7 @@ async function toPage(buffer: ArrayBuffer, paper: Paper): Promise<PdfPage> {
 
     const route = routeJpeg(info);
     if (route === "unsupported") throw new PdfFailure("unsupported");
-    if (route === "decode") return decodedPage(bytes, paper, info.orientation);
+    if (route === "decode") return decodedPage(bytes, paper);
 
     return {
       // The page is laid out for the dimensions a visitor sees; the image
@@ -131,18 +130,13 @@ async function toPage(buffer: ArrayBuffer, paper: Paper): Promise<PdfPage> {
  * pixel limit is checked here as well as at admission because a header is a
  * claim, and this is the first place that knows the true size.
  *
- * `orientation` is the EXIF turn the *file* carried. The decoder is asked for
- * the stored pixels (`imageOrientation: "none"`), so the samples and the
- * dimensions are the recorded picture and the writer applies the same matrix a
- * passed-through JPEG gets. Letting the decoder turn the picture instead would
- * put the same rule in a browser's hands on one path and in a tested table on
- * the other.
+ * A decoded JPEG arrives upright: `createImageBitmap` applies the EXIF turn
+ * (`from-image` is the standard's default) and reports the turned dimensions, so
+ * its page needs neither the stored dimensions nor a second matrix. The
+ * passthrough path cannot do that — its bytes must stay untouched — which is why
+ * the orientation table lives there, in the content stream.
  */
-async function decodedPage(
-  bytes: Uint8Array<ArrayBuffer>,
-  paper: Paper,
-  orientation: ExifOrientation = 1,
-): Promise<PdfPage> {
+async function decodedPage(bytes: Uint8Array<ArrayBuffer>, paper: Paper): Promise<PdfPage> {
   const bitmap = await decode(bytes);
 
   try {
@@ -161,13 +155,12 @@ async function decodedPage(
     const samples = flateRgb(new Uint8Array(pixels.data.buffer), bitmap.width, bitmap.height);
 
     return {
-      geometry: pageGeometry({ width: bitmap.width, height: bitmap.height }, paper, orientation),
+      geometry: pageGeometry({ width: bitmap.width, height: bitmap.height }, paper),
       image: {
         kind: "raw-rgb",
         bytes: samples,
         width: bitmap.width,
         height: bitmap.height,
-        orientation,
       },
     };
   } finally {
@@ -179,18 +172,17 @@ async function decodedPage(
 /**
  * Decode a blob in the browser's own decoder.
  *
- * `imageOrientation: "none"` is explicit rather than assumed: it asks for the
- * pixels as the file stores them, which is what lets the tested orientation
- * matrix be the only thing that turns a picture, on this path and the
- * passthrough one alike. A file that will not decode is the visitor-facing
- * failure here, and the browser's message for it is written for a developer:
- * "The source image could not be decoded." The error is kept as the cause and
- * goes to the console; the sentence `unreadable` carries is the one the visitor
- * reads.
+ * `from-image` is spelled out because it is the behaviour this path relies on: a
+ * tagged photo comes back upright, with the turned dimensions, so the samples
+ * and the page agree without a second transform. A file that will not decode is
+ * the visitor-facing failure here, and the browser's message for it is written
+ * for a developer: "The source image could not be decoded." The error is kept as
+ * the cause and goes to the console; the sentence `unreadable` carries is the one
+ * the visitor reads.
  */
 async function decode(bytes: Uint8Array<ArrayBuffer>): Promise<ImageBitmap> {
   try {
-    return await createImageBitmap(new Blob([bytes]), { imageOrientation: "none" });
+    return await createImageBitmap(new Blob([bytes]), { imageOrientation: "from-image" });
   } catch (error) {
     throw new PdfFailure("unreadable", { cause: error });
   }

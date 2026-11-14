@@ -58,13 +58,6 @@ export type RawRgbImage = {
   /** Pixel dimensions of the samples, as the decoder recorded them. */
   width: number;
   height: number;
-  /**
-   * The EXIF orientation the source file carried. The samples are the stored
-   * picture (a browser's decoder hands them back unrotated), so the turn is the
-   * same content-stream matrix a passed-through JPEG gets. Image kinds decide the
-   * stream's filter, never its placement.
-   */
-  orientation: ExifOrientation;
 };
 
 /**
@@ -245,7 +238,10 @@ export function buildPdf(pages: readonly PdfPage[]): Uint8Array<ArrayBuffer> {
     const pageNumber = 3 + index * perPage;
     const contentNumber = pageNumber + 1;
     const imageNumber = pageNumber + 2;
-    const content = contentStream(page.geometry.image, page.image.orientation);
+    const content = contentStream(
+      page.geometry.image,
+      page.image.kind === "jpeg" ? page.image.orientation : 1,
+    );
     const image = imageObject(page.image);
 
     writeObject(
