@@ -104,6 +104,102 @@ export async function chooseFiles(page: Page, files: NamedBytes[]): Promise<void
 }
 
 /**
+ * An `APP1/Exif` segment declaring `orientation`, ready to be spliced after `SOI`.
+ *
+ * A camera writes this segment: the `Exif\0\0` signature, a little-endian TIFF
+ * header, and an `IFD0` whose one entry is tag 0x0112 (orientation) with a SHORT
+ * value. It is built here from numbers rather than committed as a binary, so the
+ * gate's fixture cannot drift from what a phone writes and no opaque file enters
+ * the repository.
+ */
+function exifApp1(orientation: number): Buffer {
+  const payload = Buffer.concat([
+    Buffer.from("Exif\0\0", "latin1"),
+    // TIFF header: little-endian ("II"), magic 42, IFD0 at offset 8.
+    Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]),
+    // One directory entry: tag 0x0112, type SHORT (3), count 1, the value.
+    Buffer.from([0x01, 0x00]),
+    Buffer.from([
+      0x12,
+      0x01,
+      0x03,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      orientation & 0xff,
+      (orientation >> 8) & 0xff,
+      0x00,
+      0x00,
+    ]),
+    // No next directory.
+    Buffer.from([0x00, 0x00, 0x00, 0x00]),
+  ]);
+  const length = payload.length + 2;
+  const marker = Buffer.from([0xff, 0xe1, (length >> 8) & 0xff, length & 0xff]);
+
+  return Buffer.concat([marker, payload]);
+}
+
+/**
+ * A real JPEG whose pixels are `width` x `height`, carrying a real EXIF
+ * orientation.
+ *
+ * The picture comes from the browser's own canvas encoder (in a page of its own,
+ * as every fixture here does), and the `APP1/Exif` segment is spliced straight
+ * after `SOI`, which is where a camera's tagging pass puts it. The file is
+ * decoded back before it is handed to the Tool: the browser applies the tag, so
+ * the decoder has to report the turned dimensions. That check is what makes the
+ * segment a real one — a fixture only a header walk can read would prove the
+ * walk and nothing about the picture.
+ */
+export async function exifJpeg(
+  context: BrowserContext,
+  options: { width: number; height: number; orientation: number; name?: string },
+): Promise<NamedBytes> {
+  const base = await jpeg(context, {
+    height: options.height,
+    name: options.name ?? "tagged.jpg",
+    width: options.width,
+  });
+
+  const buffer = Buffer.concat([
+    base.buffer.subarray(0, 2),
+    exifApp1(options.orientation),
+    base.buffer.subarray(2),
+  ]);
+
+  const builder = await context.newPage();
+
+  try {
+    const decoded = await builder.evaluate(async (source) => {
+      const bytes = Uint8Array.from(atob(source), (character) => character.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+
+      try {
+        return { width: bitmap.width, height: bitmap.height };
+      } finally {
+        bitmap.close();
+      }
+    }, buffer.toString("base64"));
+
+    // The browser applies the EXIF turn when it decodes (`from-image` is the
+    // default), which is the same thing the Worker's decode path relies on. The
+    // last four values swap the sides; the first four do not.
+    const viewed =
+      options.orientation >= 5
+        ? { width: options.height, height: options.width }
+        : { width: options.width, height: options.height };
+    expect(decoded).toEqual(viewed);
+  } finally {
+    await builder.close();
+  }
+
+  return { name: options.name ?? "tagged.jpg", mimeType: "image/jpeg", buffer };
+}
+
+/**
  * A 64×48 PNG, transparent on the left half and opaque red on the right.
  *
  * Built by the browser's own canvas encoder in a page of its own, like the JPEG

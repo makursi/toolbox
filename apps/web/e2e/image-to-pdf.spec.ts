@@ -5,6 +5,7 @@ import {
   avifFile,
   chooseFiles,
   dropFiles,
+  exifJpeg,
   gifFile,
   hugeHeaderPng,
   inspectDownloadedPdf,
@@ -157,6 +158,94 @@ test("one JPEG becomes a one-page A4 PDF the site wrote itself", async ({ page }
   // re-encode, no generation lost.
   expect(pdf.imageStreams).toHaveLength(1);
   expect(pdf.imageStreams[0]?.equals(photo.buffer)).toBe(true);
+});
+
+/**
+ * The one capability a phone photo needs and a PDF cannot inherit: EXIF
+ * orientation.
+ *
+ * The fixture is a real JPEG built by the browser's own canvas encoder, with a
+ * real `APP1/Exif` segment spliced after `SOI` carrying orientation 6 (`rotate
+ * 90 degrees clockwise`). Its stored pixels are portrait, 96 x 128, so the tag
+ * turns what a visitor sees into 128 x 96 — and every assertion below reads that
+ * from the downloaded file rather than from the page.
+ *
+ * Why the transform is what proves uprightness: the media box proves the
+ * *proportions*. A writer that ignored the tag would put a portrait page in the
+ * file, and the swapped box is the evidence that the image's own dimensions were
+ * turned with it. The media box says nothing about which pixel sits where,
+ * though; the matrix in the content stream is the *placement*, and for value 6
+ * it has to be the quarter turn `[0 -h w 0 x y+h]` rather than the untouched
+ * `[w 0 0 h x y]`. Two readings of one file, and the picture is only upright when
+ * both are right.
+ */
+test("a portrait JPEG tagged orientation 6 gets the swapped page and a quarter-turn matrix", async ({
+  page,
+}) => {
+  await open(page);
+
+  const photo = await exifJpeg(page.context(), {
+    height: 128,
+    name: "portrait-tagged.jpg",
+    orientation: 6,
+    width: 96,
+  });
+
+  await chooseFiles(page, [photo]);
+  const rows = page.locator('[data-slot="pdf-page-row"]');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("portrait-tagged.jpg");
+
+  // Before any conversion, the row is the page: the tag swaps the sides, so the
+  // miniature is A4 in its landscape orientation. The row and the file share the
+  // geometry function, and this is that agreement read off the page.
+  const miniature = page.locator('[data-slot="pdf-page-miniature"]').first();
+  await expect(miniature).toHaveAttribute("style", /aspect-ratio: 841\.89 \/ 595\.28/);
+
+  await page.getByRole("button", { name: "转换" }).click();
+  const pdf = await downloadPdf(page);
+  expectValidPdf(pdf);
+
+  expect(pdf.pageCount).toBe(1);
+
+  // The quarter turn includes a side swap: 96 x 128 stored is viewed as
+  // 128 x 96, so A4 is used sideways. The stored dimensions were portrait, so a
+  // page writer that missed the tag would have answered the portrait box.
+  expectBox(pdf.mediaBoxes[0], A4_LANDSCAPE);
+
+  // Exactly one image XObject, and it is the JPEG the picker handed over: the
+  // passthrough path decoded nothing and recompressed nothing.
+  expect(pdf.imagesPerPage).toEqual([1]);
+  expect(pdf.imageFilters).toEqual(["/DCTDecode"]);
+  expect(pdf.imageStreams).toHaveLength(1);
+  expect(pdf.imageStreams[0]?.equals(photo.buffer)).toBe(true);
+
+  // The placement: one `cm` in the content stream. For value 6 the unit square
+  // is turned a quarter clockwise inside the geometry's rectangle, which is why
+  // the x scale is 0, the y scale is negative and the two axes are swapped.
+  const text = pdf.bytes.toString("latin1");
+  const matrix = /q\n([-\d. ]+) cm\n\/Im0 Do\nQ/.exec(text);
+  expect(matrix, "the page has no placement matrix").not.toBeNull();
+
+  const [a, b, c, d, e, f] = (matrix?.[1] ?? "").trim().split(/\s+/).map(Number);
+
+  // The rectangle the geometry function lays out for a 128 x 96 picture on A4
+  // landscape: contained, so it fills the height and is centred across.
+  const scale = Math.min(A4_LANDSCAPE.width / 128, A4_LANDSCAPE.height / 96);
+  const width = 128 * scale;
+  const height = 96 * scale;
+
+  expect(a).toBeCloseTo(0, 2);
+  expect(b).toBeCloseTo(-height, 2);
+  expect(c).toBeCloseTo(width, 2);
+  expect(d).toBeCloseTo(0, 2);
+  expect(e).toBeCloseTo((A4_LANDSCAPE.width - width) / 2, 2);
+  expect(f).toBeCloseTo((A4_LANDSCAPE.height - height) / 2 + height, 2);
+
+  // And not the untouched placement, which is what a writer that dropped the
+  // matrix would have written. The negative scale is the mirror/rotation half of
+  // the transform, and it is legal in `cm`.
+  expect(b).toBeLessThan(0);
 });
 
 /**
