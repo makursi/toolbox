@@ -112,6 +112,43 @@ const PAGES = [
     path: "/tools/image-converter",
   },
   {
+    /*
+     * The third Tool's page, and the five regions the spec names (#200): the
+     * input region, the page-size row, the page list, one page row and the
+     * pinned result row. They are anchors rather than the whole page so that a
+     * later move can be proved to be a move, and so the outline keeps the shape
+     * of the regions the page is made of.
+     *
+     * `fileInput` is why this page has to be driven before it is measured:
+     * `pdf-pages` and `pdf-page-row` only exist after a file has been added, so
+     * a capture that navigated and stopped there would fail on two anchors that
+     * cannot be present — the rule working, not a gap to paper over. `convert`
+     * drives it further because the result row's content only exists once a
+     * conversion has run: the download link and the file's name are what the
+     * converted state puts inside `pdf-result`, and that row is the region this
+     * page's threshold is about. One file is enough — this Instrument reads the
+     * five regions, not a list long enough to scroll.
+     *
+     * `pdf-progress` is deliberately not declared: it exists only during a run,
+     * and a run is over by the time a capture reads (the conversion is awaited
+     * and the page is settled again). An anchor declared for a state the capture
+     * is never in would fail every run on something that cannot be present.
+     */
+    anchors: [
+      ...SHELL_ANCHORS,
+      "tool-page",
+      "pdf-add",
+      "pdf-paper",
+      "pdf-pages",
+      "pdf-page-row",
+      "pdf-result",
+    ],
+    convert: true,
+    fileInput: "input[type=file]",
+    name: "image-to-pdf",
+    path: "/tools/image-to-pdf",
+  },
+  {
     anchors: [
       ...SHELL_ANCHORS,
       "tool-page",

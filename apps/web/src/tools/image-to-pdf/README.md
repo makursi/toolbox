@@ -257,6 +257,23 @@ its usual reason, and a list that still has pages never shows that reason. The
 same test shows what invalidation is not: a batch in which every file was refused
 leaves the produced file alone, because the list did not change.
 
+Since #200 the page is also measured rather than merely drawn. The hit-area
+instrument names its controls by their accessible names — 选择图片, 转换, 清空,
+移除, 拖动排序, A4, Letter, 原始尺寸 and the shell's own two — declares the
+download link as a carrier because its file name is today's date, and scans the
+whole document for the layer this site left. 取消 is deliberately not declared:
+it exists only while a run is in flight, and the instrument drives the page to
+the finished state. Its new claim, `pinned-action-row`, reads the result row at
+the top, halfway and bottom of a 390px page whose list really scrolls (the
+instrument hands the same fixture over eight times so the list is long enough),
+requires the row inside the viewport at all three, pinned to the bottom halfway,
+and clear of the last row at the end; `--falsify` injects `position: static` on
+the row in a 390×900 case and the claim has been watched go red. The fingerprint
+declares the five regions as anchors — the input region, the page-size row, the
+page list, a page row and the result row — and drives the page with one file and
+one conversion so that the list and the result row's content exist when it reads.
+`pdf-progress` is not declared because it exists only during a run.
+
 The unit tests hold what the gate cannot see: the exact wording of every refusal
 and limit sentence, the progress line and the fixed name 取消, the numbers behind
 the limits, the 40 M pixel boundary and the admission of PNG and WebP, the sample
@@ -406,5 +423,4 @@ keyboard at 390px.
       opens the picker, the action and the download are reachable, the row's
       移除 is a real button, and each row's handle reorders.
 
-The instruments (#200) and the design notes and screenshot baseline (#201) are
-still to come.
+The design notes and screenshot baseline (#201) are still to come.
