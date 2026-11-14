@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_PAPER, PAPERS } from "@/tools/image-to-pdf/core/geometry";
 import {
+  cancelLabel,
   orderCancelled,
   orderDropped,
   orderHandleLabel,
@@ -11,6 +12,7 @@ import {
   orderRoleDescription,
   originalSizeHint,
   paperLabels,
+  progressText,
 } from "@/tools/image-to-pdf/core/hints";
 
 /**
@@ -38,6 +40,32 @@ describe("the paper row's words", () => {
     expect(originalSizeHint).toContain("不是一种纸");
     // The site's copy rule: no em dash anywhere a visitor reads.
     expect(originalSizeHint).not.toContain("—");
+  });
+});
+
+/**
+ * The words a run says while it is in flight, and the one word that stops it.
+ *
+ * The progress line is read twice: on screen and, through the live region, out
+ * loud. The cancel control's name is a contract rather than a label, because
+ * the hit-area instrument declares controls by their accessible name.
+ */
+describe("the run's words", () => {
+  it("counts finished pages out of the pages it planned", () => {
+    expect(progressText(0, 4)).toBe("已完成 0 / 4 页");
+    expect(progressText(2, 4)).toBe("已完成 2 / 4 页");
+    expect(progressText(4, 4)).toBe("已完成 4 / 4 页");
+  });
+
+  it("names the control that stops a run 取消, the same name every time", () => {
+    expect(cancelLabel).toBe("取消");
+  });
+
+  it("never uses an em dash in either", () => {
+    for (const sentence of [progressText(1, 9), cancelLabel]) {
+      expect(sentence).not.toContain("—");
+      expect(sentence).not.toContain("–");
+    }
   });
 });
 

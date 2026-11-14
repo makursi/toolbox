@@ -4,12 +4,13 @@ import { useCallback, useRef, useState } from "react";
 
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 
 import { DEFAULT_PAPER, type Paper } from "./core/geometry";
 import {
   addHeading,
   addMoreLabel,
-  buildingHint,
+  cancelLabel,
   clearLabel,
   convertLabel,
   downloadLabel,
@@ -18,8 +19,10 @@ import {
   onDevicePromise,
   pagesHeading,
   pickLabel,
+  progressText,
   refusedTitle,
 } from "./core/hints";
+import { invalidates, type DocumentChange } from "./core/invalidation";
 import { usePageList } from "./hooks/use-page-list/use-page-list";
 import { usePdfBuild } from "./hooks/use-pdf-build/use-pdf-build";
 import { PageList } from "./page-list/page-list";
@@ -50,7 +53,7 @@ const SECONDARY_ACTION =
 
 export function ImageToPdf() {
   const { pages, refused, addFiles, remove, reorder, clear } = usePageList();
-  const { status, result, failure, start, reset } = usePdfBuild();
+  const { status, result, failure, progress, start, reset, cancel } = usePdfBuild();
   const input = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [paper, setPaper] = useState<Paper>(DEFAULT_PAPER);
@@ -59,64 +62,73 @@ export function ImageToPdf() {
   const empty = pages.length === 0;
 
   /**
-   * Add files, then invalidate any produced document.
+   * The one door every change to the document goes through.
    *
-   * Every change to the list has to take the download away: a file that does not
-   * match the preview is the worst thing this page can hand over. The
-   * invalidation is not an error state, so it shows no banner. A batch where
-   * every file was refused did not change the list, so it does not invalidate
-   * anything either: the document on screen is still the list on screen.
+   * A produced file is built from the paper and the list, in order. Any change
+   * to either of them makes it a file that no longer matches the page, so the
+   * download is taken away and 转换 is re-armed — with no banner and no failure
+   * sentence, because this is "not converted yet" rather than an error. The five
+   * changes (add, remove, clear, reorder, paper) all come through here and ask
+   * `core/invalidation.ts`; a sixth one has to do the same, and a change that did
+   * not change the document (a fully refused batch, a drop on the row's own
+   * position) leaves the file alone.
+   */
+  const applyChange = useCallback(
+    (change: DocumentChange) => {
+      if (invalidates(change)) reset();
+    },
+    [reset],
+  );
+
+  /**
+   * Add files, then tell the rule what happened.
+   *
+   * A batch where every file was refused did not change the list, so it reaches
+   * the same door as the rest and the door leaves the produced file alone: the
+   * document on screen is still the list on screen.
    */
   const add = useCallback(
     async (files: readonly File[]) => {
       if (files.length === 0) return;
-      const added = await addFiles(files);
-      if (added > 0) reset();
+      applyChange({ kind: "add", accepted: await addFiles(files) });
     },
-    [addFiles, reset],
+    [addFiles, applyChange],
   );
 
   const removePage = useCallback(
     (id: number) => {
       remove(id);
-      reset();
+      applyChange({ kind: "remove" });
     },
-    [remove, reset],
+    [remove, applyChange],
   );
 
   const clearPages = useCallback(() => {
     clear();
-    reset();
-  }, [clear, reset]);
+    applyChange({ kind: "clear" });
+  }, [clear, applyChange]);
 
   /**
-   * Put one page where another one was, then invalidate any produced document.
+   * Put one page where another one was, then tell the rule whether it moved.
    *
-   * Reordering is a change to the document's page order, so a file built for the
-   * old order cannot stay on screen: the download goes away and 转换 is armed
-   * again, with no banner, exactly as adding or removing a page does. A drop
-   * that lands on the row's own position is not a change, and the hook says so.
+   * The list hook answers whether the order actually changed, because a drop
+   * back onto the row's own position is not a new document and must not throw
+   * away a file that still matches the list.
    */
   const reorderPage = useCallback(
     (activeId: number, overId: number) => {
-      if (reorder(activeId, overId)) reset();
+      const moved = reorder(activeId, overId);
+      applyChange({ kind: "reorder", moved });
     },
-    [reorder, reset],
+    [reorder, applyChange],
   );
 
-  /**
-   * Choose the paper, then invalidate any produced document.
-   *
-   * A file built for A4 cannot stay on screen while every row now draws Letter.
-   * Like the list's own changes, this is an invalidation and not a failure: no
-   * banner, no error sentence, just back to "not converted yet".
-   */
   const choosePaper = useCallback(
     (next: Paper) => {
       setPaper(next);
-      reset();
+      applyChange({ kind: "paper" });
     },
-    [reset],
+    [applyChange],
   );
 
   const blocked = !building && pages.length === 0 ? noImagesHint : null;
@@ -289,13 +301,54 @@ export function ImageToPdf() {
           >
             {convertLabel}
           </Button>
+          {/*
+            The way out of a run that is taking too long. It exists only while
+            one is in flight: a greyed 取消 would owe the visitor a reason, and
+            the reason is the run it does not have. It terminates the Worker
+            instead of asking it to stop, so a cancelled run leaves no thread,
+            no bytes and no result behind, and the page returns to "not converted
+            yet" with no banner. The name is fixed so the hit-area instrument can
+            declare it.
+          */}
+          {building && (
+            <Button
+              className={`action-full-width touch-target ${SECONDARY_ACTION}`}
+              onClick={cancel}
+              variant="outline"
+            >
+              {cancelLabel}
+            </Button>
+          )}
           {blocked !== null && (
             <p className="text-sm leading-[1.45] text-muted-foreground">{blocked}</p>
           )}
         </div>
 
+        {/*
+          The run's state, in one polite live region, so a visitor who cannot see
+          the page still hears each finished page rather than a silence. The
+          progress line is inside the live region rather than beside it, and the
+          count comes from the Worker one message per page. The full width is
+          what keeps the bar under the controls at 390px, inside the pinned row.
+        */}
         <div aria-live="polite" className="flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1">
-          {building && <p className="text-sm leading-[1.45]">{buildingHint}</p>}
+          {progress !== null && (
+            <div className="flex w-full flex-col gap-2" data-slot="pdf-progress">
+              <p className="text-sm leading-[1.45]">
+                {progressText(progress.done, progress.total)}
+              </p>
+              {/*
+                The site's own two values: a hover-surface track and an ink
+                segment, 8px high with an 8px radius (`components.md`, 进度条).
+                The percentage is the only thing the bar needs; the text above
+                says the two numbers a visitor counts in.
+              */}
+              <Progress
+                className="h-2 rounded-md bg-secondary"
+                value={progress.total === 0 ? 0 : (progress.done / progress.total) * 100}
+              />
+            </div>
+          )}
 
           {status === "failed" && failure !== null && (
             <p className="text-sm leading-[1.45] text-destructive">{failure}</p>

@@ -11,8 +11,18 @@ import { isAcceptedFormat, sniffFormat } from "../core/sniff";
  *
  * It receives the page sources and the paper, sniffs each page's bytes itself so
  * that nothing the page claims about its files is trusted, and writes the whole
- * document here. One request in, one response out; #197 adds progress messages
- * and a cancel to the same protocol.
+ * document here. One request in, a progress message after every finished page,
+ * and one result out. The result is either the file or a code from the closed
+ * set in `core/failures.ts`; a cancelled run never reaches this side, because
+ * the page terminates the Worker instead of asking it to stop.
+ *
+ * The pages are handled one at a time, and that is a decision rather than a
+ * simplification: a PDF is one output stream, so pages cannot be written in
+ * parallel, and the expensive step (a decode plus a deflate) already owns the
+ * Worker's only thread. A pool would add threads that still have to hand their
+ * pages to one writer in order, which buys no time and costs the memory of
+ * several decoded images at once. The spec settled the same way: one dedicated
+ * Worker, no pool.
  *
  * Two image paths meet here and nowhere above. A baseline JPEG keeps its own
  * bytes (`/Filter /DCTDecode`, no decode, no re-encode) and its EXIF turn
@@ -30,9 +40,19 @@ export type BuildRequest = {
   pages: ArrayBuffer[];
 };
 
-export type BuildResponse =
-  | { id: number; ok: true; bytes: ArrayBuffer }
-  | { id: number; ok: false; code: PdfFailureCode };
+/** One finished page, sent before the document exists so the page can count. */
+export type BuildProgressMessage = {
+  id: number;
+  type: "progress";
+  done: number;
+  total: number;
+};
+
+export type BuildResultMessage =
+  | { id: number; type: "result"; ok: true; bytes: ArrayBuffer }
+  | { id: number; type: "result"; ok: false; code: PdfFailureCode };
+
+export type BuildResponse = BuildProgressMessage | BuildResultMessage;
 
 /**
  * Just enough of the worker global to talk over `postMessage`.
@@ -58,22 +78,35 @@ context.addEventListener("message", (event: MessageEvent<BuildRequest>) => {
 async function respond(request: BuildRequest): Promise<void> {
   try {
     const pages: PdfPage[] = [];
-    // One page at a time: a decode is the expensive step, and a document is one
-    // sequence of bytes anyway.
-    for (const source of request.pages) pages.push(await toPage(source, request.paper));
+    const total = request.pages.length;
+
+    // One page at a time, in page order. The document is one sequence of bytes,
+    // so this is the only order the writer can take; the count after each page
+    // is what makes a run that takes tens of seconds visibly alive.
+    for (const [index, source] of request.pages.entries()) {
+      pages.push(await toPage(source, request.paper));
+      post({ done: index + 1, id: request.id, total, type: "progress" });
+    }
 
     const bytes = buildPdf(pages);
 
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage takes a transfer list, not a target origin.
-    context.postMessage({ id: request.id, ok: true, bytes: bytes.buffer }, [bytes.buffer]);
+    context.postMessage({ id: request.id, ok: true, type: "result", bytes: bytes.buffer }, [
+      bytes.buffer,
+    ]);
   } catch (error) {
     // The visitor gets the sentence; the console gets the thing that actually
     // threw. A Worker has nowhere else to put it.
     // oxlint-disable-next-line no-console -- a failed build is worth one line, and a Worker has nowhere else to put it.
     console.error("PDF build failed:", error);
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage takes a transfer list, not a target origin.
-    context.postMessage({ id: request.id, ok: false, code: failureCode(error) });
+    post({ code: failureCode(error), id: request.id, ok: false, type: "result" });
   }
+}
+
+/** Report one message to the page. `total` is resent with every progress count so a reader never has to remember it. */
+function post(message: BuildResponse): void {
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage takes a transfer list, not a target origin.
+  context.postMessage(message);
 }
 
 /**

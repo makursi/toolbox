@@ -14,6 +14,8 @@
 - **旁路（passthrough）**：把 JPEG 的原始字节直接作为 `DCTDecode` 图像流写进 PDF，不解码、不重编码。
 - **EXIF 方向（orientation）**：JPEG 的 `APP1/Exif` 里记录的 1–8 值，说明这张照片要转多少次、镜像哪一边才能正着看。它不是一条像素操作：在旁路路径上它是 content stream 的一个矩阵（`cm`），原始字节与像素一个都不动。
 - **生成（build）**：一次从页面列表到一个 PDF 文件的完整运行。生成状态只有 `idle / building / done / failed` 四种。
+- **进度（progress）**：一次生成里已完成的页数与计划页数，读作「已完成 x / y 页」。Worker 每写完一页报一条，界面在结果行的 live region 里读出来；生成结束保留最后一次计数，失效与取消时清空。
+- **取消（cancel）**：访客在一次生成中按 `取消`。它**终止** Worker 并让下一次生成换一个新的；取消不是失败，页面回到「还没转换」。
 
 ## 页面结构
 
@@ -23,8 +25,8 @@
   - 页面列表 `pdf-pages`：标题、`清空`、一行一页。`清空` 在列表非空时总在。
   - 一行 `pdf-page-row`：拖拽把手（`拖动排序`）、页号（`第 N 页`）、页面缩略图（`pdf-page-miniature`）、文件名、`移除`。
   - 页面尺寸行 `pdf-paper`：标题 `页面尺寸`、A4 / Letter / 原始尺寸 三选一、`originalSizeHint` 说明句。落在列表与结果行之间，列表为空时也在：纸张是这一页的选择，不是列表的状态。
-  - 结果行 `pdf-result`：钉在视口底部，唯一的动作 `转换`、禁用理由、运行状态与下载链接。
-- 结果行在任何时候都渲染：列表为空时它是唯一说明「还缺哪一步」的地方，有结果时它是下载入口。
+  - 结果行 `pdf-result`：钉在视口底部，唯一的动作 `转换`、禁用理由、生成中的 `取消`、进度（文字加进度条，`data-slot="pdf-progress"`，在 live region 里）、失败句与下载链接。
+- 结果行在任何时候都渲染：列表为空时它是唯一说明「还缺哪一步」的地方，有结果时它是下载入口。运行中它在 390px 下同时装得下 `转换`、`取消` 与进度条（窄屏两个动作各占满一行，见 `apps/web/docs/design/layout.md`）。
 - 返回首页、标题、描述与 `metadata` 是站点级 `ToolPage` 外壳的（`src/components/tool-page/`），不在本文件职权内。
 
 ## 输入、嗅探与准入
@@ -48,7 +50,7 @@
 - 每一项**自己**带 `.touch-target`（点击归属于那个 `<button>`，挂在组上会变成「覆盖点击」），高 44px。
 - **选中态不是颜色**：边框从发丝线换成 ink（`data-[state=on]:border-primary`）、字重加到 `font-semibold`、再加一个表面色（vendored 变体自带的 `data-[state=on]:bg-accent`，本站的 accent 是 hover 表面而不是色相）。两套配色都成立；站点的颜色语义仍然只有错误。
 - **`原始尺寸` 的说明句**常驻在控件旁，不藏在 tooltip 里，原文在 `core/hints.ts` 的 `originalSizeHint`：原始尺寸是图片自己的像素尺寸（96 dpi，1 像素 = 0.75 磅），不是一种纸。措辞由单测 `core/__tests__/hints.test.ts` 盯住。
-- 换纸就是换文档：与列表的增删一样调用 `reset()`，清掉下载与运行状态、重新武装 `转换`，不弹横幅、不写错误句。生成中控件禁用，避免一份按旧纸写出的文件配着新纸的预览出现。
+- 换纸就是换文档：经由 `core/invalidation.ts` 的失效规则，清掉下载与运行状态、重新武装 `转换`，不弹横幅、不写错误句。生成中控件禁用，避免一份按旧纸写出的文件配着新纸的预览出现。
 
 ## 页面顺序
 
@@ -57,7 +59,7 @@
 - **把手是一个真 `<button>`，`.touch-target` 挂在它自己身上**。挂在外层行上不是放大靶子，而是吃掉点击：伪元素的点击算在生成它的元素头上，外层没有处理器，于是鼠标和手指失效、键盘照常；只过一遍键盘的 QA 发现不了。这个 bug 本仓库已经付过一次钱（`apps/web/docs/design/components.md`），门禁用坐标命中测试盯着它。
 - **每一行的把手用同一个无障碍名 `拖动排序`**，`移除` 同理：命中区量具按名字声明控件，写不下二十个不同的名字，一个随行变化的名字根本没法声明。把手还带 `touch-none`（`touch-action: none`）：从把手上开始的手势属于拖拽，不属于滚动，这正是把手存在的理由。
 - **移动会被读出来**：dnd-kit 的 live region（`role="status"`、`aria-live="assertive"`）读的是本工具自己的句子，原文在 `core/hints.ts`、有单测。拿起、每次移动后的位置、放下、Esc 取消各一句；**没有移动的自重叠不播报**，否则「拿起」那句会被「已移到第 1 位」立刻冲掉。
-- 重排和增删、换纸一样让已生成的文件失效：清掉下载、重新武装 `转换`，不弹横幅、不写错误句。完整矩阵在 #199。
+- 重排和增删、换纸一样让已生成的文件失效：经由 `core/invalidation.ts` 的同一条规则，清掉下载、重新武装 `转换`，不弹横幅、不写错误句。完整清单与两种例外在「命名与失效」一节。
 - 行的绘制没有被替换：把手是**加**上去的，页号、迷你页、文件名、`移除` 都还在。拖拽中的行临时加一层表面色（`bg-card`），否则它滑过别的行时两层文字会互相穿透；位移过渡是 `transition-transform` + `motion-reduce:transition-none`，reduced-motion 下静止。
 
 ## 几何
@@ -112,22 +114,36 @@
 - 流的种类由 `PdfImage.kind` 决定，调用方只说「这是 JPEG」或「这是原始 RGB」：JPEG 写 `/Filter /DCTDecode`，颜色空间由通道数决定（1 → `DeviceGray`，3 → `DeviceRGB`，4 → `DeviceCMYK` 并加反相的 `/Decode [1 0 1 0 1 0 1 0]`；本票之后 4 通道 JPEG 走解码路径，所以写出层的这条是防御而不是主路径）；原始 RGB 写 `DeviceRGB` + 8 位 + `/Filter /FlateDecode`，没有 `/DecodeParms`（#195）。只有 JPEG 类型的 `PdfImage` 带 `orientation`：解码出来的样本已经摆正，摆放对它是恒等矩阵。
 - **写出层是一个可替换的层**：`buildPdf(pages)` 之上（页面模型、几何、组件、Worker 协议、测试）不知道 PDF 是怎么拼的。两种图像类型与方向矩阵都在这一层内部；#198 只扩展了矩阵，没有改 xref 与对象布局。
 
+## 生成、进度与取消
+
+- **整份文档在一个专用 Worker 里顺序生成**，页面只把每页的源字节和纸张交给它，不持有半份文档。顺序不是省事而是唯一可行的顺序：一份 PDF 是一条输出字节流，页必须按页序交给唯一的写出层；并行池只会多出几个线程，仍然要排队把手里的页交给同一个写出层，还要同时占着几张解码后的图像的内存。规格已经否掉池子，这里只保留一个 Worker。生成期间页面不阻塞：解码与压缩在 Worker 的线程里，页面只负责收消息和重画。注释里写这段理由的地方是 `worker/worker.ts` 与 `worker/builder.ts`。
+- **协议只有两种消息**（`worker/worker.ts` 定义，`worker/builder.ts` 消费）：请求是 `{id, paper, pages}`，页面字节转移所有权；Worker 每写完一页发 `{id, type:"progress", done, total}`，最后发 `{id, type:"result", ok:true, bytes}` 或 `{id, type:"result", ok:false, code}`。`total` 每条都带，页面不必记住它。`builder` 一次生成一个 Worker，任何路径（成功、失败、取消）都终止它。
+- **进度文字在纯层**：`core/hints.ts` 的 `progressText(done, total)` 产生「已完成 x / y 页」，`core/__tests__/hints.test.ts` 盯住原文。文字和 vendored `Progress` 条一起放在结果行的 `aria-live="polite"` 区域里，所以读屏会随每一条消息听到新计数，而不是只听到一次。进度条的两个颜色、8px 高与 8px 圆角是站点规则（`apps/web/docs/design/components.md` 的「进度条」：轨道 `bg-secondary`、已完成段 `bg-primary`），调用点按它覆盖注册表默认的 `bg-primary/20` 与 `rounded-full`。
+- 进度从按下 `转换` 的那一下就存在（`已完成 0 / y 页`），因为计划页数在生成前就是已知的；生成结束后保留最后一次计数，和下载链接并排，失效或取消时清空。
+- **`取消` 只在生成中出现**，名字固定为「取消」（量具按名字声明控件，一个只在某个状态里存在的控件尤其不能有两个名字）。它**终止** Worker 而不是请求它停：正在跑的解码就地结束，转交的字节随线程一起消失，之后不会再有结果消息；下一次生成开一个新 Worker，这就是「替换」。`取消` 自己带 `.touch-target`（它是一个真 `<button>`），窄屏上占满一行。
+- **取消不是失败**：不借用失败码、不写错误句、不弹横幅、不写 console。页面回到和「还没转换」一样的状态：没有下载、没有进度、进度条消失、`转换` 重新可用，页面列表原样留着。
+- **取消与失效是同一个状态，所以是同一个函数**：`usePdfBuild` 的 `stop` 既服务「列表或纸张变了」也服务「访客按了取消」。`generation` 计数让被取消那次运行的迟到结果不能覆盖替换它的那次运行；取消从不创建对象 URL，URL 的创建、撤销与卸载清理仍然只住在这个 hook 里。
+- **失败仍然是闭集**：Worker 把 `core/failures.ts` 里的码发回来（无法识别的抛错由 `failureCode` 收敛成 `unknown`），hook 用 `describeFailure` 换成一句给访客的话；原始错误只进 console。取消走 `BuildCancelled`，它不属于这个闭集，也不该有句子。
+
 ## 命名与失效
 
 - 文件名由规则决定：`图片-YYYY-MM-DD.pdf`，日期取访客本地的日历日（`core/naming.ts`），界面没有文件名字段。
-- **任何变化都让已生成的文件失效**：添加（至少一张被接受）、移除、清空、换纸（#194）以及 #196 的重排都会清掉下载与运行状态并重新武装 `转换`。一批全部被拒不是列表的变化，不失效：屏幕上的文件仍然与屏幕上的列表一致。失效不是错误态，不弹横幅、不写错误句。
+- **一条失效规则，住在一个地方**：`core/invalidation.ts` 的 `invalidates(change)`。它说的是：纸张变了，或者页面列表变了，屏幕上那份 PDF 就不再对应屏幕上这一页，已生成的文件作废、`转换` 重新武装。五种变化——**换纸、添加、移除、清空、重排**——全部经由 `ImageToPdf.tsx` 里同一个 `applyChange` 门去问它；**第六种变化也得走这道门**，而不是各自记得调一次 `reset()`。
+- **规则是完整的，忘记它会编译失败**：`invalidates` 的 `switch` 没有 `default`、返回类型是 `boolean`，所以给 `DocumentChange` 加一种 `kind` 而不在这一处决定它是否失效，`tsc` 会报「函数缺少结尾 return」。这条机制和单测矩阵（`core/__tests__/invalidation.test.ts`）一起，是这个 ticket 要的「不能忘」，不是某个调用方碰巧调对了。
+- **两种「看着变了、其实没变」不失效**：一批文件**全部被拒**时列表没变——被拒的文件不占行、不占张数，屏幕上的文件仍与屏幕上的列表一致；重排把一行放回它自己原来的位置时页序没变。两者由 `invalidates` 的 `accepted === 0` 与 `moved === false` 表达，不靠调用方各自判断。
+- **失效不是错误态**：不弹横幅、不写错误句、不留下进度行，只是回到「还没转换」。清空之后没有东西可转，`转换` 禁用并显示它一贯的那句理由；其余四种变化之后 `转换` 可用、已重新武装，列表还有页的行不显示空列表理由。这条矩阵由门禁里的同一条测试逐步断言（#199）。
 - 结果的对象 URL 由 `usePdfBuild` 全权拥有：成功时创建，失效与卸载时撤销。
 
 ## 报错
 
 - 浏览器或解码器自己的报错只进 console；访客读到的句子在纯函数层（`core/hints.ts`、`core/failures.ts`、`core/refusal.ts`、`core/limits.ts`），有单测能盯住措辞。
-- 失败码是闭集：`unreadable / unsupported / too-many-pixels / interrupted / unknown`，每码一句；认不出的错误回落到 `unknown`，原始错误只进 console。`too-many-pixels` 复用像素上限那一句（一个条件一句）；`unsupported` 的句子不点名格式。Worker、`builder.ts` 与 hook 三层都不会把原始错误文本带进界面。
+- 失败码是闭集：`unreadable / unsupported / too-many-pixels / interrupted / unknown`，每码一句；认不出的错误回落到 `unknown`，原始错误只进 console。`too-many-pixels` 复用像素上限那一句（一个条件一句）；`unsupported` 的句子不点名格式。Worker、`builder.ts` 与 hook 三层都不会把原始错误文本带进界面。`core/__tests__/failures.test.ts` 盯住每个码的原文、五句互不相同，以及认不出的值回落到通用句。
+- **取消不是失败**，不进入这个闭集也不带句子：它由 `worker/builder.ts` 的 `BuildCancelled` 表示，hook 认得它并回到 `idle`。
 
 ## 推迟给后续票
 
-- #197：进度（每页一条）与取消（终止并替换 Worker）。
 - #199：失效覆盖的测试与上面各票带来的新失效点；换纸这一条已随 #194 的控件落地。
-- #200：把这一页加进两个量具的 `PAGES`（本票只保证 `data-slot` 与固定的按钮名已就位）；#201：设计笔记与截图基线。
+- #200：把这一页加进两个量具的 `PAGES`（`data-slot` 与固定的按钮名已就位，包括只在生成中出现的 `取消`）；#201：设计笔记与截图基线。
 
 ## 已知风险
 

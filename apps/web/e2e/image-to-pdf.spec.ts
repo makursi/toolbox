@@ -10,6 +10,7 @@ import {
   hugeHeaderPng,
   inspectDownloadedPdf,
   jpeg,
+  largePngs,
   open,
   renamedTextFile,
   todayPdfName,
@@ -939,4 +940,228 @@ test("a PNG whose header claims more than 40 M pixels is refused at admission", 
   await expect(refusalLines).toHaveCount(1);
   await expect(refusalLines.first()).toContainText("panorama.png");
   await expect(refusalLines.first()).toContainText("这张图片超过 4000 万像素的上限，没有加入。");
+});
+
+/**
+ * Cancelling is a promise about the whole run, not only about the control: the
+ * Worker is terminated and replaced, nothing from the cancelled run survives,
+ * and the page is left exactly where it was before 转换 was pressed. The proof
+ * is the run that follows: after the cancel, the same list converts again and
+ * the file a second implementation reads has every page and the right media box.
+ *
+ * The first run has to be long enough to interrupt. `largePngs` is sixteen
+ * 1600x1200 PNGs, which cost the Worker seconds of decode and deflate; the spec
+ * waits for a progress count that is neither 0 nor the total, so the run that was
+ * cancelled is one that had already done real work.
+ */
+test("a cancelled run leaves nothing behind, and converting again produces a valid file", async ({
+  page,
+}) => {
+  await open(page);
+
+  const pages = await largePngs(page.context());
+  const total = pages.length;
+  await chooseFiles(page, pages);
+
+  const rows = page.locator('[data-slot="pdf-page-row"]');
+  await expect(rows).toHaveCount(total);
+
+  const convert = page.getByRole("button", { name: "转换" });
+  const cancel = page.getByRole("button", { name: "取消" });
+
+  // The cancel control only exists while a run does.
+  await expect(cancel).toHaveCount(0);
+
+  await convert.click();
+
+  await expect(cancel).toBeVisible();
+
+  // 取消 carries the hit-area class itself, like every control on this page,
+  // and its name is fixed so the instrument can declare it.
+  await expect(cancel).toHaveClass(/\btouch-target\b/);
+
+  // Progress, one message per finished page: the line and the site's bar are
+  // both there while the run is in flight, inside the pinned result row.
+  const progress = page.locator('[data-slot="pdf-progress"]');
+  await expect(progress).toBeVisible();
+  await expect(page.getByRole("progressbar")).toBeVisible();
+
+  await expect(progress).toHaveText(
+    new RegExp(`已完成 [1-${String(total - 1)}] / ${String(total)} 页`),
+  );
+
+  await cancel.click();
+
+  // Cancelling is not a failure and leaves nothing behind: no control, no
+  // download, no progress, no banner, no error sentence, and 转换 armed again.
+  await expect(cancel).toHaveCount(0);
+  await expect(progress).toHaveCount(0);
+  await expect(page.locator("a[download]")).toHaveCount(0);
+  await expect(page.locator('[data-slot="alert"]')).toHaveCount(0);
+  await expect(page.locator('[data-slot="pdf-result"] [aria-live="polite"]')).toHaveText(/^\s*$/);
+  await expect(convert).toBeEnabled();
+
+  /*
+   * Give a Worker that was merely asked to stop enough time to finish and
+   * deliver. The full run is measured at roughly 1.5 s on this machine and the
+   * cancel lands about 0.3 s in, so a run that survived the cancel would have a
+   * file about a second later; three seconds is comfortably past that. The
+   * Worker is terminated instead, so nothing arrives.
+   */
+  await page.waitForTimeout(3000);
+  await expect(page.locator("a[download]")).toHaveCount(0);
+  await expect(cancel).toHaveCount(0);
+  await expect(convert).toBeEnabled();
+
+  // Converting again works, and the file is valid: read by `pdf-lib`, with one
+  // page per image and A4 in the images' landscape orientation.
+  await convert.click();
+  const pdf = await downloadPdf(page);
+  expectValidPdf(pdf);
+  expect(pdf.pageCount).toBe(total);
+  expect(pdf.imagesPerPage).toEqual(pages.map(() => 1));
+  expect(pdf.mediaBoxes).toHaveLength(total);
+  for (const box of pdf.mediaBoxes) expectBox(box, A4_LANDSCAPE);
+
+  // The run ended, so the control that stops one is gone again.
+  await expect(cancel).toHaveCount(0);
+  await expect(page.locator("a[download]")).toBeVisible();
+});
+/** The result row at "not converted yet": no download, nothing announced, no banner. */
+async function expectNothingProduced(page: Page): Promise<void> {
+  await expect(
+    page.locator("a[download]"),
+    "the produced file survived a change to the document it was built from",
+  ).toHaveCount(0);
+
+  /*
+   * The live region is the one place the result row says anything: a progress
+   * line, a failure sentence, or the produced file's name. Empty means the page
+   * is back at "not converted yet" — invalidation is not an error state, so it
+   * has no sentence of its own to show here.
+   */
+  await expect(
+    page.locator('[data-slot="pdf-result"] [aria-live="polite"]'),
+    "the result row still says something after the produced file was invalidated",
+  ).toHaveText(/^\s*$/);
+
+  // The refusal box is the only banner this page renders, and invalidation is
+  // silent, so a banner here would mean the page had treated it as a failure.
+  await expect(
+    page.locator('[data-slot="alert"]'),
+    "a banner appeared where invalidation should be silent",
+  ).toHaveCount(0);
+}
+
+/**
+ * Back at "not converted yet": 转换 re-armed when the list still has pages, or
+ * disabled with the one reason it shows — and a list that still has pages never
+ * shows that reason.
+ */
+async function expectInvalidated(page: Page, armed: boolean): Promise<void> {
+  await expectNothingProduced(page);
+
+  const convert = page.getByRole("button", { name: "转换" });
+  const emptyReason = page.getByText("还没有图片，先选择一张。");
+
+  if (armed) {
+    await expect(convert, "转换 was not re-armed after the produced file went away").toBeEnabled();
+    await expect(
+      emptyReason,
+      "a list that still has pages showed the empty-list reason",
+    ).toHaveCount(0);
+  } else {
+    await expect(convert).toBeDisabled();
+    await expect(emptyReason).toBeVisible();
+    await expect(page.getByText("选好的图片会排在这里，每张一页。")).toBeVisible();
+  }
+}
+
+/**
+ * The invalidation matrix, driven from the page: once a file exists, each of the
+ * five changes to the document — the paper, adding, removing, clearing and a
+ * keyboard reorder — takes it away and puts the result row back to "not
+ * converted yet". No banner, no failure sentence, no stale progress line, and no
+ * empty-list reason on a list that still has pages.
+ *
+ * The download is the one thing on this page that can lie: a file that does not
+ * match the preview costs the visitor's trust in the preview permanently. So the
+ * file exists before every change (the link is visible, which is the page's own
+ * statement that a run finished), and the change is the page's own control.
+ *
+ * Step 5 says what invalidation is *not*: a batch in which every file was refused
+ * did not touch the list, so the produced file stays and only the refusal banner
+ * appears; clearing afterwards takes that banner with the list.
+ */
+test("once a file exists, every change to the paper or the list takes it away", async ({
+  page,
+}) => {
+  await open(page);
+
+  const convert = page.getByRole("button", { name: "转换" });
+  const link = page.locator("a[download]");
+  const rows = pageRows(page);
+
+  const { first, second, third } = await threePages(page);
+  await chooseFiles(page, [first, second]);
+  await expect(rows).toHaveCount(2);
+
+  /** Build a document and wait for the page to say a file exists. */
+  async function produceFile(): Promise<void> {
+    await convert.click();
+    await expect(link).toBeVisible();
+  }
+
+  // 1. The paper. A file built for A4 cannot stay while every row draws Letter.
+  await produceFile();
+  await page.getByRole("radio", { name: "Letter" }).click();
+  await expect(page.getByRole("radio", { name: "Letter" })).toHaveAttribute("aria-checked", "true");
+  await expectInvalidated(page, true);
+
+  // 2. Adding a page, once at least one of the batch was accepted.
+  await produceFile();
+  await chooseFiles(page, [third]);
+  await expect(rows).toHaveCount(3);
+  await expectInvalidated(page, true);
+
+  // 3. Removing a row.
+  await produceFile();
+  await page.getByRole("button", { name: "移除" }).first().click();
+  await expect(rows).toHaveCount(2);
+  await expectInvalidated(page, true);
+
+  // 4. Reordering with the keyboard, the path that does not use a pointer.
+  await produceFile();
+  const handles = page.getByRole("button", { name: "拖动排序" });
+  const announcements = page.locator('[role="status"][aria-live="assertive"]');
+
+  await handles.nth(0).focus();
+  await page.keyboard.press("Space");
+  await expect(announcements).toContainText("已拿起第 1 页，共 2 页。");
+  await page.keyboard.press("ArrowDown");
+  await expect(announcements).toContainText("第 1 页已移到第 2 位，共 2 页。");
+  await page.keyboard.press("Space");
+  await expect(announcements).toContainText("已放下，第 1 页现在在第 2 位。");
+
+  // The list is the order the keyboard chose, and the file that was built for
+  // the old order is gone.
+  await expect(rows.nth(0)).toContainText("third.jpg");
+  await expect(rows.nth(1)).toContainText("second.jpg");
+  await expectInvalidated(page, true);
+
+  // 5. A batch that was refused whole did not change the list, so the file that
+  //    still matches the list stays — and the refusal is the only thing shown.
+  await produceFile();
+  await chooseFiles(page, [gifFile()]);
+  await expect(page.locator('[data-slot="alert"] p')).toHaveCount(1);
+  await expect(link, "a fully refused batch took a file that still matched the list").toBeVisible();
+  await expect(convert).toBeEnabled();
+  await expect(rows).toHaveCount(2);
+
+  // 6. Clearing empties the list, so there is nothing to convert: no download,
+  //    and 转换 disabled with its usual reason rather than any sentence of its
+  //    own. 清空 takes the refusal banner with it.
+  await page.getByRole("button", { name: "清空" }).click();
+  await expect(rows).toHaveCount(0);
+  await expectInvalidated(page, false);
 });
