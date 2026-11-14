@@ -81,17 +81,20 @@ const MIN = 43;
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
- * The four pages, and the controls each one has to carry **by name**.
+ * The five pages, and the controls each one has to carry **by name**.
  *
  * A page whose controls only exist after a file is dropped names the input that
- * takes it in `fileInput`; `layout` asks for the cover generator's two-column
- * check (see `LAYOUT`); `sections` says the page's controls live in an editor that
+ * takes it in `fileInput`; a later claim that needs the page list to scroll also
+ * names how many copies of the shared fixture it takes, in `fileCount` (#200).
+ * `layout` asks for the cover generator's two-column check (see `LAYOUT`);
+ * `pinned` says the page's result row is the subject of the `pinned-action-row`
+ * claim; `sections` says the page's controls live in an editor that
  * shows one panel at a time, so each section names its own and each is visited
  * (#91). A section declares two dimensions of "its own": `carriers` (selectors whose
  * matches must carry the hit-area class) and `presence` (`.show` — the panel that
- * must be showing — and `.hidden` — the ones that must not be). The page-level names
- * still have to be there for every section — the shell, and the tab row itself,
- * which is the new must-carry control.
+ * must be showing — and `.hidden` — the ones that must not be). The page-level
+ * names still have to be there for every section — the shell, and the tab row
+ * itself, which is the new must-carry control.
  *
  * A control no name identifies cannot be checked by name at all, so a page — or one
  * of its sections — may declare `carriers`: selectors whose matches must carry the
@@ -168,6 +171,57 @@ const PAGES = [
     // the claim is for.
     outgoing: ["body"],
     path: "/tools/image-converter",
+  },
+  {
+    /*
+     * The third Tool's page (#200). Every name below is fixed by the page rather
+     * than by a row: the picker stays 选择图片 in both states, the row handle is
+     * 拖动排序 on every row, and the remove control is 移除 on every row, because
+     * twenty names for twenty rows cannot be declared. The three paper controls
+     * are the radios' own visible text.
+     *
+     * `取消` is deliberately not declared. It exists only while a run is in
+     * flight; `convert` drives the page to the finished state, where 取消 has
+     * already unmounted and the download is the thing that arrived. A declared
+     * name that cannot be found in the state the page is driven to is a failure,
+     * and the run's in-flight controls are not what this Instrument measures.
+     *
+     * The page list has to be long enough to scroll, because the pinned action
+     * row's claim reads the row's position while the list moves under it: one
+     * fixture file leaves the page too short at 390x900. `fileCount` hands the
+     * shared connection layer the same fixture eight times in one change, which
+     * is eight rows at 1.5 M pixels each and under every one of the Tool's
+     * limits. The same file eight times is enough: that claim reads position,
+     * not names. Eight is measured from the page (see the pinned claim) rather
+     * than guessed, and the list has to scroll at 360x900 too.
+     *
+     * The download link's text is stable, but the name it derives is the date
+     * (图片-YYYY-MM-DD.pdf), which this Instrument cannot write down in advance:
+     * so it is declared as a carrier, and every match has to carry the hit-area
+     * class. A link that lost the class would leave the report in silence.
+     *
+     * `outgoing` is the whole document: this page has one layer.
+     */
+    controls: [
+      "切换到",
+      "返回首页",
+      "选择图片",
+      "转换",
+      "清空",
+      "移除",
+      "拖动排序",
+      "A4",
+      "Letter",
+      "原始尺寸",
+    ],
+    carriers: ["a[download]"],
+    convert: true,
+    fileCount: 8,
+    fileInput: "input[type=file]",
+    name: "image-to-pdf",
+    outgoing: ["body"],
+    path: "/tools/image-to-pdf",
+    pinned: true,
   },
   {
     controls: ["切换到", "返回首页", "内容", "样式", "导出"],
@@ -518,6 +572,55 @@ const STICKY = `(() => {
     middle,
     paneStaticTop,
     scrollable: reach > 40,
+  });
+})()`;
+
+/**
+ * The Image to PDF page's result row and the last row of the page list, read at
+ * three scroll positions.
+ *
+ * The pinned row's pin is the bottom of the viewport, which only a page taller
+ * than the viewport can exercise: at the top the row may already be stuck to the
+ * bottom, at the middle it is the row a scroller sees, and at the bottom its own
+ * place in the flow is what the browser has scrolled to. The flow position is
+ * taken from the end, where the row is not sticking, rather than derived from a
+ * sticky formula — a claim that re-implemented stickiness could agree with a
+ * broken row. `last` is the last page row, the one the row must not sit over.
+ *
+ * No backticks in here: the expression is itself a template literal (#108).
+ */
+const RESULT_ROW = `(() => {
+  const row = document.querySelector('[data-slot="pdf-result"]');
+  if (row === null) return JSON.stringify({ missing: true });
+  const rows = [...document.querySelectorAll('[data-slot="pdf-page-row"]')];
+  const last = rows.length === 0 ? null : rows[rows.length - 1];
+  const box = (el) => {
+    const rect = el.getBoundingClientRect();
+    return { bottom: Math.round(rect.bottom), top: Math.round(rect.top) };
+  };
+  const read = () => ({
+    last: last === null ? null : box(last),
+    row: box(row),
+    scrollY: Math.round(window.scrollY),
+    viewport: window.innerHeight,
+  });
+  window.scrollTo(0, 0);
+  const top = read();
+  const reach = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo(0, Math.round(reach / 2));
+  const middle = read();
+  window.scrollTo(0, document.documentElement.scrollHeight);
+  const end = read();
+  // The row's own place in the document, read where the browser has scrolled its
+  // flow position into the viewport — so this is layout, not stickiness.
+  const flowTop = end.row.top + end.scrollY;
+  return JSON.stringify({
+    end,
+    flowTop,
+    middle,
+    reach,
+    scrollable: reach > 40,
+    top,
   });
 })()`;
 
@@ -1047,6 +1150,66 @@ const CLAIMS = [
       ];
     },
   },
+  {
+    name: "pinned-action-row",
+    about:
+      "the Image to PDF result row keeps its place while the page list scrolls, and does not sit over the last row",
+    falsification: { injection: true },
+    per: "page",
+    // The page that declares its result row pinned, and only the narrow pass: the
+    // height this row costs is the narrow case's problem, and 390px is the
+    // viewport the reading is named for. On a wide screen the row has room in the
+    // flow, so the pin has nothing to prove there.
+    only: (ctx) => ctx.page.pinned === true && ctx.narrow,
+    read: (ctx) => ctx.read("resultRow", RESULT_ROW),
+    judge: (read) => {
+      if (read.missing === true) {
+        return [{ ok: false, line: "  FAIL  the Image to PDF result row is not on the page" }];
+      }
+      // The reading is named for a list that scrolls. A page too short for that
+      // proves nothing about the pin, and a line that said so while passing would
+      // be this claim ratifying a state it never reached.
+      if (!read.scrollable) {
+        return [
+          {
+            ok: false,
+            line: `  FAIL  the page does not scroll (${read.reach}px of travel), so the pinned row was not exercised — the list has to be long enough for this reading`,
+          },
+        ];
+      }
+      if (read.end.last === null) {
+        return [
+          {
+            ok: false,
+            line: "  FAIL  the page list has no row for the result row to stay clear of",
+          },
+        ];
+      }
+      const height = read.end.row.bottom - read.end.row.top;
+      // At the halfway scroll the row's own flow position is below the viewport,
+      // so the pin is what keeps it on screen. A page whose flow position is
+      // still inside the viewport is too short to reach the pin, and that is said
+      // out loud instead of being read as a pass on a pin it never exercised.
+      const flowTopMid = read.flowTop - read.middle.scrollY;
+      const shouldPin = flowTopMid + height > read.middle.viewport;
+      const pinned = !shouldPin || Math.abs(read.middle.row.bottom - read.middle.viewport) <= 2;
+      const inside =
+        read.top.row.top >= 0 &&
+        read.top.row.bottom <= read.top.viewport &&
+        read.middle.row.top >= 0 &&
+        read.middle.row.bottom <= read.middle.viewport &&
+        read.end.row.top >= 0 &&
+        read.end.row.bottom <= read.end.viewport;
+      const clears = read.end.row.top >= read.end.last.bottom - 1;
+      const ok = pinned && inside && clears;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  the result row stays inside the viewport while the page list scrolls, and does not sit over the last row — halfway: row ${read.middle.row.top}..${read.middle.row.bottom} of a ${read.middle.viewport}px viewport at scroll ${read.middle.scrollY}${shouldPin ? " (pinned is required here)" : " (too short to reach the pin)"}; at the end: row ${read.end.row.top}..${read.end.row.bottom}, last row ends ${read.end.last.bottom}`,
+        },
+      ];
+    },
+  },
 ];
 
 /**
@@ -1169,7 +1332,16 @@ async function applyCase(client, shape, pointer, scheme) {
  */
 async function openPage(client, baseUrl, page) {
   await client.navigate(`${baseUrl}${page.path}`);
-  if (page.fileInput !== undefined) await client.setFile(page.fileInput, FIXTURE);
+  if (page.fileInput !== undefined) {
+    // One file unless the page says its list has to scroll: `fileCount` is the
+    // same fixture repeated, handed over in one change, so every pass measures
+    // the same page as every other one (#200).
+    const count = page.fileCount ?? 1;
+    await client.setFile(
+      page.fileInput,
+      Array.from({ length: count }, () => FIXTURE),
+    );
+  }
   if (page.convert === true) await convertOnce(client);
 }
 
@@ -1302,6 +1474,15 @@ const FALSIFY = [
     value: "static",
   },
   {
+    case: { height: 900, width: 390 },
+    claim: "pinned-action-row",
+    note: "the result row's stickiness: a static row scrolls with the page instead of staying at the bottom, so the halfway reading catches it below the viewport",
+    page: "image-to-pdf",
+    property: "position",
+    selector: '[data-slot="pdf-result"]',
+    value: "static",
+  },
+  {
     case: { height: 667, width: 375 },
     claim: "drop-zone-pointer",
     note: "the touch half of the rule, which only the phone pass can see: with a finger there is nothing to drag with, so a dashed box put back is exactly what must not be there — and the injected rule is unlayered, so it wins over the media query that removes it",
@@ -1344,7 +1525,8 @@ const FALSIFY = [
  * (`src/tools/cover-generator/rules.md`); the other pages have hit-area claims too,
  * and #161 is the day one of them was worth a falsification run — the 404's way
  * home, which is an entry of its own because a claim is proved on the page the
- * sweep measures it on.
+ * sweep measures it on. #200's pinned action row is the second: its selector is
+ * the Image to PDF page's result row, so that entry names its page too.
  *
  * Two of the entries were written from the mechanism rather than from a run (#109):
  * `order: 2` on the canvas column puts it after the editor whatever the narrow rule

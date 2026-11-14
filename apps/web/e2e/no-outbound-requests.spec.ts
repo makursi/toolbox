@@ -1,5 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
+import {
+  chooseFiles,
+  inspectDownloadedPdf,
+  jpeg,
+  open as openImageToPdf,
+  transparentPng,
+} from "./image-to-pdf-page";
 import { convertInEveryFormat } from "./tool-page";
 
 /**
@@ -15,17 +22,23 @@ import { convertInEveryFormat } from "./tool-page";
  * fail. Watching the requests themselves is what makes "nothing is loaded from a
  * third party" a fact about the page rather than a reading of the header.
  *
- * Every format is converted on purpose: each codec's WebAssembly module is a
- * separate file, and it is exactly the ones a single-target run would not touch
- * that could quietly come from somewhere else.
+ * Every Tool that lands is held to the same rule by this file, which is the
+ * spec's own instruction for Image to PDF (#191): extend the existing check to
+ * this page rather than duplicate it. The listener below is the one definition
+ * of "off this origin" for every page; each test drives its own Tool through
+ * that Tool's page helper.
  */
-test("a conversion reaches nothing off this origin, and prints nothing", async ({
-  page,
-  baseURL,
-}) => {
-  if (baseURL === undefined) throw new Error("the config sets no baseURL to compare against");
-  const origin = new URL(baseURL).origin;
 
+type Watched = { offSite: string[]; noise: string[]; crashes: string[] };
+
+/**
+ * Watch one page for anything that leaves this origin or says something in the
+ * console.
+ *
+ * Attached before the navigation, because a request made by the first paint is
+ * exactly the one a later listener would miss.
+ */
+function watch(page: Page, origin: string): Watched {
   const offSite: string[] = [];
   const noise: string[] = [];
   const crashes: string[] = [];
@@ -48,13 +61,74 @@ test("a conversion reaches nothing off this origin, and prints nothing", async (
 
   page.on("pageerror", (error) => crashes.push(error.message));
 
+  return { offSite, noise, crashes };
+}
+
+function originOf(baseURL: string | undefined): string {
+  if (baseURL === undefined) throw new Error("the config sets no baseURL to compare against");
+
+  return new URL(baseURL).origin;
+}
+
+test("a conversion reaches nothing off this origin, and prints nothing", async ({
+  page,
+  baseURL,
+}) => {
+  const watched = watch(page, originOf(baseURL));
+
+  // Every format is converted on purpose: each codec's WebAssembly module is a
+  // separate file, and it is exactly the ones a single-target run would not touch
+  // that could quietly come from somewhere else.
   await convertInEveryFormat(page);
 
   // A run that converted nothing cannot say anything about what it requested, and
   // would pass every assertion below. That is the one way this check can lie.
   await expect(page.getByText("已生成 5 个文件", { exact: false })).toBeVisible();
 
-  expect(offSite, "requests off this origin").toEqual([]);
-  expect(noise, "console errors and warnings").toEqual([]);
-  expect(crashes, "uncaught errors and unhandled rejections").toEqual([]);
+  expect(watched.offSite, "requests off this origin").toEqual([]);
+  expect(watched.noise, "console errors and warnings").toEqual([]);
+  expect(watched.crashes, "uncaught errors and unhandled rejections").toEqual([]);
+});
+
+/**
+ * The Image to PDF page, held to the same rule (#191).
+ *
+ * One conversion covers both writer paths — a JPEG goes into the PDF with its
+ * original bytes, and a PNG is decoded by the Worker — so the run touches the
+ * Worker, the transfer and the download rather than only the input region.
+ */
+test("the Image to PDF conversion reaches nothing off this origin, and prints nothing", async ({
+  page,
+  baseURL,
+}) => {
+  const watched = watch(page, originOf(baseURL));
+
+  await openImageToPdf(page);
+
+  // Built in pages of their own, as every Image to PDF fixture is, so the file
+  // is real and the page about to upload it is the page being watched.
+  const photo = await jpeg(page.context());
+  const picture = await transparentPng(page.context());
+  await chooseFiles(page, [photo, picture]);
+  await expect(page.locator('[data-slot="pdf-page-row"]')).toHaveCount(2);
+
+  await page.getByRole("button", { name: "转换" }).click();
+
+  const link = page.locator("a[download]");
+  await expect(link).toBeVisible();
+
+  // Waiting for the download, not only for the link: a link whose blob holds
+  // nothing would still satisfy every collection assertion below.
+  const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+  const path = await download.path();
+  if (path === null) throw new Error("the download produced no file to read");
+
+  // The second implementation reads the file back, so "a conversion really
+  // happened" is a fact about the bytes rather than about the page's own state.
+  const pdf = await inspectDownloadedPdf(path);
+  expect(pdf.pageCount, "a PDF was really built from the two picked images").toBe(2);
+
+  expect(watched.offSite, "requests off this origin").toEqual([]);
+  expect(watched.noise, "console errors and warnings").toEqual([]);
+  expect(watched.crashes, "uncaught errors and unhandled rejections").toEqual([]);
 });

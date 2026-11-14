@@ -1,0 +1,577 @@
+import { readFile } from "node:fs/promises";
+
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { PDFDict, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
+
+/**
+ * How the gate drives the Image to PDF Tool.
+ *
+ * Everything here is a page-level action or a reading of the file that came out,
+ * because this is where the spec sits: a real browser, the production build, a
+ * real JPEG through the page's own file input, and a download parsed by a
+ * library the site does not ship.
+ */
+
+export const TOOL_PATH = "/tools/image-to-pdf";
+
+/** Open the Tool and wait until React has claimed the page. */
+export async function open(page: Page): Promise<void> {
+  await page.goto(TOOL_PATH);
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("body *")].some((element) =>
+      Object.keys(element).some((key) => key.startsWith("__reactFiber")),
+    ),
+  );
+}
+
+export type NamedBytes = { name: string; mimeType: string; buffer: Buffer };
+
+/**
+ * A JPEG, built by the browser's own canvas encoder.
+ *
+ * It is built in a page of its own, not in the page about to upload it: a
+ * fixture that is generated and handed over in one renderer is the habit the
+ * repository's Gotchas warn about, and a separate page is free here.
+ *
+ * Portrait by default on purpose: A4 is used in the image's orientation, so a
+ * 3:4 photo makes the expected media box the portrait pair a reader recognises.
+ * The options are what the batch spec uses to tell two pages apart by their
+ * shape and to prove page order rather than only page count.
+ */
+export async function jpeg(
+  context: BrowserContext,
+  options: { width?: number; height?: number; name?: string } = {},
+): Promise<NamedBytes> {
+  const width = options.width ?? 96;
+  const height = options.height ?? 128;
+  const name = options.name ?? "portrait.jpg";
+
+  const builder = await context.newPage();
+
+  try {
+    const dataUrl = await builder.evaluate(
+      ({ width: canvasWidth, height: canvasHeight }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        const context2d = canvas.getContext("2d");
+        if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+        // A photograph-like frame: two tones and a band, so the JPEG's own
+        // encoder has something to encode rather than a flat colour.
+        context2d.fillStyle = "#f2efe8";
+        context2d.fillRect(0, 0, canvasWidth, canvasHeight);
+        context2d.fillStyle = "#2b2b2b";
+        context2d.fillRect(
+          Math.round(canvasWidth * 0.125),
+          Math.round(canvasHeight * 0.125),
+          Math.round(canvasWidth * 0.75),
+          Math.round(canvasHeight * 0.5),
+        );
+        context2d.fillStyle = "#8a877f";
+        context2d.fillRect(0, Math.round(canvasHeight * 0.75), canvasWidth, 4);
+
+        return canvas.toDataURL("image/jpeg", 0.9);
+      },
+      { width, height },
+    );
+
+    const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+    expect(buffer.subarray(0, 3).toString("hex"), "the fixture is not a JPEG").toBe("ffd8ff");
+
+    // The expectation below is stated in these dimensions, so the fixture is
+    // decoded once and checked before it is handed to the Tool.
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      return { width: image.naturalWidth, height: image.naturalHeight };
+    }, dataUrl);
+
+    expect(decoded).toEqual({ width, height });
+
+    return { name, mimeType: "image/jpeg", buffer };
+  } finally {
+    await builder.close();
+  }
+}
+
+/** Hand files to the Tool the way the picker does, through its own file input. */
+export async function chooseFiles(page: Page, files: NamedBytes[]): Promise<void> {
+  await page.locator('input[type="file"]').first().setInputFiles(files);
+}
+
+/**
+ * An `APP1/Exif` segment declaring `orientation`, ready to be spliced after `SOI`.
+ *
+ * A camera writes this segment: the `Exif\0\0` signature, a little-endian TIFF
+ * header, and an `IFD0` whose one entry is tag 0x0112 (orientation) with a SHORT
+ * value. It is built here from numbers rather than committed as a binary, so the
+ * gate's fixture cannot drift from what a phone writes and no opaque file enters
+ * the repository.
+ */
+function exifApp1(orientation: number): Buffer {
+  const payload = Buffer.concat([
+    Buffer.from("Exif\0\0", "latin1"),
+    // TIFF header: little-endian ("II"), magic 42, IFD0 at offset 8.
+    Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00]),
+    // One directory entry: tag 0x0112, type SHORT (3), count 1, the value.
+    Buffer.from([0x01, 0x00]),
+    Buffer.from([
+      0x12,
+      0x01,
+      0x03,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      orientation & 0xff,
+      (orientation >> 8) & 0xff,
+      0x00,
+      0x00,
+    ]),
+    // No next directory.
+    Buffer.from([0x00, 0x00, 0x00, 0x00]),
+  ]);
+  const length = payload.length + 2;
+  const marker = Buffer.from([0xff, 0xe1, (length >> 8) & 0xff, length & 0xff]);
+
+  return Buffer.concat([marker, payload]);
+}
+
+/**
+ * A real JPEG whose pixels are `width` x `height`, carrying a real EXIF
+ * orientation.
+ *
+ * The picture comes from the browser's own canvas encoder (in a page of its own,
+ * as every fixture here does), and the `APP1/Exif` segment is spliced straight
+ * after `SOI`, which is where a camera's tagging pass puts it. The file is
+ * decoded back before it is handed to the Tool: the browser applies the tag, so
+ * the decoder has to report the turned dimensions. That check is what makes the
+ * segment a real one — a fixture only a header walk can read would prove the
+ * walk and nothing about the picture.
+ */
+export async function exifJpeg(
+  context: BrowserContext,
+  options: { width: number; height: number; orientation: number; name?: string },
+): Promise<NamedBytes> {
+  const base = await jpeg(context, {
+    height: options.height,
+    name: options.name ?? "tagged.jpg",
+    width: options.width,
+  });
+
+  const buffer = Buffer.concat([
+    base.buffer.subarray(0, 2),
+    exifApp1(options.orientation),
+    base.buffer.subarray(2),
+  ]);
+
+  const builder = await context.newPage();
+
+  try {
+    const decoded = await builder.evaluate(async (source) => {
+      const bytes = Uint8Array.from(atob(source), (character) => character.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+
+      try {
+        return { width: bitmap.width, height: bitmap.height };
+      } finally {
+        bitmap.close();
+      }
+    }, buffer.toString("base64"));
+
+    // The browser applies the EXIF turn when it decodes (`from-image` is the
+    // default), which is the same thing the Worker's decode path relies on. The
+    // last four values swap the sides; the first four do not.
+    const viewed =
+      options.orientation >= 5
+        ? { width: options.height, height: options.width }
+        : { width: options.width, height: options.height };
+    expect(decoded).toEqual(viewed);
+  } finally {
+    await builder.close();
+  }
+
+  return { name: options.name ?? "tagged.jpg", mimeType: "image/jpeg", buffer };
+}
+
+/**
+ * A 64×48 PNG, transparent on the left half and opaque red on the right.
+ *
+ * Built by the browser's own canvas encoder in a page of its own, like the JPEG
+ * fixture: no binary enters the repository, and the bytes cannot disagree with
+ * the decoder that will read them back. It is landscape — 64 is wider than 48 —
+ * so the expected page is A4 in landscape, which also proves the orientation
+ * rule survived the decode path.
+ *
+ * Its pixels are checked before it is handed over, because every expectation
+ * downstream — the white left half, the red right half — is stated in terms of
+ * what the canvas actually encoded.
+ */
+export async function transparentPng(
+  context: BrowserContext,
+  name = "half-transparent.png",
+): Promise<NamedBytes> {
+  const builder = await context.newPage();
+
+  try {
+    const dataUrl = await builder.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 48;
+      const context2d = canvas.getContext("2d");
+      if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+      // The left half is never painted, so it stays transparent.
+      context2d.fillStyle = "#ff0000";
+      context2d.fillRect(32, 0, 32, 48);
+
+      return canvas.toDataURL("image/png");
+    });
+
+    const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+    expect(buffer.subarray(0, 8).toString("hex"), "the fixture is not a PNG").toBe(
+      "89504e470d0a1a0a",
+    );
+
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context2d = canvas.getContext("2d");
+      if (context2d === null) throw new Error("no 2d context to read the fixture in");
+
+      context2d.drawImage(image, 0, 0);
+      const at = (x: number, y: number): number[] => [...context2d.getImageData(x, y, 1, 1).data];
+
+      return {
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        left: at(8, 24),
+        right: at(56, 24),
+      };
+    }, dataUrl);
+
+    expect(decoded).toEqual({ width: 64, height: 48, left: [0, 0, 0, 0], right: [255, 0, 0, 255] });
+
+    return { name, mimeType: "image/png", buffer };
+  } finally {
+    await builder.close();
+  }
+}
+
+/**
+ * A 96×128 WebP, encoded by the browser's own WebP encoder.
+ *
+ * Portrait on purpose, so the page it becomes is A4 in portrait and the media
+ * box says the decode path kept the geometry rule. The declared type and the
+ * container are checked here; the pixels are not, because a lossy WebP's
+ * colours are its encoder's business and the gate only needs the geometry and
+ * the stream.
+ */
+export async function webp(context: BrowserContext, name = "photo.webp"): Promise<NamedBytes> {
+  const builder = await context.newPage();
+
+  try {
+    const dataUrl = await builder.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 96;
+      canvas.height = 128;
+      const context2d = canvas.getContext("2d");
+      if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+      context2d.fillStyle = "#f2efe8";
+      context2d.fillRect(0, 0, 96, 128);
+      context2d.fillStyle = "#2b2b2b";
+      context2d.fillRect(12, 16, 72, 64);
+
+      return canvas.toDataURL("image/webp", 0.9);
+    });
+
+    const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+    expect(buffer.subarray(0, 4).toString("latin1"), "the fixture is not RIFF").toBe("RIFF");
+    expect(buffer.subarray(8, 12).toString("latin1"), "the fixture is not WebP").toBe("WEBP");
+
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      return { width: image.naturalWidth, height: image.naturalHeight };
+    }, dataUrl);
+
+    expect(decoded).toEqual({ width: 96, height: 128 });
+
+    return { name, mimeType: "image/webp", buffer };
+  } finally {
+    await builder.close();
+  }
+}
+
+/**
+ * A batch of flat-colour PNGs, encoded by the browser's own encoder.
+ *
+ * The run has to be long enough to interrupt, and cheap enough to run beside the
+ * rest of the gate. Both come from the same levers: each page costs the Worker a
+ * decode, an `ImageData` copy and a deflate of its samples, so the work is
+ * proportional to the pixel count, and the run is the sum over the pages. Twenty
+ * 800x600 pages (9.6 M pixels) are a run of several hundred milliseconds, while
+ * the largest single canvas is 1.9 MB of pixels and the whole batch is smaller
+ * than one 3000x2250 canvas used to be. The suite runs twelve browsers at once,
+ * and a fixture that starves the neighbours is a flaky suite, not a slow one.
+ *
+ * Twenty is also the Tool's own page limit, so the document this produces is the
+ * largest list the Tool accepts without being a special case. Being one flat
+ * colour, each page is small in bytes and becomes a tiny PDF stream, so the file
+ * read back stays small.
+ *
+ * Built in a page of its own, like every fixture here: images generated and
+ * handed over in the same renderer is the habit the repository's Gotchas warn
+ * about. The dimensions are checked once, before the batch is handed over,
+ * because every expectation downstream is stated in terms of them.
+ */
+export async function largePngs(
+  context: BrowserContext,
+  options: { count?: number; width?: number; height?: number } = {},
+): Promise<NamedBytes[]> {
+  const count = options.count ?? 20;
+  const width = options.width ?? 800;
+  const height = options.height ?? 600;
+  const builder = await context.newPage();
+
+  try {
+    const encoded = await builder.evaluate(
+      ({ count: pages, height: canvasHeight, width: canvasWidth }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const context2d = canvas.getContext("2d");
+        if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+        const files: string[] = [];
+        for (let index = 0; index < pages; index += 1) {
+          // Two tones alternating between pages, so the fixtures are not one
+          // identical file: a list that deduplicated them would show up here.
+          context2d.fillStyle = index % 2 === 0 ? "#f2efe8" : "#2b2b2b";
+          context2d.fillRect(0, 0, canvasWidth, canvasHeight);
+          context2d.fillStyle = index % 2 === 0 ? "#8a877f" : "#f2efe8";
+          context2d.fillRect(0, Math.round(canvasHeight * 0.75), canvasWidth, 8);
+          files.push(canvas.toDataURL("image/png"));
+        }
+
+        return files;
+      },
+      { count, height, width },
+    );
+
+    const files = encoded.map((dataUrl, index) => {
+      const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+      expect(buffer.subarray(0, 8).toString("hex"), "the fixture is not a PNG").toBe(
+        "89504e470d0a1a0a",
+      );
+
+      return { name: `page-${String(index + 1)}.png`, mimeType: "image/png", buffer };
+    });
+
+    // The dimensions are checked from the first file, because every expectation
+    // downstream is stated in terms of them.
+    const first = encoded[0];
+    if (first === undefined) throw new Error("the fixture batch is empty");
+
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      return { width: image.naturalWidth, height: image.naturalHeight };
+    }, first);
+    expect(decoded).toEqual({ width, height });
+
+    return files;
+  } finally {
+    await builder.close();
+  }
+}
+
+/**
+ * A PNG header that claims 50 M pixels, with no pixel data behind it.
+ *
+ * Admission reads the `IHDR` and must refuse it there: the file is 29 bytes, so
+ * anything that tried to decode it would fail with a different sentence, and a
+ * page that accepted it would be asking a decoder for a canvas nothing
+ * downloaded. This is the shape of fixture the pixel limit exists for.
+ */
+export function hugeHeaderPng(name = "panorama.png"): NamedBytes {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  // length (4) + "IHDR" (4) + 13-byte header payload. No CRC and no pixel data:
+  // only the first 24 bytes are ever read for the dimensions.
+  const ihdr = Buffer.alloc(8 + 13);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write("IHDR", 4, "latin1");
+  ihdr.writeUInt32BE(10_000, 8);
+  ihdr.writeUInt32BE(5_000, 12);
+  ihdr[16] = 8; // bit depth
+  ihdr[17] = 2; // colour type: truecolour
+
+  return { name, mimeType: "image/png", buffer: Buffer.concat([signature, ihdr]) };
+}
+
+/**
+ * Hand files to the Tool the way a drop does, on the region that accepts one.
+ *
+ * The region is the element the drop handlers are bound to, and it changes its
+ * shape rather than its identity when the list fills up, which is why the
+ * selector is the attribute rather than a class. The bytes are base64 in the
+ * payload because a page's arguments cross into the renderer as JSON.
+ */
+export async function dropFiles(page: Page, files: NamedBytes[]): Promise<void> {
+  await page.locator("[data-dropzone]").evaluate(
+    (element, entries) => {
+      const transfer = new DataTransfer();
+      for (const entry of entries) {
+        const binary = atob(entry.base64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+      }
+
+      element.dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+    },
+    files.map((file) => ({
+      name: file.name,
+      mimeType: file.mimeType,
+      base64: file.buffer.toString("base64"),
+    })),
+  );
+}
+
+/**
+ * A real 1×1 GIF: a format the sniffer recognises and the Tool does not take.
+ *
+ * The bytes are the format's own smallest example, so the refusal under test is
+ * the one a visitor's animated sticker would get, not a made-up prefix.
+ */
+export function gifFile(name = "sticker.gif"): NamedBytes {
+  return {
+    name,
+    mimeType: "image/gif",
+    buffer: Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
+  };
+}
+
+/**
+ * An AVIF-looking file: a real ISO-BMFF `ftyp` box with the `avif` brand.
+ *
+ * It is not decodable AVIF, because this Tool never decodes it: the gate's
+ * subject is the sniff at the byte level, and the file's purpose is to carry
+ * the container a phone or an editor actually writes when it says AVIF.
+ */
+export function avifFile(name = "photo.avif"): NamedBytes {
+  const body = Buffer.concat([
+    Buffer.from("ftyp"),
+    Buffer.from("avif"),
+    Buffer.from([0, 0, 0, 0]),
+    Buffer.from("mif1"),
+    Buffer.from("avif"),
+  ]);
+  const size = Buffer.alloc(4);
+  size.writeUInt32BE(body.length + size.length);
+
+  return { name, mimeType: "image/avif", buffer: Buffer.concat([size, body]) };
+}
+
+/**
+ * Text renamed to `.png`, with the declared type to match.
+ *
+ * Both the name and the declared type lie; the bytes do not. This is the case
+ * the input's missing `accept` attribute exists for, and the one that must be
+ * refused as "not an image" rather than reach the decoder.
+ */
+export function renamedTextFile(name = "not-really.png"): NamedBytes {
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.from("this is a text file with a picture's name\n", "utf8"),
+  };
+}
+
+/** `图片-YYYY-MM-DD.pdf`, in the browser's (this machine's) local calendar day. */
+export function todayPdfName(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `图片-${year}-${month}-${day}.pdf`;
+}
+
+/** What a second implementation reads back from the downloaded file. */
+export type PdfFacts = {
+  bytes: Buffer;
+  pageCount: number;
+  mediaBoxes: { width: number; height: number }[];
+  /** One entry per page: the number of image XObjects its resources name. */
+  imagesPerPage: number[];
+  /** The raw contents of every image XObject, in document order. */
+  imageStreams: Buffer[];
+  /** Each image stream's `/Filter`, in the same order: `/DCTDecode` or `/FlateDecode`. */
+  imageFilters: (string | null)[];
+};
+
+/**
+ * Read the download with `pdf-lib` — a library the site does not ship, installed
+ * as a dev dependency. It is a second implementation on purpose: the gate checks
+ * this repository's writer against it, rather than against itself.
+ */
+export async function inspectDownloadedPdf(path: string): Promise<PdfFacts> {
+  const bytes = await readFile(path);
+  const document = await PDFDocument.load(bytes);
+
+  const mediaBoxes: { width: number; height: number }[] = [];
+  const imagesPerPage: number[] = [];
+  const imageStreams: Buffer[] = [];
+  const imageFilters: (string | null)[] = [];
+
+  for (const page of document.getPages()) {
+    const box = page.getMediaBox();
+    mediaBoxes.push({ width: box.width, height: box.height });
+
+    const resources = page.node.Resources();
+    const xobjects = resources?.lookup(PDFName.of("XObject"));
+
+    if (!(xobjects instanceof PDFDict)) {
+      imagesPerPage.push(0);
+      continue;
+    }
+
+    const names = xobjects.keys();
+    imagesPerPage.push(names.length);
+
+    for (const name of names) {
+      const stream = xobjects.lookup(name);
+      if (!(stream instanceof PDFRawStream)) continue;
+
+      imageStreams.push(Buffer.from(stream.contents));
+      const filter = stream.dict.lookup(PDFName.of("Filter"));
+      imageFilters.push(filter === undefined ? null : String(filter));
+    }
+  }
+
+  return {
+    bytes,
+    pageCount: document.getPageCount(),
+    mediaBoxes,
+    imagesPerPage,
+    imageStreams,
+    imageFilters,
+  };
+}

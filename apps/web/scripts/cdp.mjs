@@ -256,17 +256,27 @@ export async function connect(port) {
   };
 
   /**
-   * Put a file into a file input on the page, by selector. React does receive it:
-   * the input keeps its own change event and CDP sets the files on it.
+   * Put one file, or a list of them, into a file input on the page, by selector.
+   * React does receive them: the input keeps its own change event and CDP sets
+   * the files on it.
+   *
+   * `paths` is a list as well as a single path because one reading needs a page
+   * list long enough to scroll (#200) and the only fixture this repository has
+   * is one file: the same path handed to the browser eight times is eight rows,
+   * and the geometry the claim reads does not care what the files are called.
+   * `DOM.setFileInputFiles` takes the whole list in one command, so the page
+   * receives one change event, which is exactly what a drop of several files
+   * does. A caller that passes a string makes the one-path call it always made.
    */
-  const setFile = async (selector, path) => {
+  const setFile = async (selector, paths) => {
     const document = await send("DOM.getDocument", { depth: 1 });
     const input = await send("DOM.querySelector", {
       nodeId: document.result.root.nodeId,
       selector,
     });
     if (!input.result?.nodeId) throw new Error(`no file input matching ${selector}`);
-    await send("DOM.setFileInputFiles", { files: [path], nodeId: input.result.nodeId });
+    const files = Array.isArray(paths) ? paths : [paths];
+    await send("DOM.setFileInputFiles", { files, nodeId: input.result.nodeId });
   };
 
   await send("Page.enable");
