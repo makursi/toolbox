@@ -3,8 +3,10 @@
 Turns images into one PDF, one image per page, entirely in the browser. A visitor
 chooses or drops several images at once and can add more later; every accepted
 file becomes one row, numbered, which can be removed, and one control clears the
-list. The page size follows each image, so a mixed album becomes a mixed document
-without a question the image already answers.
+list. The row order is the page order: a row can be dragged by its handle, or
+moved with the keyboard by a visitor who does not use a pointer, and the file
+that comes out follows the list. The page size follows each image, so a mixed
+album becomes a mixed document without a question the image already answers.
 
 What a file is, is decided by its bytes: JPEG, PNG and WebP are taken, and the
 name and the declared type are never consulted, which is why the file input has
@@ -31,13 +33,14 @@ both states and keeps that name, because the hit-area instrument declares a
 control by its accessible name and a name that changes with state cannot be
 declared. The line still accepts a drop.
 
-This is ticket #195's decode path, on top of #193's batch and refusal layer and
-#194's paper control. A PNG and a WebP are now pages of the same document a JPEG
-is, with the same geometry rule, and an image beyond 40 M pixels is refused from
-its header with its own sentence. The whole path is real: the document is
-assembled by this repository, with no runtime PDF library. #196 adds reordering,
-#197 progress and cancel, #198 EXIF orientation and the progressive/CMYK JPEG
-decode, #199 invalidation coverage, #200 the instruments, #201 the design notes.
+This is ticket #195's decode path, on top of #193's batch and refusal layer,
+#194's paper control and #196's reordering: a handle on every row, two sensors,
+and the document following the list. A PNG and a WebP are now pages of the same
+document a JPEG is, with the same geometry rule, and an image beyond 40 M pixels
+is refused from its header with its own sentence. The whole path is real: the
+document is assembled by this repository, with no runtime PDF library. #197 adds
+progress and cancel, #198 EXIF orientation and the progressive/CMYK JPEG decode,
+#199 invalidation coverage, #200 the instruments, #201 the design notes.
 
 Nothing is uploaded: files are read with the File API, their first bytes are
 sniffed, their headers give the page's dimensions, and the document is built in
@@ -48,10 +51,11 @@ there and written as samples.
 
 ```
 ImageToPdf.tsx        the page: input region, page list, paper row, pinned result row
-page-row/             one row: page number, page miniature, name, remove
+page-list/            the sortable list: two sensors, the rows, their announcements
+page-row/             one row: drag handle, page number, page miniature, name, remove
 paper-row/            the page-size row: A4 / Letter / 原始尺寸, one choice
 meta.ts               the Tool Registry entry
-rules.md              this Tool's own rules (page structure, input, geometry, the writer)
+rules.md              this Tool's own rules (page structure, input, ordering, geometry, the writer)
 README.md             this file: how it works, and what to check by hand
 core/                 pure, browser-free logic — the part `pnpm test` covers
   sniff                the first bytes: JPEG, PNG, WebP, the four refused formats, or not an image
@@ -59,12 +63,13 @@ core/                 pure, browser-free logic — the part `pnpm test` covers
   limits               the four limits and the sentence each refusal is listed under
   admission            one pure decision per batch: accepted pages and refusals, in input order
   image-size           JPEG SOF, PNG IHDR and WebP's first chunk: the page's pixel dimensions
+  order                moving one page to another position: the one rule both reorder paths ask
   geometry             image pixels + paper -> page box + image rectangle (contain, centred)
   jpeg                 a segment walk: dimensions, channels, progressive, passthrough predicate
   packing              decoded RGBA -> white-composited RGB samples -> a zlib (Flate) stream
   pdf                  the PDF writer: pages in, PDF 1.7 bytes out
   naming               图片-YYYY-MM-DD.pdf from a date
-  hints · failures     the sentences a visitor reads
+  hints · failures     the sentences a visitor reads (including the reorder announcements)
   __tests__/           the tests for those modules
 hooks/                the Tool's React state
   use-page-list        the pages added, in page order, and the refused files
@@ -101,9 +106,17 @@ many places use it — the place that counts consumers is `packages/*`.
    function, so the preview cannot disagree with the file. Switching paper
    reshapes every row, which is how the visitor sees a landscape photo's white
    bands before downloading it.
-4. **Convert.** `usePdfBuild` reads each file's bytes, transfers them to one
+4. **Order.** Each row has one drag handle, the same `拖动排序` button on every
+   row, and it is the only activator: the row's text and its remove control never
+   start a drag. A pointer drags the handle; a visitor on the keyboard focuses
+   the handle, presses Space to lift the row, the arrow keys to move it over its
+   neighbour, and Space again to put it down (Esc cancels). Both paths end in
+   `core/order.ts`, and dnd-kit's live region announces the lift, each new
+   position, the drop and the cancellation in this page's own words. A row that
+   is dropped where it was changes nothing, so it does not invalidate a result.
+5. **Convert.** `usePdfBuild` reads each file's bytes, transfers them to one
    dedicated Worker, and waits for one response.
-5. **Write.** Inside the Worker (`worker/worker.ts`), each page's bytes are
+6. **Write.** Inside the Worker (`worker/worker.ts`), each page's bytes are
    sniffed again and its header walked, the passthrough predicate is applied,
    `pageGeometry` is called, and `buildPdf` assembles PDF 1.7 with a classic xref
    table, one page object, one content stream and one image XObject per page. A
@@ -115,14 +128,14 @@ many places use it — the place that counts consumers is `packages/*`.
    against the pixel limit here too, because a header is only a claim.
    Progressive and 4-channel JPEGs still end in the `unsupported` sentence until
    #198 lands their decode path.
-6. **Download.** The result's object URL is created when the build succeeds and
+7. **Download.** The result's object URL is created when the build succeeds and
    revoked when the result is invalidated or the page unmounts. Adding at least
-   one page, removing one, clearing the list, or changing the paper resets the
-   run and takes the link away; a batch where every file was refused does not,
-   because the list on screen did not change.
+   one page, removing one, reordering, clearing the list, or changing the paper
+   resets the run and takes the link away; a batch where every file was refused
+   does not, because the list on screen did not change.
 
 The pure parts — `sniff`, `refusal`, `limits`, `admission`, `image-size`,
-`geometry`, `jpeg`, `packing`, `pdf`, `naming` — are unit-tested in
+`order`, `geometry`, `jpeg`, `packing`, `pdf`, `naming` — are unit-tested in
 `core/__tests__/` under `pnpm test`. Everything that needs a browser is covered
 by the gate and the checklist below.
 
@@ -135,7 +148,7 @@ the page's own file input, the action pressed, the download captured, and the
 file parsed with `pdf-lib` — a second implementation installed as a dev
 dependency, never imported by app code. Since #194 it also reads the media box
 back for each of the three paper choices, drives the row from the keyboard, and
-checks that changing the paper takes the produced file away; and since #193 a
+checks that changing the paper takes the produced file away; since #193 a
 mixed batch in which two real JPEGs surround a GIF, an AVIF and a renamed text
 file, dropped as one gesture, with the refusals read as text, a second batch
 appended, and a PDF whose page count, image-XObject count and image bytes equal
@@ -145,19 +158,36 @@ its own colour where it was opaque, `/FlateDecode` and no `/DecodeParms`; a
 WebP page with the media box its dimensions ask for; and a PNG whose `IHDR` names
 50 M pixels, refused at admission with the pixel sentence.
 
+Since #196 it also proves the order: three JPEGs with different bytes and
+different shapes go in, the first row's handle is lifted with Space, walked to
+the last position with the arrow keys and dropped with Space, and the
+announcement in dnd-kit's live region is read after each step. The download
+produced before the move is gone (a reorder invalidates it, with no banner), and
+the one produced after it has the page order the list shows — proved from the
+downloaded file, not from the page. A second test performs the same move with
+`page.mouse` down/move/up at the handle's coordinates, hit-testing the point
+first so a wrapper that took the click would fail loudly rather than silently do
+nothing; a third does it on a `hasTouch` context at 390px with dispatched
+pointer events of `pointerType: "touch"`.
+
 The unit tests hold what the gate cannot see: the exact wording of every refusal
 and limit sentence, the numbers behind them, the 40 M pixel boundary and the
-admission of PNG and WebP, and the sample packer — including that a transparent
-pixel becomes white and that the stream is zlib-wrapped (`unzlibSync` reads it)
-rather than raw deflate.
+admission of PNG and WebP, the sample packer (a transparent pixel becomes white;
+the stream is zlib-wrapped, which `unzlibSync` reads, rather than raw deflate),
+and `core/order.ts`'s semantics (a move closes the gap, a position that does not
+exist changes nothing, the list is never mutated).
 
 Still by hand: opening the produced PDF in a real reader (Playwright saves a
-file, it does not draw it), on a phone and in a second browser; a twenty-image
-run and the four limits through the page rather than through `core/`; a PNG and
-a WebP page on a phone, where the canvas area limit is lower than the pixel
-limit; whether the paper row and its hint read well in dark mode and at 390px;
-reordering #196; progress and cancel #197; EXIF orientations and the
-progressive/CMYK JPEG decode #198; and the invalidation cases #199 covers.
+file, it does not draw it), on a phone and in a second browser; a touch drag on a
+real phone, where the platform decides whether a gesture that starts on the
+handle belongs to the drag or to the page's scroll (the gate dispatches
+`pointerType: "touch"` events, which is not the browser's gesture arbitration);
+a twenty-image run and the four limits through the page rather than through
+`core/`; a PNG and a WebP page on a phone, where the canvas area limit is lower
+than the pixel limit; whether the handle, the paper row and its hint read well in
+dark mode and at 390px; reordering with the keyboard at 390px; progress and
+cancel #197; EXIF orientations and the progressive/CMYK JPEG decode #198; and
+the invalidation cases #199 covers.
 
 ## Manual QA checklist
 
@@ -223,11 +253,26 @@ progressive/CMYK JPEG decode #198; and the invalidation cases #199 covers.
       be written directly (the decode path is #198's).
 - [ ] Removing the row and pressing 清空 both take the produced download away,
       without a banner.
+- [ ] **▣** Every row carries one drag handle — a real `<button>`, the same
+      accessible name `拖动排序` on all of them, and `.touch-target` on the
+      button itself (`移除` is built the same way).
+- [ ] **▣** A pointer drag of a handle reorders the list, and the downloaded
+      file's page order is the new list order.
+- [ ] **▣** Focusing a handle and pressing Space, then the arrow keys, then
+      Space moves the row and announces the lift, the new position and the drop
+      in dnd-kit's live region.
+- [ ] **▣** The same move works on a `hasTouch` context at 390px with
+      `pointerType: "touch"` events dispatched at the handle's coordinates.
+- [ ] **▣** A reorder takes a produced download away and re-arms 转换, with no
+      banner and no error sentence.
+- [ ] A touch drag on a real phone: a finger that starts on the handle drags the
+      row rather than scrolling the page, and the page still scrolls from
+      anywhere else.
+- [ ] Reordering with the keyboard at 390px, with the pinned result row in view.
 - [ ] The page follows the site's dark mode without a white flash on load.
 - [ ] The whole flow works with the keyboard alone: Tab reaches 选择图片, Enter
-      opens the picker, the action and the download are reachable, and the row's
-      移除 is a real button.
+      opens the picker, the action and the download are reachable, the row's
+      移除 is a real button, and each row's handle reorders.
 
-Reordering (#196), progress and cancel (#197), the EXIF orientations and the
-progressive/CMYK JPEG decode (#198) are still to come; the invalidation cases
-belong to #199.
+Progress and cancel (#197), the EXIF orientations and the progressive/CMYK JPEG
+decode (#198) are still to come; the invalidation cases belong to #199.

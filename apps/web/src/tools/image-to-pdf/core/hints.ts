@@ -46,6 +46,55 @@ export const clearLabel = "清空";
 /** One row's remove control. The same name on every row, so it can be declared once. */
 export const removeLabel = "移除";
 
+/**
+ * One row's drag handle. The same name on every row on purpose: the hit-area
+ * instrument declares a control by its accessible name and cannot declare twenty
+ * different ones, so the handle is one control repeated, not twenty controls.
+ */
+export const orderHandleLabel = "拖动排序";
+
+/**
+ * What a screen reader says about the handle's role, beside its name. dnd-kit
+ * puts this on `aria-roledescription`, so it has to be the page's language
+ * rather than the library's `sortable`.
+ */
+export const orderRoleDescription = "可排序页面";
+
+/**
+ * The keyboard instructions, read through the `aria-describedby` dnd-kit puts on
+ * the handle. A visitor who does not use a pointer learns the keys here rather
+ * than from a Tooltip they cannot reach with a key.
+ */
+export const orderInstructions =
+  "按空格键拿起这一页，用上、下方向键移动，再按空格键放下；按 Esc 取消。";
+
+/**
+ * The three announcements and the cancellation, in the page's language.
+ *
+ * dnd-kit reads these through its live region, so they are the whole of what a
+ * screen-reader visitor hears between lifting a row and putting it down. The
+ * page and the position are different numbers once a row has moved, and both are
+ * spoken for that reason.
+ */
+
+/** Announced when a row is lifted. */
+export function orderPickedUp(page: number, total: number): string {
+  return `已拿起第 ${page} 页，共 ${total} 页。用上、下方向键移动，按空格键放下。`;
+}
+
+/** Announced after each move, with the position the row would land in. */
+export function orderMoved(page: number, position: number, total: number): string {
+  return `第 ${page} 页已移到第 ${position} 位，共 ${total} 页。`;
+}
+
+/** Announced when a row is put down. */
+export function orderDropped(page: number, position: number): string {
+  return `已放下，第 ${page} 页现在在第 ${position} 位。`;
+}
+
+/** Announced when a lift is cancelled with Esc: the list did not change. */
+export const orderCancelled = "已取消排序，页面顺序没有改变。";
+
 /** The promise at the point of action, as the reference Tool puts it there rather than under the title. */
 export const onDevicePromise = "文件不会上传，全程只在这个标签页里完成。";
 

@@ -22,7 +22,7 @@ import {
 } from "./core/hints";
 import { usePageList } from "./hooks/use-page-list/use-page-list";
 import { usePdfBuild } from "./hooks/use-pdf-build/use-pdf-build";
-import { PageRow } from "./page-row/page-row";
+import { PageList } from "./page-list/page-list";
 import { PaperRow } from "./paper-row/paper-row";
 
 /**
@@ -49,7 +49,7 @@ const SECONDARY_ACTION =
   "h-[42px] border-input bg-card px-[22px] text-base leading-4 font-semibold hover:bg-secondary dark:bg-card dark:hover:bg-secondary";
 
 export function ImageToPdf() {
-  const { pages, refused, addFiles, remove, clear } = usePageList();
+  const { pages, refused, addFiles, remove, reorder, clear } = usePageList();
   const { status, result, failure, start, reset } = usePdfBuild();
   const input = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -88,6 +88,21 @@ export function ImageToPdf() {
     clear();
     reset();
   }, [clear, reset]);
+
+  /**
+   * Put one page where another one was, then invalidate any produced document.
+   *
+   * Reordering is a change to the document's page order, so a file built for the
+   * old order cannot stay on screen: the download goes away and 转换 is armed
+   * again, with no banner, exactly as adding or removing a page does. A drop
+   * that lands on the row's own position is not a change, and the hook says so.
+   */
+  const reorderPage = useCallback(
+    (activeId: number, overId: number) => {
+      if (reorder(activeId, overId)) reset();
+    },
+    [reorder, reset],
+  );
 
   /**
    * Choose the paper, then invalidate any produced document.
@@ -235,18 +250,13 @@ export function ImageToPdf() {
             </Button>
           </div>
 
-          <div className="mt-1 flex flex-col">
-            {pages.map((entry, index) => (
-              <PageRow
-                disabled={building}
-                entry={entry}
-                index={index}
-                key={entry.id}
-                onRemove={() => removePage(entry.id)}
-                paper={paper}
-              />
-            ))}
-          </div>
+          <PageList
+            disabled={building}
+            onRemove={removePage}
+            onReorder={reorderPage}
+            pages={pages}
+            paper={paper}
+          />
         </section>
       )}
 

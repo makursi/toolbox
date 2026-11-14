@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { unzlibSync } from "fflate";
 
 import {
@@ -14,6 +14,7 @@ import {
   todayPdfName,
   transparentPng,
   webp,
+  type NamedBytes,
   type PdfFacts,
 } from "./image-to-pdf-page";
 
@@ -28,6 +29,12 @@ import {
  * XObject per page, and the original JPEG bytes inside the stream. What it cannot
  * prove is that a reader *draws* it: that stays in the Tool's README as a manual
  * item.
+ *
+ * The reordering specs press the same controls a visitor does: a real mouse
+ * down/move/up at the handle's coordinates, the keyboard's lift/move/drop, and a
+ * dispatched touch. The file that comes out is the proof in every case, because
+ * "the list looks reordered" and "the document is reordered" are different
+ * claims and only one of them is the Tool's promise.
  */
 
 /** The papers' sizes in points, as a reader would state them. */
@@ -158,9 +165,8 @@ test("one JPEG becomes a one-page A4 PDF the site wrote itself", async ({ page }
  * that comes out holds exactly the accepted files in the order they arrived.
  *
  * The converted batch is JPEG-only on purpose. PNG and WebP are accepted by the
- * sniffer and do become rows, but their pages are written by the decode path
- * (#195), which the two tests at the end of this file drive on their own so a
- * failure names the format that broke.
+ * sniffer and do become rows, but their pages are written by #195's decode
+ * path; converting one of them here would be asserting #195's work.
  */
 test("a mixed batch keeps the accepted files and lists every refusal once", async ({ page }) => {
   await open(page);
@@ -389,6 +395,358 @@ test("a mixed album keeps each page in its own image's orientation", async ({ pa
   expect(pdf.pageCount).toBe(2);
   expectBox(pdf.mediaBoxes[0], A4_PORTRAIT);
   expectBox(pdf.mediaBoxes[1], A4_LANDSCAPE);
+});
+
+/**
+ * Three pages told apart by their image bytes, which the gate compares byte for
+ * byte. The second is the only landscape one, so the media boxes pin its
+ * position too; the first and the third differ in size as well, which is what
+ * the miniatures draw.
+ */
+async function threePages(
+  page: Page,
+): Promise<{ first: NamedBytes; second: NamedBytes; third: NamedBytes }> {
+  const context = page.context();
+
+  return {
+    first: await jpeg(context, { height: 128, name: "first.jpg", width: 96 }),
+    second: await jpeg(context, { height: 96, name: "second.jpg", width: 128 }),
+    third: await jpeg(context, { height: 96, name: "third.jpg", width: 64 }),
+  };
+}
+
+/**
+ * A control's centre, in viewport coordinates.
+ *
+ * The caller brings the list into the middle of the viewport first, because
+ * `page.mouse` takes viewport coordinates and drops anything outside them
+ * without a word (see the Gotchas in `AGENTS.md`), and the pinned result row can
+ * sit over a row that was only scrolled to its edge. The point is hit-tested
+ * before it is returned: a press at the handle's centre must resolve to the
+ * handle, not to a wrapper, or a pointer drag is dead while the keyboard keeps
+ * working. That is the assertion the hit-area class's placement exists for.
+ */
+async function centreOf(page: Page, control: Locator): Promise<{ x: number; y: number }> {
+  const box = await control.boundingBox();
+  if (box === null) throw new Error("the handle has no geometry to press");
+
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const viewport = page.viewportSize();
+  if (
+    viewport !== null &&
+    (point.x < 0 || point.y < 0 || point.x >= viewport.width || point.y >= viewport.height)
+  ) {
+    throw new Error(
+      `the handle is at ${Math.round(point.x)},${Math.round(point.y)}, outside the ${viewport.width}×${viewport.height} viewport — a press there would be dropped, not failed`,
+    );
+  }
+
+  const onHandle = await page.evaluate(({ x, y }) => {
+    const hit = document.elementFromPoint(x, y);
+    return hit !== null && hit.closest('button[aria-label="拖动排序"]') !== null;
+  }, point);
+  expect(
+    onHandle,
+    "the handle's centre is covered by something else, so a press would miss it",
+  ).toBe(true);
+
+  return point;
+}
+
+/** Bring a row to the middle of the viewport, so its neighbours are on screen too. */
+async function centreRow(row: Locator): Promise<void> {
+  await row.evaluate((element) => {
+    element.scrollIntoView({ block: "center" });
+  });
+}
+
+/** The three rows of a list whose pages were just chosen, in list order. */
+function pageRows(page: Page): Locator {
+  return page.locator('[data-slot="pdf-page-row"]');
+}
+
+/**
+ * The keyboard reordering path, proved from the file that lands on disk.
+ *
+ * Focus the first row's handle, lift it with Space, walk it to the end with the
+ * arrow keys, put it down with Space, and read the announcement dnd-kit's live
+ * region spoke on the way. The document is converted before and after, so the
+ * run also carries the invalidation a reorder owes: the first file is taken away
+ * the moment the list changes, and the second one's page order is the new list
+ * order rather than the old one.
+ */
+test("the keyboard lifts, moves and drops a page, and the document follows the list", async ({
+  page,
+}) => {
+  await open(page);
+
+  const { first, second, third } = await threePages(page);
+  await chooseFiles(page, [first, second, third]);
+
+  const rows = pageRows(page);
+  const handles = page.getByRole("button", { name: "拖动排序" });
+  await expect(rows).toHaveCount(3);
+  await expect(handles).toHaveCount(3);
+
+  /*
+   * The instrument's contract, asserted here because this is the change that
+   * could break it: one handle per row, a real button, the hit-area class on
+   * the button itself, and one name for all of them. 移除 is the same shape and
+   * is declared the same way, so it is read here too.
+   */
+  for (const handle of await handles.all()) {
+    await expect(handle).toHaveClass(/\btouch-target\b/);
+    await expect(handle).toHaveAttribute("aria-roledescription", "可排序页面");
+  }
+  const removes = page.getByRole("button", { name: "移除" });
+  await expect(removes).toHaveCount(3);
+  for (const remove of await removes.all()) {
+    await expect(remove).toHaveClass(/\btouch-target\b/);
+  }
+
+  // A produced file exists before the reorder, so the invalidation below means
+  // something: this run takes a real download away.
+  await page.getByRole("button", { name: "转换" }).click();
+  const before = await downloadPdf(page);
+  expect(before.pageCount).toBe(3);
+  expect(before.imageStreams[0]?.equals(first.buffer)).toBe(true);
+  expect(before.imageStreams[1]?.equals(second.buffer)).toBe(true);
+  expect(before.imageStreams[2]?.equals(third.buffer)).toBe(true);
+
+  // Focus the first row's handle. The keyboard path starts where the pointer's
+  // does, and the same accessible name is what a screen reader announces.
+  await handles.nth(0).focus();
+  await expect(handles.nth(0)).toBeFocused();
+
+  const announcements = page.locator('[role="status"][aria-live="assertive"]');
+
+  await page.keyboard.press("Space");
+  await expect(announcements).toContainText("已拿起第 1 页，共 3 页。");
+  // Lifting alone changes nothing: the list is still the old order.
+  await expect(rows.nth(0)).toContainText("first.jpg");
+
+  /*
+   * One arrow press at a time, and the announcement is the wait: dnd-kit moves
+   * the row to the next position it can see, so the next press has to arrive
+   * after the previous move has been committed, and a screen-reader visitor
+   * hears each position anyway. Asserting both makes the test say that.
+   */
+  await page.keyboard.press("ArrowDown");
+  await expect(announcements).toContainText("第 1 页已移到第 2 位，共 3 页。");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(announcements).toContainText("第 1 页已移到第 3 位，共 3 页。");
+
+  await page.keyboard.press("Space");
+  await expect(announcements).toContainText("已放下，第 1 页现在在第 3 位。");
+
+  // The list is the order the keyboard chose, renumbered from the top.
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText("second.jpg");
+  await expect(rows.nth(0)).toContainText("第 1 页");
+  await expect(rows.nth(1)).toContainText("third.jpg");
+  await expect(rows.nth(1)).toContainText("第 2 页");
+  await expect(rows.nth(2)).toContainText("first.jpg");
+  await expect(rows.nth(2)).toContainText("第 3 页");
+
+  // Reordering is a change to the document: the produced file is gone, with no
+  // banner and no error, and 转换 is armed for the new order.
+  await expect(page.locator("a[download]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "转换" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "转换" }).click();
+  const after = await downloadPdf(page);
+
+  // The document follows the list, read back from the downloaded file by a
+  // second implementation: same page count, one image per page, and the pages
+  // in the order the keyboard left them.
+  expect(after.pageCount).toBe(3);
+  expect(after.imagesPerPage).toEqual([1, 1, 1]);
+  expect(after.imageStreams).toHaveLength(3);
+  expect(after.imageStreams[0]?.equals(second.buffer)).toBe(true);
+  expect(after.imageStreams[1]?.equals(third.buffer)).toBe(true);
+  expect(after.imageStreams[2]?.equals(first.buffer)).toBe(true);
+
+  // The shapes say it too: the landscape fixture is page one now, and the two
+  // portrait fixtures follow it.
+  expectBox(after.mediaBoxes[0], A4_LANDSCAPE);
+  expectBox(after.mediaBoxes[1], A4_PORTRAIT);
+  expectBox(after.mediaBoxes[2], A4_PORTRAIT);
+});
+
+/**
+ * The pointer path, pressed at coordinates rather than dispatched at the
+ * element, because that is the bug this repository has already paid for: an
+ * overlay on a wrapper takes the click while the keyboard keeps working. The
+ * drag is a real mouse down, a move and an up, and the download that follows is
+ * the proof the document moved with the list.
+ */
+test("a pointer drag of a handle reorders the list, and the document follows it", async ({
+  page,
+}) => {
+  await open(page);
+
+  const { first, second, third } = await threePages(page);
+  await chooseFiles(page, [first, second, third]);
+
+  const rows = pageRows(page);
+  const handles = page.getByRole("button", { name: "拖动排序" });
+  await expect(rows).toHaveCount(3);
+
+  // Bring the list into the middle first, so the first and last handles are
+  // both on screen when the press begins; each point is hit-tested.
+  await centreRow(rows.nth(2));
+  const from = await centreOf(page, handles.nth(0));
+  const to = await centreOf(page, handles.nth(2));
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x, from.y + 8, { steps: 4 });
+  await page.mouse.move(to.x, to.y, { steps: 12 });
+  await page.mouse.up();
+
+  // The list changed, which is what a pointer drag has to buy.
+  await expect(rows.nth(0)).toContainText("second.jpg");
+  await expect(rows.nth(1)).toContainText("third.jpg");
+  await expect(rows.nth(2)).toContainText("first.jpg");
+
+  /*
+   * dnd-kit's pointer sensor keeps a document-level `click` suppressor for 50 ms
+   * after a drop (`AbstractPointerSensor.detach` defers `documentListeners`
+   * removal with `setTimeout`), because the click that ends a drag must not also
+   * activate the handle. A press dispatched inside that window is swallowed
+   * before React sees it, so this test would race the library: on a fast machine
+   * the three assertions above resolve first and 转换 never runs. Wait out the
+   * window explicitly rather than pressing a control that is briefly deaf.
+   */
+  await page.waitForTimeout(100);
+
+  await page.getByRole("button", { name: "转换" }).click();
+  const pdf = await downloadPdf(page);
+
+  expect(pdf.pageCount).toBe(3);
+  expect(pdf.imagesPerPage).toEqual([1, 1, 1]);
+  expect(pdf.imageStreams).toHaveLength(3);
+  expect(pdf.imageStreams[0]?.equals(second.buffer)).toBe(true);
+  expect(pdf.imageStreams[1]?.equals(third.buffer)).toBe(true);
+  expect(pdf.imageStreams[2]?.equals(first.buffer)).toBe(true);
+  expectBox(pdf.mediaBoxes[0], A4_LANDSCAPE);
+  expectBox(pdf.mediaBoxes[1], A4_PORTRAIT);
+  expectBox(pdf.mediaBoxes[2], A4_PORTRAIT);
+});
+
+/**
+ * Touch, on a context that has one.
+ *
+ * `page.mouse` cannot say "finger", so the gesture is dispatched as pointer
+ * events with `pointerType: "touch"` at the handle's coordinates: down, a dozen
+ * moves, up. The points go through `elementFromPoint`, so a touch that would
+ * land on something other than the handle fails here rather than silently doing
+ * nothing, and the list order is read back from the rows. What this cannot prove
+ * is the browser's own gesture arbitration on a real phone (whether a finger
+ * that starts on the handle scrolls the page instead), which is why the Tool's
+ * README keeps that as a named manual item.
+ */
+test.describe("on a touch device", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("a touch drag of a handle reorders the list", async ({ page }) => {
+    await open(page);
+
+    const { first, second, third } = await threePages(page);
+    await chooseFiles(page, [first, second, third]);
+
+    const rows = pageRows(page);
+    const handles = page.getByRole("button", { name: "拖动排序" });
+    await expect(rows).toHaveCount(3);
+
+    await centreRow(rows.nth(2));
+    const from = await centreOf(page, handles.nth(0));
+    const to = await centreOf(page, handles.nth(2));
+
+    /*
+     * The touch itself: pointer events with `pointerType: "touch"`, dispatched
+     * at the handle's coordinates. Each phase is its own task, because a finger
+     * delivers them one task at a time and dnd-kit computes its collisions
+     * between them; dispatching the whole gesture inside one task tests a
+     * sequence no device ever produces, and it does not reorder.
+     */
+    await page.evaluate(
+      ({ x, y }) => {
+        const target = document.elementFromPoint(x, y);
+        if (target === null) throw new Error("nothing at the handle's point to start a touch on");
+
+        target.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            buttons: 1,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            composed: true,
+            isPrimary: true,
+            pointerId: 1,
+            pointerType: "touch",
+          }),
+        );
+      },
+      { x: from.x, y: from.y },
+    );
+
+    const announcements = page.locator('[role="status"][aria-live="assertive"]');
+    await expect(announcements).toContainText("已拿起第 1 页");
+
+    for (let step = 1; step <= 8; step += 1) {
+      await page.evaluate(
+        ({ x, y }) => {
+          document.dispatchEvent(
+            new PointerEvent("pointermove", {
+              bubbles: true,
+              button: 0,
+              buttons: 1,
+              cancelable: true,
+              clientX: x,
+              clientY: y,
+              composed: true,
+              isPrimary: true,
+              pointerId: 1,
+              pointerType: "touch",
+            }),
+          );
+        },
+        {
+          x: from.x + ((to.x - from.x) * step) / 8,
+          y: from.y + ((to.y - from.y) * step) / 8,
+        },
+      );
+    }
+    await expect(announcements).toContainText("第 1 页已移到第 3 位");
+
+    await page.evaluate(
+      ({ x, y }) => {
+        document.dispatchEvent(
+          new PointerEvent("pointerup", {
+            bubbles: true,
+            button: 0,
+            buttons: 0,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            composed: true,
+            isPrimary: true,
+            pointerId: 1,
+            pointerType: "touch",
+          }),
+        );
+      },
+      { x: to.x, y: to.y },
+    );
+
+    await expect(rows.nth(0)).toContainText("second.jpg");
+    await expect(rows.nth(1)).toContainText("third.jpg");
+    await expect(rows.nth(2)).toContainText("first.jpg");
+  });
 });
 
 /**
