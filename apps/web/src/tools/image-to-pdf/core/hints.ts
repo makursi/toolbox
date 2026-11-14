@@ -7,6 +7,8 @@
  * and #197 the progress words.
  */
 
+import type { Paper } from "./geometry";
+
 /** The picker's accessible name. It never changes with state, so an instrument can declare it once. */
 export const pickLabel = "选择图片";
 
@@ -39,3 +41,24 @@ export const removeLabel = "移除";
 
 /** The promise at the point of action, as the reference Tool puts it there rather than under the title. */
 export const onDevicePromise = "文件不会上传，全程只在这个标签页里完成。";
+
+/** The heading over the page-size row. #194's control sits between the list and the result row. */
+export const paperHeading = "页面尺寸";
+
+/**
+ * The three papers' names, keyed by the type so a paper cannot arrive without
+ * one. The order the row offers them in is `PAPERS` in `core/geometry.ts`.
+ */
+export const paperLabels: Record<Paper, string> = {
+  a4: "A4",
+  letter: "Letter",
+  original: "原始尺寸",
+};
+
+/**
+ * Why 原始尺寸 is not a paper size. This is the one phrase on the page that reads
+ * as paper to some visitors and as pixels to others, so it states the conversion
+ * rather than leaving the visitor to guess: 96 dpi, one pixel is 0.75 pt.
+ */
+export const originalSizeHint =
+  "原始尺寸是图片自己的像素尺寸（96 dpi，1 像素 = 0.75 磅），不是一种纸。";

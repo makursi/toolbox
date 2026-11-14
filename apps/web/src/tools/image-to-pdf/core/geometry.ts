@@ -31,6 +31,9 @@ export type Paper = "a4" | "letter" | "original";
 /** What a fresh page starts on. #194's control takes this as its initial value. */
 export const DEFAULT_PAPER: Paper = "a4";
 
+/** The papers the control offers, in the order it offers them. */
+export const PAPERS: readonly Paper[] = ["a4", "letter", "original"];
+
 /**
  * The two fixed papers, in points, in portrait orientation. A landscape image
  * asks for the swapped pair: orientation follows the image, never a control.

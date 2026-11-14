@@ -6,12 +6,13 @@ so the paper's proportions and the image's letterboxing are visible before the
 download. Page order is list order; there is no imposition and no page holds two
 images.
 
-This is ticket #192's tracer bullet: one JPEG goes in, a one-page A4 PDF comes
-out. The whole path is real — the document is assembled by this repository, with
-no runtime PDF library — and the seams every later ticket builds on are in place:
-the geometry function, the JPEG header walk, the PDF writer, the derived name and
-the dedicated Worker. #193 adds the other two formats and the refusal sentences,
-#194 the paper control, #195/#196 the decode path and reordering, #197 progress
+This is ticket #192's tracer bullet, widened by the tickets after it. The whole
+path is real — the document is assembled by this repository, with no runtime PDF
+library — and the seams every later ticket builds on are in place: the geometry
+function, the JPEG header walk, the PDF writer, the derived name and the
+dedicated Worker. #194 has landed the paper control: A4, Letter or 原始尺寸,
+with every row reshaping to the chosen paper. #193 adds the other two formats and
+the refusal sentences, #195/#196 the decode path and reordering, #197 progress
 and cancel, #198 EXIF orientation, #199 invalidation coverage, #200 the
 instruments, #201 the design notes.
 
@@ -21,8 +22,9 @@ for its dimensions, and the document is built in a Worker from the original byte
 ## Layout
 
 ```
-ImageToPdf.tsx        the page: input region, page list, pinned result row
+ImageToPdf.tsx        the page: input region, page list, paper row, pinned result row
 page-row/             one row: page number, page miniature, name, remove
+paper-row/            the page-size row: A4 / Letter / 原始尺寸, one choice
 meta.ts               the Tool Registry entry
 rules.md              this Tool's own rules (page structure, geometry, the writer)
 README.md             this file: how it works, and what to check by hand
@@ -53,9 +55,11 @@ many places use it — the place that counts consumers is `packages/*`.
    becomes a page with the dimensions `readJpeg` finds in its own frame header,
    so the miniature does not need a second opinion about its size.
 2. **Preview.** `PageRow` calls `pageGeometry` with the image's dimensions and
-   the paper — A4 today, because #194's control has not landed — and draws the
-   page's box and the image's true rectangle inside it. The PDF writer calls the
-   same function, so the preview cannot disagree with the file.
+   the chosen paper — A4 until the visitor picks another — and draws the page's
+   box and the image's true rectangle inside it. The PDF writer calls the same
+   function, so the preview cannot disagree with the file. Switching paper
+   reshapes every row, which is how the visitor sees a landscape photo's white
+   bands before downloading it.
 3. **Convert.** `usePdfBuild` reads each file's bytes, transfers them to one
    dedicated Worker, and waits for one response.
 4. **Write.** Inside the Worker (`worker/worker.ts`), each page's JPEG header is
@@ -66,7 +70,7 @@ many places use it — the place that counts consumers is `packages/*`.
    sentence for now.
 5. **Download.** The result's object URL is created when the build succeeds and
    revoked when the result is invalidated or the page unmounts. Every change to
-   the list resets the run and takes the link away.
+   the list, and every change of paper, resets the run and takes the link away.
 
 The pure parts — `geometry`, `jpeg`, `pdf`, `naming` — are unit-tested in
 `core/__tests__/` under `pnpm test`. Everything that needs a browser is covered by
@@ -79,13 +83,15 @@ CI runs `fmt:check`, the docs checks, `lint`, `typecheck`, `test`, `build` and
 build in a real browser and covers the items marked **▣**: a real JPEG through
 the page's own file input, the action pressed, the download captured, and the
 file parsed with `pdf-lib` — a second implementation installed as a dev
-dependency, never imported by app code.
+dependency, never imported by app code. Since #194 it reads the media box back
+for each of the three paper choices, drives the row from the keyboard, and checks
+that changing the paper takes the produced file away.
 
 Still by hand: opening the produced PDF in a real reader (Playwright saves a
 file, it does not draw it), on a phone and in a second browser; the formats and
-limits #193 adds; the paper choices #194 adds; the decode path #195 adds;
-reordering #196; progress and cancel #197; EXIF orientations #198; and the
-invalidation cases #199 covers.
+limits #193 adds; whether the paper row and its hint read well in dark mode and
+at 390px; the decode path #195 adds; reordering #196; progress and cancel #197;
+EXIF orientations #198; and the invalidation cases #199 covers.
 
 ## Manual QA checklist
 
@@ -104,6 +110,24 @@ invalidation cases #199 covers.
       exactly one image XObject.
 - [ ] **▣** The image stream's bytes equal the JPEG that was picked: no decode,
       no re-encode.
+- [ ] **▣** The page-size row offers A4, Letter and 原始尺寸 as one single
+      choice, A4 checked on a fresh page, and explains 原始尺寸 as the image's
+      own pixels at 96 dpi rather than as a paper size.
+- [ ] **▣** Downloading once per paper gives the media box the choice promises:
+      A4 595.28 x 841.89, Letter 612 x 792, and 原始尺寸 the source's pixels x
+      0.75.
+- [ ] **▣** Changing the paper takes a produced download away and re-arms 转换,
+      without a banner.
+- [ ] **▣** Tab reaches the row at the checked choice and the arrow keys change
+      the choice (wrapping at both ends); the selected item differs by
+      `aria-checked` and `data-state`, not only by colour.
+- [ ] **▣** A portrait and a landscape image in one run produce one document
+      with pages of both orientations.
+- [ ] Switching paper visibly reshapes every row: A4 and Letter draw different
+      page proportions, and 原始尺寸 has no white bands.
+- [ ] The paper row and its hint read correctly in dark mode and at 390px, and
+      the pinned result row still sits inside the viewport while the list
+      scrolls.
 - [ ] The file opens in a desktop reader, in a phone's reader, and in a second
       browser, with the whole image visible and centred.
 - [ ] A landscape JPEG produces a landscape page.
@@ -117,5 +141,5 @@ invalidation cases #199 covers.
       移除 is a real button.
 
 The twenty-image run, the mixed formats and the limits belong to #193's
-checklist; the paper choices to #194's; reordering, progress, cancel and the EXIF
-orientations to #195-#198.
+checklist; reordering, progress, cancel and the EXIF orientations to
+#195-#198.
