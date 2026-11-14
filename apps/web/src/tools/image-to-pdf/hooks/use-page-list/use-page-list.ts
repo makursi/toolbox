@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { admitImages, type Candidate } from "@/tools/image-to-pdf/core/admission";
 import type { ImageSize } from "@/tools/image-to-pdf/core/geometry";
 import { readImageSize } from "@/tools/image-to-pdf/core/image-size";
+import { movePage } from "@/tools/image-to-pdf/core/order";
 import {
   isAcceptedFormat,
   sniffByteLength,
@@ -120,13 +121,32 @@ export function usePageList() {
     setPages(current.current);
   }, []);
 
+  /**
+   * Put the page with `activeId` where the page with `overId` is.
+   *
+   * The drag layer reports ids, not positions, so this is where the two are
+   * turned into each other and `core/order.ts` is asked for the new order. It
+   * answers whether anything changed, because a drop back onto the row's own
+   * position is not a change to the document and must not invalidate a result.
+   */
+  const reorder = useCallback((activeId: number, overId: number): boolean => {
+    const from = current.current.findIndex((page) => page.id === activeId);
+    const to = current.current.findIndex((page) => page.id === overId);
+
+    if (from === -1 || to === -1 || from === to) return false;
+
+    current.current = movePage(current.current, from, to);
+    setPages(current.current);
+    return true;
+  }, []);
+
   const clear = useCallback(() => {
     current.current = [];
     setPages([]);
     setRefused([]);
   }, []);
 
-  return { pages, refused, addFiles, remove, clear };
+  return { pages, refused, addFiles, remove, reorder, clear };
 }
 
 /** The bytes the list already holds, which the total limit is measured against. */
