@@ -63,3 +63,46 @@ The tree settled over four rounds the same day. The spec it produced is issue **
 - **Accepting whatever the browser can decode** (AVIF, the first frame of a GIF). It turns "what this site supports" into a fact about the visitor's decoder.
 - **A sticky-row threshold without a claim.** A threshold nobody runs is not a check; the alternative was dropping the pinned row entirely, and the row earns its 64 pixels.
 - **Reopening the "no output settings" ADR.** It binds one tool and says so; this Tool's larger surface is its own decision, recorded in its own rules file, not an exception carved into someone else's.
+
+---
+
+# Image assets — which ones are unused, and where a source of record lives (2026-11-14)
+
+## The question
+
+The owner asked for the site's images to be "处理": first delete the ones nothing uses, then move or create directories so the rest are managed. Stated that way the tree was assumed to be untidy; the inventory said otherwise. Three of that day's facts decided the rest:
+
+- **Every tracked image is wired.** `SiteHeader` reads `/brand/makursi.png`; the Next icon convention reads `icon1.png`, `icon2.png` and `apple-icon.png` out of `src/app`; each of the three `meta.cover` fields names its cover; `apps/web/assets/brand/makursi.png` is the master the exports come from. Nothing under `public/`, `src/app/` or `assets/brand/` is dead.
+- **The only unused files were in `assets/inbox/`, which is gitignored** (`.gitignore`, "a drop box, only its README is tracked"), so deleting them there is irreversible. Measured by SHA-256 and size: `cover-anime.jpg` is byte-identical to both `微信图片_20260917102852_91_6.jpg` and the shipped `public/tools/image-converter/cover.jpg` (`415c740f78a4…`); `cover-anime-warm.jpg` is the 660×495 desaturated variant the design rules rejected; `cover-from-tool.jpg` is a 2640×1980 screenshot of the Image Converter page, never wired, and superseded by that Tool's illustration cover.
+- **One inbox file is the only copy of something shipped.** `image-to-pdf.webp` (1920×1080) is the source the 1440×1080 cover was cropped from; the export cannot be un-cropped.
+
+## Settled branches
+
+1. **"Unused" means no wiring anywhere _and_ not the source of record for something wired.** Under that definition the deletion set is three files, all inside the drop box. `.next/cache/images/` is build output, not an asset.
+2. **The three are deleted**: the byte-identical copy, the rejected tonal variant, and the unused screenshot. `cover-from-tool.jpg` is the only judgement call; it is unused and the Tool it depicts already has a cover, and the drop box is not an archive.
+3. **Sources of record enter git**, at `apps/web/assets/tools/<slug>/cover.<ext>`. The two are `image-converter/cover.jpg` (byte-identical to the export — the cover was never re-encoded) and `image-to-pdf/cover.webp` (the export is the 4:3 crop of it).
+4. **Order is data safety, not style**: commit the sources before deleting anything. Deletions of gitignored files leave no diff, which is exactly why a deletion must never be the step that makes something unrecoverable.
+5. **`assets/` mirrors `public/` by the ownership rule.** `assets/brand/makursi.png` ↔ `public/brand/makursi.png` already held; `assets/tools/<slug>/` completes the shape. The master does not move, so no citation changes.
+6. **A source is named after its export, keeping its own extension**: `cover.webp` beside `cover.jpg` says "converted", and two identical names say "not". The WeChat timestamp filename is gone; provenance is a row in `apps/web/docs/design/assets.md`.
+7. **`assets/inbox/` stays the drop box** and stays gitignored, emptied to its README once the sources moved. It is a staging area; it was never the record.
+8. **`ToolMeta.cover` stays a `public/` path string.** The ownership rule does not reach the covers yet.
+9. **The icons stay in `src/app`.** The file convention is Next's interface; `icon2.png`'s byte-identical twin in `public/brand/` is the doubled export it requires.
+10. **Two assertions are added**, in `apps/web/src/lib/__tests__/public-assets.test.ts`: every file under `public/` appears as a URL somewhere the App is described, and every declared `cover` resolves to a file that exists (until now only the path's _shape_ was checked, so a typo would render an empty frame and pass).
+11. **Documentation counts as a reference.** `assets.md`'s table is where these files are registered; the assertion's job is to catch the file nothing mentions at all.
+12. **No ADR and no spec issue.** The change touches no contract and adds no new decision worth re-litigating; the two commits are a cleanup plus its check.
+
+## Open branches
+
+- **`cover-generator` has no source of record.** Its shipped cover is a 1920×1080 16:9 frame whose 4:3 1320×990 replacement is still described as better in `meta.ts`; nothing was ever kept on disk. If that source arrives it lands at `assets/tools/cover-generator/cover.<ext>`.
+- **How far the "referenced" assertion reaches** — today `public/`, later possibly `src/app`'s icons and a growing `assets/`.
+- **Whether the image-to-pdf cover should be re-cropped** from the committed source. Nothing asks for it yet.
+
+## Rejected branches, and why
+
+- **Deleting the inbox wholesale, sources included.** It is the one place a deletion cannot be undone; the site would lose the only 1920×1080 copy of a cover in use.
+- **Moving covers into `src/tools/<slug>/` as static imports.** It would make the ownership rule cover artwork too, but it changes `ToolMeta.cover`'s type and the registry test's contract for a prettier path — an ADR-level change, and its own pull request.
+- **Dropping the Next icon convention for `metadata.icons`** so every image lives in one tree. Hand-written `sizes`/`rel` against the convention's automatic `<head>`, bought for tidiness.
+- **`assets/sources/<slug>.<ext>`, flat.** Fewer directories, but the source stops corresponding to its export by position; the mirror costs one level and answers "does this have a source?" in one hop.
+- **Keeping the original filenames** (`微信图片_20260917102852_91_6.jpg`). The name would record where a file came from and nothing about what it is.
+- **Scanning only `src/` for references** and treating docs as non-references. `assets.md` is the register; a file mentioned nowhere at all is the orphan worth failing on.
+- **A generated manifest** listing each asset and its wiring. A second place to update, and one that goes stale silently.
