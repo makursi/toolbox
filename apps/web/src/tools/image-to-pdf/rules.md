@@ -156,12 +156,17 @@
 - **从剪贴板粘贴**。
 - **自定义文件名**：文件名由规则给出，界面没有文件名字段。
 - **单页全屏放大**。
-- **封面图**：本工具不带封面，Tool Card 按排版设置；不放占位图。
 - **站点级改动**：CSP、Tool 契约与 Tool Registry 的形状都不动。
 - **把输入管道抽成 Package**：第二个消费者出现之前不做。
 - **与其它 Tool 共用门禁助手或按钮类名**：`e2e/image-to-pdf-page.ts` 与 `e2e/tool-page.ts` 的助手按 **Tool 归属**，一个 Tool 的 spec 去 import 另一个 Tool 的页面助手比这点重复更糟的耦合，所以两份留着；输入区与 `取消` 用的两个按钮类名串同 Image Converter，改那个 Tool 不在本规格的范围内。
 - **把 `ImageSize` / `PaperSize` / `Size` 合并成一个别名**：它们看起来同形，却是三个领域——存储的像素、页面的点、方向交换用的宽高对；合并会让调用点失去的正是这层区别。
 - **把 `docs/agents/design-notes.md` 当成规则来源**：它是 #201 要求提交的带日期设计树记录，产品决定的来由在那里，但约束以本文件与站点文档为准。
+
+## 封面
+
+- 封面图由所有者交来（2026-11-14），画的是站点标记那个角色。源图留在 `apps/web/assets/inbox/`（该目录不进 git），按 4:3 居中裁切成 `apps/web/public/tools/image-to-pdf/cover.jpg`（1440×1080，与 Image Converter 的封面同尺寸），接线在 `meta.ts` 的 `cover`。
+- 它属于站点文档记下的那类**已知例外**：保留原色、不做单色化，且**不随仓库的许可被再授权**。规则与理由在 `apps/web/docs/design/assets.md`，本文件不重复。
+- 卡片的形状由有没有 `meta.cover` 决定：有封面就按 4:3 预留图框，没有就纯文字排版；**任何情况下都不放占位图**。这是站点级规则（`assets.md` 与 `apps/web/docs/design/components.md`）。
 
 ## 已知风险
 

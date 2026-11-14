@@ -36,10 +36,10 @@ The tree settled over four rounds the same day. The spec it produced is issue **
 18. **The gate parses the download with a library the site does not ship** — the PDF library goes in as a dev dependency, so production bytes stay ours and the gate checks us against a second implementation.
 19. **The vendored toggle group's radio roles were enough for a single choice.** It renders `role="radiogroup"` with `role="radio"` items carrying `aria-checked`; the gate asserts that the arrow keys change the choice and the checked state. The hand-rolled radiogroup was the fallback if pressed-state wording did not read as one choice, and it was not needed. A real screen reader remains a manual checklist item, not an open design question.
 20. **The pinned-row claim's injected style is written, not deferred.** The falsification run injects `position: static` on `[data-slot="pdf-result"]` at 390×900, and the claim has been watched go red.
+21. **The cover arrived after the Tool did.** The spec's out-of-scope list said no cover shipped and none was invented; on 2026-11-14 the owner supplied an illustration of the site's mark character, cropped here to 4:3 at 1440×1080. It joins the recorded exception class: it keeps its own colour, is not desaturated, and is not re-licensed by the repository (`apps/web/docs/design/assets.md`).
 
 ## Open branches
 
-- **The cover image.** No cover exists and no placeholder is invented; the Tool Card is set in type. A candidate belongs in `apps/web/assets/inbox/` and is a separate decision with its own colour and subject rules.
 - **The 40 M pixel number** is reasoned, not measured. It becomes a real number the first time someone feeds a 40 MP image through the page on a phone.
 - **The iOS canvas area ceiling** (roughly 16.7 M pixels) is a known risk recorded in the Tool's own rules, not defended by a cap, because capping to it would refuse images that desktop handles fine. If a mobile blank page shows up, this is the first suspect.
 
