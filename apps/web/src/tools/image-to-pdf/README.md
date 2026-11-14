@@ -44,11 +44,12 @@ decodes those, so their samples arrive upright.
 A run is long enough to watch. The document is assembled in one dedicated
 Worker, one page at a time, and the page counts finished pages as they arrive:
 已完成 x / y 页 beside the site's progress bar, inside a live region so a screen
-reader hears each page. While the run is in flight a 取消 control sits beside
-转换; it terminates the Worker, and nothing from that run survives. Cancelling
-is not a failure: no banner, no error sentence, just the page as it was before
-转换 was pressed, ready to convert again. The page itself never blocks, because
-the decode and the compression happen on the Worker's thread.
+reader hears each page. While the run is in flight a 取消 control appears in the
+result row with 转换 (below it on a narrow screen); it terminates the Worker, and
+nothing from that run survives. Cancelling is not a failure: no banner, no error
+sentence, just the page as it was before 转换 was pressed, ready to convert again.
+The page itself never blocks, because the decode and the compression happen on
+the Worker's thread.
 
 The input region is the full dashed drop zone while the list is empty, and one
 「继续添加」 line once it holds pages. The real `<button>选择图片</button>` is in
@@ -403,7 +404,7 @@ invariants described above.
 - [ ] **▣** A WebP becomes one A4 portrait page with one `/FlateDecode` image
       XObject whose bytes are not the WebP file's.
 - [ ] **▣** A PNG whose `IHDR` claims 50 M pixels is refused at admission with the
-      4000 万像素 sentence, without a row and without a decode.
+      4000 万像素 sentence and never becomes a row.
 - [ ] **▣** A run of twenty 800x600 PNGs: 取消 is visible and carries
       `.touch-target`; the progress line reports a finished count strictly
       between zero and the total while the run is still building; the progress
