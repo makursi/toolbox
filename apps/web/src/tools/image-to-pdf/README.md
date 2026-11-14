@@ -198,12 +198,13 @@ pointer events of `pointerType: "touch"`.
 Since #197 it also proves the run itself: eight large PNGs are chosen, 转换 is
 pressed, and while the run is still going the spec reads 取消, the 已完成 x / y 页
 line at a count that is neither zero nor the total, and the progress bar. It then
-presses 取消, asserts that the control, the progress, the download and any banner
-are gone and that 转换 is armed again, waits long enough for a Worker that had
-merely been asked to stop to have delivered, and converts the same list a second
-time. The second file is read back by `pdf-lib`: valid preamble and xref, one
-page per image, one image XObject each, and the media box of A4 in the images'
-landscape orientation. The cancel control is asserted gone once each run ends.
+presses 取消, asserts that the control, the progress, the download, the banner and
+any failure sentence (the live region is empty) are gone and that 转换 is armed
+again, waits long enough for a Worker that had merely been asked to stop to have
+delivered, and converts the same list a second time. The second file is read back
+by `pdf-lib`: valid preamble and xref, one page per image, one image XObject each,
+and the media box of A4 in the images' landscape orientation. The cancel control
+is asserted gone once each run ends.
 
 Since #199 it also proves the invalidation rule end to end. With a file
 produced, each of the five changes to the document — the paper, adding at least

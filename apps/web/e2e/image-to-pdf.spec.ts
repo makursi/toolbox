@@ -904,11 +904,12 @@ test("a cancelled run leaves nothing behind, and converting again produces a val
   await cancel.click();
 
   // Cancelling is not a failure and leaves nothing behind: no control, no
-  // download, no progress, no banner, and 转换 armed again.
+  // download, no progress, no banner, no error sentence, and 转换 armed again.
   await expect(cancel).toHaveCount(0);
   await expect(progress).toHaveCount(0);
   await expect(page.locator("a[download]")).toHaveCount(0);
   await expect(page.locator('[data-slot="alert"]')).toHaveCount(0);
+  await expect(page.locator('[data-slot="pdf-result"] [aria-live="polite"]')).toHaveText(/^\s*$/);
   await expect(convert).toBeEnabled();
 
   /*
