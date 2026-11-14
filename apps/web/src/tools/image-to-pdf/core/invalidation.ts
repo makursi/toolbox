@@ -37,6 +37,7 @@ export type DocumentChange =
  * here until its author decides, in this one place, whether the document
  * changed. A `default: true` would let that decision go unmade.
  */
+// oxlint-disable-next-line typescript/consistent-return -- every kind returns; the switch deliberately has no `default`, so a sixth kind of change is a type error here until its author decides, which is the bug this shape prevents.
 export function invalidates(change: DocumentChange): boolean {
   switch (change.kind) {
     case "paper":

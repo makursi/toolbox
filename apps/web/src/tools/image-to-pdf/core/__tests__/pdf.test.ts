@@ -161,6 +161,16 @@ function contentMatrices(text: string): number[][] {
   );
 }
 
+/** The page's `/MediaBox` line, or `undefined` when the file has none. */
+function mediaBox(text: string): string | undefined {
+  return /\/MediaBox \[0 0 [\d.]+ [\d.]+\]/.exec(text)?.[0];
+}
+
+/** The first content stream's placement matrix, as the raw `cm` operands. */
+function placement(text: string): string | undefined {
+  return /q\n[\d.]+ 0 0 [\d.]+ [\d.]+ [\d.]+ cm\n\/Im0 Do\nQ/.exec(text)?.[0];
+}
+
 describe("the PDF writer", () => {
   it("writes a preamble, a binary comment line and an end-of-file marker", () => {
     const bytes = buildPdf([page("a4")]);
@@ -325,18 +335,14 @@ describe("the PDF writer", () => {
         const jpegText = latin1(buildPdf([jpegPage]));
         const rawText = latin1(buildPdf([rawPage]));
 
-        const box = (text: string) => /\/MediaBox \[0 0 [\d.]+ [\d.]+\]/.exec(text)?.[0];
-        const matrix = (text: string) =>
-          /q\n[\d.]+ 0 0 [\d.]+ [\d.]+ [\d.]+ cm\n\/Im0 Do\nQ/.exec(text)?.[0];
-
         expect(
-          box(rawText),
+          mediaBox(rawText),
           `${String(dimensions.width)}x${String(dimensions.height)} ${paper}`,
-        ).toBe(box(jpegText));
+        ).toBe(mediaBox(jpegText));
         expect(
-          matrix(rawText),
+          placement(rawText),
           `${String(dimensions.width)}x${String(dimensions.height)} ${paper}`,
-        ).toBe(matrix(jpegText));
+        ).toBe(placement(jpegText));
       }
     }
   });
