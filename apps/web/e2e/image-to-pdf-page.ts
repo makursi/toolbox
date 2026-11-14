@@ -221,6 +221,85 @@ export async function webp(context: BrowserContext, name = "photo.webp"): Promis
 }
 
 /**
+ * A batch of large, flat-colour PNGs, encoded by the browser's own encoder.
+ *
+ * The run's length has to be a property of the work, not of a race: the gate
+ * cancels a run in flight and asserts the next one is valid, so the first run
+ * must still be going when 取消 is pressed. Each page costs the Worker a decode,
+ * an `ImageData` copy and a deflate of its samples, which is work proportional
+ * to the pixel count — so these pages are large in pixels. Being one flat colour,
+ * each is small in bytes and becomes a tiny PDF stream, so eight of them make a
+ * run of seconds while the document stays small enough to read back.
+ *
+ * Built in a page of its own, like every fixture here: a large image generated
+ * and handed over in the same renderer is the habit the repository's Gotchas warn
+ * about. The dimensions are checked once, before the batch is handed over,
+ * because every expectation downstream is stated in terms of them.
+ */
+export async function largePngs(
+  context: BrowserContext,
+  options: { count?: number; width?: number; height?: number } = {},
+): Promise<NamedBytes[]> {
+  const count = options.count ?? 8;
+  const width = options.width ?? 3000;
+  const height = options.height ?? 2250;
+  const builder = await context.newPage();
+
+  try {
+    const encoded = await builder.evaluate(
+      ({ count: pages, height: canvasHeight, width: canvasWidth }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const context2d = canvas.getContext("2d");
+        if (context2d === null) throw new Error("no 2d context to build the fixture in");
+
+        const files: string[] = [];
+        for (let index = 0; index < pages; index += 1) {
+          // Two tones alternating between pages, so the fixtures are not one
+          // identical file: a list that deduplicated them would show up here.
+          context2d.fillStyle = index % 2 === 0 ? "#f2efe8" : "#2b2b2b";
+          context2d.fillRect(0, 0, canvasWidth, canvasHeight);
+          context2d.fillStyle = index % 2 === 0 ? "#8a877f" : "#f2efe8";
+          context2d.fillRect(0, Math.round(canvasHeight * 0.75), canvasWidth, 8);
+          files.push(canvas.toDataURL("image/png"));
+        }
+
+        return files;
+      },
+      { count, height, width },
+    );
+
+    const files = encoded.map((dataUrl, index) => {
+      const buffer = Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+      expect(buffer.subarray(0, 8).toString("hex"), "the fixture is not a PNG").toBe(
+        "89504e470d0a1a0a",
+      );
+
+      return { name: `page-${String(index + 1)}.png`, mimeType: "image/png", buffer };
+    });
+
+    // The dimensions are checked from the first file, because every expectation
+    // downstream is stated in terms of them.
+    const first = encoded[0];
+    if (first === undefined) throw new Error("the fixture batch is empty");
+
+    const decoded = await builder.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+
+      return { width: image.naturalWidth, height: image.naturalHeight };
+    }, first);
+    expect(decoded).toEqual({ width, height });
+
+    return files;
+  } finally {
+    await builder.close();
+  }
+}
+
+/**
  * A PNG header that claims 50 M pixels, with no pixel data behind it.
  *
  * Admission reads the `IHDR` and must refuse it there: the file is 29 bytes, so

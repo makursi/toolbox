@@ -27,20 +27,28 @@ transparent pixels are composited onto white paper, and the samples are written
 through a zlib (Flate) stream. A transparent logo therefore behaves like ink on a
 page rather than like a black rectangle.
 
+A run is long enough to watch. The document is assembled in one dedicated
+Worker, one page at a time, and the page counts finished pages as they arrive:
+已完成 x / y 页 beside the site's progress bar, inside a live region so a screen
+reader hears each page. While the run is in flight a 取消 control sits beside
+转换; it terminates the Worker, and nothing from that run survives. Cancelling
+is not a failure: no banner, no error sentence, just the page as it was before
+转换 was pressed, ready to convert again. The page itself never blocks, because
+the decode and the compression happen on the Worker's thread.
+
 The input region is the full dashed drop zone while the list is empty, and one
 「继续添加」 line once it holds pages. The real `<button>选择图片</button>` is in
 both states and keeps that name, because the hit-area instrument declares a
 control by its accessible name and a name that changes with state cannot be
 declared. The line still accepts a drop.
 
-This is ticket #195's decode path, on top of #193's batch and refusal layer,
-#194's paper control and #196's reordering: a handle on every row, two sensors,
-and the document following the list. A PNG and a WebP are now pages of the same
-document a JPEG is, with the same geometry rule, and an image beyond 40 M pixels
-is refused from its header with its own sentence. The whole path is real: the
-document is assembled by this repository, with no runtime PDF library. #197 adds
-progress and cancel, #198 EXIF orientation and the progressive/CMYK JPEG decode,
-#199 invalidation coverage, #200 the instruments, #201 the design notes.
+This is ticket #197's run, on top of #193's batch and refusal layer, #194's paper
+control, #195's decode path and #196's reordering: page-by-page progress in a
+live region, a cancel that terminates the Worker it belongs to, and a second run
+after a cancel that still produces a valid file. The whole path is real: the
+document is assembled by this repository, with no runtime PDF library. #198 adds
+EXIF orientation and the progressive/CMYK JPEG decode, #199 invalidation
+coverage, #200 the instruments, #201 the design notes.
 
 Nothing is uploaded: files are read with the File API, their first bytes are
 sniffed, their headers give the page's dimensions, and the document is built in
@@ -69,15 +77,15 @@ core/                 pure, browser-free logic — the part `pnpm test` covers
   packing              decoded RGBA -> white-composited RGB samples -> a zlib (Flate) stream
   pdf                  the PDF writer: pages in, PDF 1.7 bytes out
   naming               图片-YYYY-MM-DD.pdf from a date
-  hints · failures     the sentences a visitor reads (including the reorder announcements)
+  hints · failures     the sentences a visitor reads (including progress and the reorder announcements)
   __tests__/           the tests for those modules
 hooks/                the Tool's React state
   use-page-list        the pages added, in page order, and the refused files
-  use-pdf-build        one run, its state, and the download URL's whole life
+  use-pdf-build        one run, its progress and cancel, and the download URL's whole life
   use-page-thumbnail   a small picture of one file, one decode at a time
 worker/               the browser-only half
-  worker.ts            sniffs each page, decodes PNG/WebP, writes the document
-  builder.ts           the page side of the Worker protocol
+  worker.ts            sniffs each page, decodes PNG/WebP, reports progress, writes the document
+  builder.ts           the page side of the Worker protocol: progress, the result, and termination
 ```
 
 A hook that knows nothing about this Tool goes to `src/hooks/` instead, and UI
@@ -114,8 +122,9 @@ many places use it — the place that counts consumers is `packages/*`.
    `core/order.ts`, and dnd-kit's live region announces the lift, each new
    position, the drop and the cancellation in this page's own words. A row that
    is dropped where it was changes nothing, so it does not invalidate a result.
-5. **Convert.** `usePdfBuild` reads each file's bytes, transfers them to one
-   dedicated Worker, and waits for one response.
+5. **Convert.** `usePdfBuild` reads each file's bytes, shows the run at
+   已完成 0 / y 页, transfers the bytes to one dedicated Worker, and waits for
+   one result.
 6. **Write.** Inside the Worker (`worker/worker.ts`), each page's bytes are
    sniffed again and its header walked, the passthrough predicate is applied,
    `pageGeometry` is called, and `buildPdf` assembles PDF 1.7 with a classic xref
@@ -127,17 +136,27 @@ many places use it — the place that counts consumers is `packages/*`.
    `/FlateDecode` with no `/DecodeParms`; the decoded dimensions are checked
    against the pixel limit here too, because a header is only a claim.
    Progressive and 4-channel JPEGs still end in the `unsupported` sentence until
-   #198 lands their decode path.
-7. **Download.** The result's object URL is created when the build succeeds and
-   revoked when the result is invalidated or the page unmounts. Adding at least
-   one page, removing one, reordering, clearing the list, or changing the paper
-   resets the run and takes the link away; a batch where every file was refused
-   does not, because the list on screen did not change.
+   #198 lands their decode path. Pages are handled one at a time because a PDF is
+   one output stream; after each one the Worker posts `{done, total}` and the
+   page redraws 已完成 x / y 页 and the bar. The page stays interactive
+   throughout: only the Worker's thread is busy, which is what lets the visitor
+   read progress and press 取消 while a run is taking tens of seconds.
+7. **Cancel.** While a run is in flight a 取消 control appears beside 转换 (and
+   nowhere else). It terminates the Worker rather than asking it to stop, so the
+   bytes it was holding go with it, no result can arrive afterwards, and the next
+   run starts from a new Worker. The page returns to the state it had before
+   转换: no download, no progress, no banner, `转换` armed again, the list
+   untouched. Cancelling is not a failure and writes nothing to the console.
+8. **Download.** The result's object URL is created when the build succeeds and
+   revoked when the result is invalidated, cancelled or the page unmounts.
+   Adding at least one page, removing one, reordering, clearing the list, or
+   changing the paper resets the run and takes the link away; a batch where every
+   file was refused does not, because the list on screen did not change.
 
 The pure parts — `sniff`, `refusal`, `limits`, `admission`, `image-size`,
-`order`, `geometry`, `jpeg`, `packing`, `pdf`, `naming` — are unit-tested in
-`core/__tests__/` under `pnpm test`. Everything that needs a browser is covered
-by the gate and the checklist below.
+`order`, `geometry`, `jpeg`, `packing`, `pdf`, `naming`, `hints` and `failures` —
+are unit-tested in `core/__tests__/` under `pnpm test`. Everything that needs a
+browser is covered by the gate and the checklist below.
 
 ## What CI covers, and what is still yours
 
@@ -170,12 +189,24 @@ first so a wrapper that took the click would fail loudly rather than silently do
 nothing; a third does it on a `hasTouch` context at 390px with dispatched
 pointer events of `pointerType: "touch"`.
 
+Since #197 it also proves the run itself: eight large PNGs are chosen, 转换 is
+pressed, and while the run is still going the spec reads 取消, the 已完成 x / y 页
+line at a count that is neither zero nor the total, and the progress bar. It then
+presses 取消, asserts that the control, the progress, the download and any banner
+are gone and that 转换 is armed again, waits long enough for a Worker that had
+merely been asked to stop to have delivered, and converts the same list a second
+time. The second file is read back by `pdf-lib`: valid preamble and xref, one
+page per image, one image XObject each, and the media box of A4 in the images'
+landscape orientation. The cancel control is asserted gone once each run ends.
+
 The unit tests hold what the gate cannot see: the exact wording of every refusal
-and limit sentence, the numbers behind them, the 40 M pixel boundary and the
-admission of PNG and WebP, the sample packer (a transparent pixel becomes white;
-the stream is zlib-wrapped, which `unzlibSync` reads, rather than raw deflate),
-and `core/order.ts`'s semantics (a move closes the gap, a position that does not
-exist changes nothing, the list is never mutated).
+and limit sentence, the progress line and the fixed name 取消, the numbers behind
+the limits, the 40 M pixel boundary and the admission of PNG and WebP, the sample
+packer (a transparent pixel becomes white; the stream is zlib-wrapped, which
+`unzlibSync` reads, rather than raw deflate), the five failure codes' sentences
+with the generic fallback for anything unrecognised, and `core/order.ts`'s
+semantics (a move closes the gap, a position that does not exist changes nothing,
+the list is never mutated).
 
 Still by hand: opening the produced PDF in a real reader (Playwright saves a
 file, it does not draw it), on a phone and in a second browser; a touch drag on a
@@ -184,10 +215,11 @@ handle belongs to the drag or to the page's scroll (the gate dispatches
 `pointerType: "touch"` events, which is not the browser's gesture arbitration);
 a twenty-image run and the four limits through the page rather than through
 `core/`; a PNG and a WebP page on a phone, where the canvas area limit is lower
-than the pixel limit; whether the handle, the paper row and its hint read well in
-dark mode and at 390px; reordering with the keyboard at 390px; progress and
-cancel #197; EXIF orientations and the progressive/CMYK JPEG decode #198; and
-the invalidation cases #199 covers.
+than the pixel limit; hearing the progress live region with a real screen reader,
+and whether the pinned row still fits 转换, 取消 and the bar at 390px in dark
+mode; whether the handle, the paper row and its hint read well in dark mode and
+at 390px; reordering with the keyboard at 390px; EXIF orientations and the
+progressive/CMYK JPEG decode #198; and the invalidation cases #199 covers.
 
 ## Manual QA checklist
 
@@ -265,6 +297,18 @@ the invalidation cases #199 covers.
       `pointerType: "touch"` events dispatched at the handle's coordinates.
 - [ ] **▣** A reorder takes a produced download away and re-arms 转换, with no
       banner and no error sentence.
+- [ ] **▣** While a run is in flight, 取消 appears beside 转换, the result row
+      reads 已完成 x / y 页 for a count between zero and the total, and the
+      progress bar is there; the line sits in a polite live region.
+- [ ] **▣** Pressing 取消 ends the run: the control, the progress and the bar are
+      gone, no download appears then or a moment later, there is no banner and no
+      error sentence, and 转换 is enabled again. Converting the same list again
+      produces a valid file with every page.
+- [ ] **▣** 取消 is not rendered once a run has ended.
+- [ ] A twenty-image run's progress is readable and 取消 stops it on a real phone.
+- [ ] The progress live region announces each finished page with a real screen
+      reader, and the result row with 转换, 取消 and the bar still fits at 390px
+      in dark mode.
 - [ ] A touch drag on a real phone: a finger that starts on the handle drags the
       row rather than scrolling the page, and the page still scrolls from
       anywhere else.
@@ -274,5 +318,5 @@ the invalidation cases #199 covers.
       opens the picker, the action and the download are reachable, the row's
       移除 is a real button, and each row's handle reorders.
 
-Progress and cancel (#197), the EXIF orientations and the progressive/CMYK JPEG
-decode (#198) are still to come; the invalidation cases belong to #199.
+The EXIF orientations and the progressive/CMYK JPEG decode (#198) are still to
+come; the invalidation cases belong to #199.

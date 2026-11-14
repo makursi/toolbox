@@ -2,10 +2,9 @@
  * The words on the page that are not a field's content.
  *
  * They live here, in the pure layer, so a test can hold the wording rather than
- * a browser having to read it out of the DOM. The Tool has one main action and
- * one reason it can be unavailable; the refusal sentences beside them are in
- * `core/refusal.ts` and `core/limits.ts`, and #197's progress words will join
- * them here.
+ * a browser having to read it out of the DOM. The Tool has one main action, one
+ * reason it can be unavailable, and one line for how far a run has got; the
+ * refusal sentences beside them are in `core/refusal.ts` and `core/limits.ts`.
  */
 
 import type { Paper } from "./geometry";
@@ -22,8 +21,24 @@ export const downloadLabel = "下载";
 /** Why 转换 is unavailable while there is nothing to convert. */
 export const noImagesHint = "还没有图片，先选择一张。";
 
-/** What the result row says while the Worker is building. */
-export const buildingHint = "正在生成 PDF。";
+/**
+ * The cancel control's name. It is fixed on purpose: the hit-area instrument
+ * declares a control by its accessible name, and this one exists only while a
+ * run is in flight, so it has to be the same two characters every time.
+ */
+export const cancelLabel = "取消";
+
+/**
+ * How far a run has got, as finished pages out of planned pages.
+ *
+ * The number is one message per finished page from the Worker, so this is what
+ * both the visible line and the live region say. Two numbers rather than a
+ * percentage: a visitor counting pages should not have to convert a bar back
+ * into pages.
+ */
+export function progressText(done: number, total: number): string {
+  return `已完成 ${String(done)} / ${String(total)} 页`;
+}
 
 /** The heading over the input region. */
 export const addHeading = "添加图片";

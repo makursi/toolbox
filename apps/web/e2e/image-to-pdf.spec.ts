@@ -9,6 +9,7 @@ import {
   hugeHeaderPng,
   inspectDownloadedPdf,
   jpeg,
+  largePngs,
   open,
   renamedTextFile,
   todayPdfName,
@@ -850,4 +851,89 @@ test("a PNG whose header claims more than 40 M pixels is refused at admission", 
   await expect(refusalLines).toHaveCount(1);
   await expect(refusalLines.first()).toContainText("panorama.png");
   await expect(refusalLines.first()).toContainText("这张图片超过 4000 万像素的上限，没有加入。");
+});
+
+/**
+ * Cancelling is a promise about the whole run, not only about the control: the
+ * Worker is terminated and replaced, nothing from the cancelled run survives,
+ * and the page is left exactly where it was before 转换 was pressed. The proof
+ * is the run that follows: after the cancel, the same list converts again and
+ * the file a second implementation reads has every page and the right media box.
+ *
+ * The first run has to be long enough to interrupt. `largePngs` is eight
+ * 3000x2250 PNGs, which cost the Worker seconds of decode and deflate; the spec
+ * waits for a progress count that is neither 0 nor the total, so the run that was
+ * cancelled is one that had already done real work.
+ */
+test("a cancelled run leaves nothing behind, and converting again produces a valid file", async ({
+  page,
+}) => {
+  await open(page);
+
+  const pages = await largePngs(page.context());
+  const total = pages.length;
+  await chooseFiles(page, pages);
+
+  const rows = page.locator('[data-slot="pdf-page-row"]');
+  await expect(rows).toHaveCount(total);
+
+  const convert = page.getByRole("button", { name: "转换" });
+  const cancel = page.getByRole("button", { name: "取消" });
+
+  // The cancel control only exists while a run does.
+  await expect(cancel).toHaveCount(0);
+
+  await convert.click();
+
+  await expect(cancel).toBeVisible();
+
+  // 取消 carries the hit-area class itself, like every control on this page,
+  // and its name is fixed so the instrument can declare it.
+  await expect(cancel).toHaveClass(/\btouch-target\b/);
+
+  // Progress, one message per finished page: the line and the site's bar are
+  // both there while the run is in flight, inside the pinned result row.
+  const progress = page.locator('[data-slot="pdf-progress"]');
+  await expect(progress).toBeVisible();
+  await expect(page.getByRole("progressbar")).toBeVisible();
+
+  await expect(progress).toHaveText(
+    new RegExp(`已完成 [1-${String(total - 1)}] / ${String(total)} 页`),
+  );
+
+  await cancel.click();
+
+  // Cancelling is not a failure and leaves nothing behind: no control, no
+  // download, no progress, no banner, and 转换 armed again.
+  await expect(cancel).toHaveCount(0);
+  await expect(progress).toHaveCount(0);
+  await expect(page.locator("a[download]")).toHaveCount(0);
+  await expect(page.locator('[data-slot="alert"]')).toHaveCount(0);
+  await expect(convert).toBeEnabled();
+
+  /*
+   * Give a Worker that was merely asked to stop enough time to finish and
+   * deliver. The full run is measured at roughly 2.5 s on this machine and the
+   * cancel lands about 0.6 s in, so a run that survived the cancel would have a
+   * file a little under two seconds later; three seconds is comfortably past
+   * that. The Worker is terminated instead, so nothing arrives.
+   */
+  await page.waitForTimeout(3000);
+  await expect(page.locator("a[download]")).toHaveCount(0);
+  await expect(cancel).toHaveCount(0);
+  await expect(convert).toBeEnabled();
+
+  // Converting again works, and the file is valid: read by `pdf-lib`, with one
+  // page per image and A4 in the images' landscape orientation.
+  await convert.click();
+  const pdf = await downloadPdf(page);
+  expectValidPdf(pdf);
+  expect(pdf.pageCount).toBe(total);
+  expect(pdf.imagesPerPage).toEqual(pages.map(() => 1));
+  expect(pdf.mediaBoxes).toHaveLength(total);
+  for (const box of pdf.mediaBoxes) expectBox(box, A4_LANDSCAPE);
+
+  // The run ended, so the control that stops one is gone again.
+  await expect(cancel).toHaveCount(0);
+  await expect(page.locator("a[download]")).toBeVisible();
 });
