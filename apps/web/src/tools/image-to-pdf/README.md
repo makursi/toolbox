@@ -236,16 +236,20 @@ The media box proves the proportions; the matrix proves the placement, and
 uprightness needs both. The layout the box and matrix are asserted against is A4
 landscape with the image filling the height and centred across.
 
-Since #197 it also proves the run itself: eight large PNGs are chosen, 转换 is
-pressed, and while the run is still going the spec reads 取消, the 已完成 x / y 页
-line at a count that is neither zero nor the total, and the progress bar. It then
-presses 取消, asserts that the control, the progress, the download, the banner and
-any failure sentence (the live region is empty) are gone and that 转换 is armed
-again, waits long enough for a Worker that had merely been asked to stop to have
-delivered, and converts the same list a second time. The second file is read back
-by `pdf-lib`: valid preamble and xref, one page per image, one image XObject each,
-and the media box of A4 in the images' landscape orientation. The cancel control
-is asserted gone once each run ends.
+Since #197 it also proves the run itself: twenty 800x600 PNGs, the Tool's own page
+limit, are chosen and 转换 is pressed, and the spec waits for the
+已完成 x / y 页 line to report a finished page that is not the last one before it
+touches 取消. The cancel is pressed on that event rather than on a timer, so the
+Worker it interrupts is provably working, and the fixture is deliberately small
+per page: the run is long enough to cancel in without loading a parallel suite
+with a sequence of large canvases. The spec reads 取消 and the progress bar while
+the run is still going, presses 取消, asserts that the control, the progress, the
+download, the banner and any failure sentence (the live region is empty) are gone
+and that 转换 is armed again, waits long enough for a Worker that had merely been
+asked to stop to have delivered, and converts the same list a second time. The
+second file is read back by `pdf-lib`: valid preamble and xref, one page per
+image, one image XObject each, and the media box of A4 in the images' landscape
+orientation. The cancel control is asserted gone once each run ends.
 
 Since #199 it also proves the invalidation rule end to end. With a file
 produced, each of the five changes to the document — the paper, adding at least
@@ -300,8 +304,8 @@ tested, but the real files are a person's to try); a mirrored scan (values 2, 4,
 5 and 7), for the same reason; a touch drag on a real phone, where the platform
 decides whether a gesture that starts on the handle belongs to the drag or to the
 page's scroll (the gate dispatches `pointerType: "touch"` events, which is not
-the browser's gesture arbitration); a twenty-image run and the four limits
-through the page rather than through `core/`; a PNG and a WebP page on a phone,
+the browser's gesture arbitration); the four limit refusals through the page
+rather than through `core/`; a PNG and a WebP page on a phone,
 where the canvas area limit is lower than the pixel limit; hearing the progress
 live region with a real screen reader, and whether the pinned row still fits
 转换, 取消 and the bar at 390px in dark mode; whether the handle, the paper row
@@ -410,7 +414,7 @@ keyboard at 390px.
       error sentence, and 转换 is enabled again. Converting the same list again
       produces a valid file with every page.
 - [ ] **▣** 取消 is not rendered once a run has ended.
-- [ ] A twenty-image run's progress is readable and 取消 stops it on a real phone.
+- [ ] A run's progress is readable and 取消 stops it on a real phone.
 - [ ] The progress live region announces each finished page with a real screen
       reader, and the result row with 转换, 取消 and the bar still fits at 390px
       in dark mode.

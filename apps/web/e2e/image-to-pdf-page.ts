@@ -317,23 +317,24 @@ export async function webp(context: BrowserContext, name = "photo.webp"): Promis
 }
 
 /**
- * A batch of large, flat-colour PNGs, encoded by the browser's own encoder.
+ * A batch of flat-colour PNGs, encoded by the browser's own encoder.
  *
- * The run's length has to be a property of the work, not of a race: the gate
- * cancels a run in flight and asserts the next one is valid, so the first run
- * must still be going when 取消 is pressed. Each page costs the Worker a decode,
- * an `ImageData` copy and a deflate of its samples, which is work proportional
- * to the pixel count — so these pages are large in pixels. Being one flat colour,
- * each is small in bytes and becomes a tiny PDF stream, so sixteen of them make a
- * run of seconds while the document stays small enough to read back.
+ * The run has to be long enough to interrupt, and cheap enough to run beside the
+ * rest of the gate. Both come from the same levers: each page costs the Worker a
+ * decode, an `ImageData` copy and a deflate of its samples, so the work is
+ * proportional to the pixel count, and the run is the sum over the pages. Twenty
+ * 800x600 pages (9.6 M pixels) are a run of several hundred milliseconds, while
+ * the largest single canvas is 1.9 MB of pixels and the whole batch is smaller
+ * than one 3000x2250 canvas used to be. The suite runs twelve browsers at once,
+ * and a fixture that starves the neighbours is a flaky suite, not a slow one.
  *
- * Sixteen moderate pages rather than a few huge ones on purpose: the same total
- * pixel work, but the largest single canvas stays at 1.9 M pixels, so this test
- * does not put a 27 MB canvas into a suite that already runs twelve browsers at
- * once. A fixture that starves the neighbours is a flaky suite, not a slow one.
+ * Twenty is also the Tool's own page limit, so the document this produces is the
+ * largest list the Tool accepts without being a special case. Being one flat
+ * colour, each page is small in bytes and becomes a tiny PDF stream, so the file
+ * read back stays small.
  *
- * Built in a page of its own, like every fixture here: a large image generated
- * and handed over in the same renderer is the habit the repository's Gotchas warn
+ * Built in a page of its own, like every fixture here: images generated and
+ * handed over in the same renderer is the habit the repository's Gotchas warn
  * about. The dimensions are checked once, before the batch is handed over,
  * because every expectation downstream is stated in terms of them.
  */
@@ -341,9 +342,9 @@ export async function largePngs(
   context: BrowserContext,
   options: { count?: number; width?: number; height?: number } = {},
 ): Promise<NamedBytes[]> {
-  const count = options.count ?? 16;
-  const width = options.width ?? 1600;
-  const height = options.height ?? 1200;
+  const count = options.count ?? 20;
+  const width = options.width ?? 800;
+  const height = options.height ?? 600;
   const builder = await context.newPage();
 
   try {
