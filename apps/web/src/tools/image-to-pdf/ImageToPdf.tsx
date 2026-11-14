@@ -22,6 +22,7 @@ import {
   progressText,
   refusedTitle,
 } from "./core/hints";
+import { invalidates, type DocumentChange } from "./core/invalidation";
 import { usePageList } from "./hooks/use-page-list/use-page-list";
 import { usePdfBuild } from "./hooks/use-pdf-build/use-pdf-build";
 import { PageList } from "./page-list/page-list";
@@ -61,64 +62,73 @@ export function ImageToPdf() {
   const empty = pages.length === 0;
 
   /**
-   * Add files, then invalidate any produced document.
+   * The one door every change to the document goes through.
    *
-   * Every change to the list has to take the download away: a file that does not
-   * match the preview is the worst thing this page can hand over. The
-   * invalidation is not an error state, so it shows no banner. A batch where
-   * every file was refused did not change the list, so it does not invalidate
-   * anything either: the document on screen is still the list on screen.
+   * A produced file is built from the paper and the list, in order. Any change
+   * to either of them makes it a file that no longer matches the page, so the
+   * download is taken away and 转换 is re-armed — with no banner and no failure
+   * sentence, because this is "not converted yet" rather than an error. The five
+   * changes (add, remove, clear, reorder, paper) all come through here and ask
+   * `core/invalidation.ts`; a sixth one has to do the same, and a change that did
+   * not change the document (a fully refused batch, a drop on the row's own
+   * position) leaves the file alone.
+   */
+  const applyChange = useCallback(
+    (change: DocumentChange) => {
+      if (invalidates(change)) reset();
+    },
+    [reset],
+  );
+
+  /**
+   * Add files, then tell the rule what happened.
+   *
+   * A batch where every file was refused did not change the list, so it reaches
+   * the same door as the rest and the door leaves the produced file alone: the
+   * document on screen is still the list on screen.
    */
   const add = useCallback(
     async (files: readonly File[]) => {
       if (files.length === 0) return;
-      const added = await addFiles(files);
-      if (added > 0) reset();
+      applyChange({ kind: "add", accepted: await addFiles(files) });
     },
-    [addFiles, reset],
+    [addFiles, applyChange],
   );
 
   const removePage = useCallback(
     (id: number) => {
       remove(id);
-      reset();
+      applyChange({ kind: "remove" });
     },
-    [remove, reset],
+    [remove, applyChange],
   );
 
   const clearPages = useCallback(() => {
     clear();
-    reset();
-  }, [clear, reset]);
+    applyChange({ kind: "clear" });
+  }, [clear, applyChange]);
 
   /**
-   * Put one page where another one was, then invalidate any produced document.
+   * Put one page where another one was, then tell the rule whether it moved.
    *
-   * Reordering is a change to the document's page order, so a file built for the
-   * old order cannot stay on screen: the download goes away and 转换 is armed
-   * again, with no banner, exactly as adding or removing a page does. A drop
-   * that lands on the row's own position is not a change, and the hook says so.
+   * The list hook answers whether the order actually changed, because a drop
+   * back onto the row's own position is not a new document and must not throw
+   * away a file that still matches the list.
    */
   const reorderPage = useCallback(
     (activeId: number, overId: number) => {
-      if (reorder(activeId, overId)) reset();
+      const moved = reorder(activeId, overId);
+      applyChange({ kind: "reorder", moved });
     },
-    [reorder, reset],
+    [reorder, applyChange],
   );
 
-  /**
-   * Choose the paper, then invalidate any produced document.
-   *
-   * A file built for A4 cannot stay on screen while every row now draws Letter.
-   * Like the list's own changes, this is an invalidation and not a failure: no
-   * banner, no error sentence, just back to "not converted yet".
-   */
   const choosePaper = useCallback(
     (next: Paper) => {
       setPaper(next);
-      reset();
+      applyChange({ kind: "paper" });
     },
-    [reset],
+    [applyChange],
   );
 
   const blocked = !building && pages.length === 0 ? noImagesHint : null;

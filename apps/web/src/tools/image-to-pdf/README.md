@@ -43,12 +43,13 @@ control by its accessible name and a name that changes with state cannot be
 declared. The line still accepts a drop.
 
 This is ticket #197's run, on top of #193's batch and refusal layer, #194's paper
-control, #195's decode path and #196's reordering: page-by-page progress in a
-live region, a cancel that terminates the Worker it belongs to, and a second run
-after a cancel that still produces a valid file. The whole path is real: the
-document is assembled by this repository, with no runtime PDF library. #198 adds
-EXIF orientation and the progressive/CMYK JPEG decode, #199 invalidation
-coverage, #200 the instruments, #201 the design notes.
+control, #195's decode path, #196's reordering and #199's invalidation:
+page-by-page progress in a live region, a cancel that terminates the Worker it
+belongs to, a second run after a cancel that still produces a valid file, and one
+rule that takes a produced file away the moment the paper or the list changes. The
+whole path is real: the document is assembled by this repository, with no runtime
+PDF library. #198 adds EXIF orientation and the progressive/CMYK JPEG decode,
+#200 the instruments, #201 the design notes.
 
 Nothing is uploaded: files are read with the File API, their first bytes are
 sniffed, their headers give the page's dimensions, and the document is built in
@@ -77,6 +78,7 @@ core/                 pure, browser-free logic — the part `pnpm test` covers
   packing              decoded RGBA -> white-composited RGB samples -> a zlib (Flate) stream
   pdf                  the PDF writer: pages in, PDF 1.7 bytes out
   naming               图片-YYYY-MM-DD.pdf from a date
+  invalidation         the one rule: a changed paper or list makes a produced file stale
   hints · failures     the sentences a visitor reads (including progress and the reorder announcements)
   __tests__/           the tests for those modules
 hooks/                the Tool's React state
@@ -148,15 +150,19 @@ many places use it — the place that counts consumers is `packages/*`.
    转换: no download, no progress, no banner, `转换` armed again, the list
    untouched. Cancelling is not a failure and writes nothing to the console.
 8. **Download.** The result's object URL is created when the build succeeds and
-   revoked when the result is invalidated, cancelled or the page unmounts.
-   Adding at least one page, removing one, reordering, clearing the list, or
-   changing the paper resets the run and takes the link away; a batch where every
-   file was refused does not, because the list on screen did not change.
+   revoked when the result is invalidated, cancelled or the page unmounts. Every
+   change to the document (the paper, adding at least one page, removing one,
+   clearing the list, reordering) goes through one door in `ImageToPdf.tsx` and
+   asks `core/invalidation.ts`, which puts the result row back at "not converted
+   yet": the link goes away and 转换 is armed again, or, after 清空, disabled
+   with its usual reason, with no banner. A batch where every file was refused
+   does not invalidate, and neither does a row dropped where it started: the list
+   on screen did not change.
 
 The pure parts — `sniff`, `refusal`, `limits`, `admission`, `image-size`,
-`order`, `geometry`, `jpeg`, `packing`, `pdf`, `naming`, `hints` and `failures` —
-are unit-tested in `core/__tests__/` under `pnpm test`. Everything that needs a
-browser is covered by the gate and the checklist below.
+`order`, `geometry`, `jpeg`, `packing`, `pdf`, `naming`, `invalidation`, `hints`
+and `failures` — are unit-tested in `core/__tests__/` under `pnpm test`.
+Everything that needs a browser is covered by the gate and the checklist below.
 
 ## What CI covers, and what is still yours
 
@@ -199,14 +205,26 @@ time. The second file is read back by `pdf-lib`: valid preamble and xref, one
 page per image, one image XObject each, and the media box of A4 in the images'
 landscape orientation. The cancel control is asserted gone once each run ends.
 
+Since #199 it also proves the invalidation rule end to end. With a file
+produced, each of the five changes to the document — the paper, adding at least
+one more image, removing a row, a keyboard reorder, clearing the list — is made
+through the page's own control, and after each one the download is gone, the
+result row's live region is empty (no failure sentence, no progress line), no
+banner appears, and 转换 is armed again; clearing instead leaves it disabled with
+its usual reason, and a list that still has pages never shows that reason. The
+same test shows what invalidation is not: a batch in which every file was refused
+leaves the produced file alone, because the list did not change.
+
 The unit tests hold what the gate cannot see: the exact wording of every refusal
 and limit sentence, the progress line and the fixed name 取消, the numbers behind
 the limits, the 40 M pixel boundary and the admission of PNG and WebP, the sample
 packer (a transparent pixel becomes white; the stream is zlib-wrapped, which
 `unzlibSync` reads, rather than raw deflate), the five failure codes' sentences
-with the generic fallback for anything unrecognised, and `core/order.ts`'s
-semantics (a move closes the gap, a position that does not exist changes nothing,
-the list is never mutated).
+with the generic fallback for anything unrecognised, `core/order.ts`'s semantics
+(a move closes the gap, a position that does not exist changes nothing, the list
+is never mutated), and `core/invalidation.ts`'s matrix (which changes take a
+produced file away, and the two that do not: a fully refused batch and a drop on
+the row's own position).
 
 Still by hand: opening the produced PDF in a real reader (Playwright saves a
 file, it does not draw it), on a phone and in a second browser; a touch drag on a
@@ -218,8 +236,8 @@ a twenty-image run and the four limits through the page rather than through
 than the pixel limit; hearing the progress live region with a real screen reader,
 and whether the pinned row still fits 转换, 取消 and the bar at 390px in dark
 mode; whether the handle, the paper row and its hint read well in dark mode and
-at 390px; reordering with the keyboard at 390px; EXIF orientations and the
-progressive/CMYK JPEG decode #198; and the invalidation cases #199 covers.
+at 390px; reordering with the keyboard at 390px; and EXIF orientations and the
+progressive/CMYK JPEG decode #198.
 
 ## Manual QA checklist
 
@@ -283,8 +301,13 @@ progressive/CMYK JPEG decode #198; and the invalidation cases #199 covers.
       each refused file appears once, with its own name.
 - [ ] A progressive or four-channel JPEG stays in the list and 转换 says it cannot
       be written directly (the decode path is #198's).
-- [ ] Removing the row and pressing 清空 both take the produced download away,
-      without a banner.
+- [ ] **▣** With a file produced, adding at least one more image, removing a row,
+      and a keyboard reorder each take the download away and re-arm 转换, with no
+      banner, no error sentence and no stale progress line; a list that still has
+      pages never shows the empty-list reason.
+- [ ] **▣** Clearing a list that has a produced file takes the download away and
+      leaves 转换 disabled with its usual reason; a batch in which every file was
+      refused leaves the produced file in place, because the list did not change.
 - [ ] **▣** Every row carries one drag handle — a real `<button>`, the same
       accessible name `拖动排序` on all of them, and `.touch-target` on the
       button itself (`移除` is built the same way).
@@ -318,5 +341,5 @@ progressive/CMYK JPEG decode #198; and the invalidation cases #199 covers.
       opens the picker, the action and the download are reachable, the row's
       移除 is a real button, and each row's handle reorders.
 
-The EXIF orientations and the progressive/CMYK JPEG decode (#198) are still to
-come; the invalidation cases belong to #199.
+The EXIF orientations and the progressive/CMYK JPEG decode (#198), the instruments
+(#200) and the design notes and screenshot baseline (#201) are still to come.

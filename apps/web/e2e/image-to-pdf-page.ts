@@ -228,8 +228,13 @@ export async function webp(context: BrowserContext, name = "photo.webp"): Promis
  * must still be going when 取消 is pressed. Each page costs the Worker a decode,
  * an `ImageData` copy and a deflate of its samples, which is work proportional
  * to the pixel count — so these pages are large in pixels. Being one flat colour,
- * each is small in bytes and becomes a tiny PDF stream, so eight of them make a
+ * each is small in bytes and becomes a tiny PDF stream, so sixteen of them make a
  * run of seconds while the document stays small enough to read back.
+ *
+ * Sixteen moderate pages rather than a few huge ones on purpose: the same total
+ * pixel work, but the largest single canvas stays at 1.9 M pixels, so this test
+ * does not put a 27 MB canvas into a suite that already runs twelve browsers at
+ * once. A fixture that starves the neighbours is a flaky suite, not a slow one.
  *
  * Built in a page of its own, like every fixture here: a large image generated
  * and handed over in the same renderer is the habit the repository's Gotchas warn
@@ -240,9 +245,9 @@ export async function largePngs(
   context: BrowserContext,
   options: { count?: number; width?: number; height?: number } = {},
 ): Promise<NamedBytes[]> {
-  const count = options.count ?? 8;
-  const width = options.width ?? 3000;
-  const height = options.height ?? 2250;
+  const count = options.count ?? 16;
+  const width = options.width ?? 1600;
+  const height = options.height ?? 1200;
   const builder = await context.newPage();
 
   try {
