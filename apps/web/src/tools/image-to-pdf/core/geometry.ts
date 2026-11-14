@@ -1,17 +1,19 @@
 /**
  * The one geometry function this Tool has.
  *
- * It maps a page's two inputs — the image's pixel dimensions and the chosen
- * paper — to the two things its two consumers need: a page box in points and the
- * image's rectangle inside it. The page list draws its miniature from the same
- * rectangle the PDF writer puts in the content stream, so the preview cannot
- * disagree with the download.
+ * It maps a page's inputs — the image's stored pixel dimensions, the chosen
+ * paper, and the EXIF orientation that turns the picture — to the two things its
+ * two consumers need: a page box in points and the image's rectangle inside it.
+ * The page list draws its miniature from the same rectangle the PDF writer puts
+ * in the content stream, so the preview cannot disagree with the download.
  *
  * Fit is always contain and centre. There is no crop mode, no margin parameter
  * and no orientation control: the page takes the image's orientation, because
  * asking a visitor which way round their photo is would be asking a question the
  * image already answers.
  */
+
+import { displaySize, type ExifOrientation } from "./orientation";
 
 /** A width and a height, in points. */
 export type PaperSize = { width: number; height: number };
@@ -68,13 +70,23 @@ function paperFor(image: ImageSize, paper: Paper): PaperSize {
 /**
  * The page and the image's rectangle on it: the image scaled to the smaller of
  * the two ratios, then centred on both axes.
+ *
+ * `orientation` is the EXIF value that turns the stored picture. The last four
+ * values swap its sides, so the page is laid out for the dimensions a visitor
+ * sees; a page drawn from the stored dimensions would letterbox a turned photo
+ * against its own frame.
  */
-export function pageGeometry(image: ImageSize, paper: Paper): PageGeometry {
-  const page = paperFor(image, paper);
+export function pageGeometry(
+  image: ImageSize,
+  paper: Paper,
+  orientation: ExifOrientation = 1,
+): PageGeometry {
+  const viewed = displaySize(image, orientation);
+  const page = paperFor(viewed, paper);
 
-  const scale = Math.min(page.width / image.width, page.height / image.height);
-  const width = image.width * scale;
-  const height = image.height * scale;
+  const scale = Math.min(page.width / viewed.width, page.height / viewed.height);
+  const width = viewed.width * scale;
+  const height = viewed.height * scale;
 
   return {
     page,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { pageGeometry } from "@/tools/image-to-pdf/core/geometry";
+import { pageGeometry, type PageGeometry } from "@/tools/image-to-pdf/core/geometry";
+import type { ExifOrientation } from "@/tools/image-to-pdf/core/orientation";
 import { buildPdf, type PdfImage, type PdfPage } from "@/tools/image-to-pdf/core/pdf";
 
 /**
@@ -110,7 +111,11 @@ function streamData(
   return { declared, data, terminated: after.startsWith("\nendstream") };
 }
 
-function jpegSource(channels: 1 | 3 | 4, dimensions = { width: 600, height: 800 }): PdfImage {
+function jpegSource(
+  channels: 1 | 3 | 4,
+  dimensions = { width: 600, height: 800 },
+  orientation: ExifOrientation = 1,
+): PdfImage {
   // The writer copies these bytes; it never looks inside them. A little
   // container-shaped byte string is enough to prove the copy.
   return {
@@ -119,25 +124,41 @@ function jpegSource(channels: 1 | 3 | 4, dimensions = { width: 600, height: 800 
     width: dimensions.width,
     height: dimensions.height,
     channels,
+    orientation,
   };
 }
 
 /**
- * A page whose image is packed RGB samples: what a PNG or a WebP becomes after
- * the browser decodes it (`core/packing.ts`). The bytes here stand for the
- * zlib-wrapped stream; the writer copies them like it copies a JPEG.
+ * A page whose image is packed RGB samples: what a PNG, a WebP or a decoded
+ * JPEG becomes after the browser decodes it (`core/packing.ts`). The bytes here
+ * stand for the zlib-wrapped stream; the writer copies them like it copies a
+ * JPEG.
  */
-function rawSource(dimensions = { width: 600, height: 800 }): PdfImage {
+function rawSource(
+  dimensions = { width: 600, height: 800 },
+  orientation: ExifOrientation = 1,
+): PdfImage {
   return {
     kind: "raw-rgb",
     bytes: new Uint8Array([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]),
     width: dimensions.width,
     height: dimensions.height,
+    orientation,
   };
 }
 
 function page(paper: "a4" | "letter", image = jpegSource(3)): PdfPage {
-  return { geometry: pageGeometry({ width: image.width, height: image.height }, paper), image };
+  return {
+    geometry: pageGeometry({ width: image.width, height: image.height }, paper, image.orientation),
+    image,
+  };
+}
+
+/** The one `cm` matrix in the file's content streams, as six numbers. */
+function contentMatrices(text: string): number[][] {
+  return [...text.matchAll(/q\n([-\d. ]+) cm\n\/Im0 Do\nQ/g)].map((match) =>
+    (match[1] ?? "").trim().split(/\s+/).map(Number),
+  );
 }
 
 describe("the PDF writer", () => {
@@ -335,6 +356,93 @@ describe("the PDF writer", () => {
     expect(Number(matrix?.[2])).toBeCloseTo(geometry.image.height, 3);
     expect(Number(matrix?.[3])).toBeCloseTo(geometry.image.x, 3);
     expect(Number(matrix?.[4])).toBeCloseTo(geometry.image.y, 3);
+  });
+
+  /*
+   * EXIF orientation is a placement, not a pixel operation: the JPEG's bytes are
+   * copied untouched (asserted above) and the turn lives in the content stream,
+   * so no generation is spent making a portrait photo upright. The rectangle is
+   * fixed here and the expected matrices are worked out from the orientation
+   * table by hand, one row per value; a negative scale is what the mirrored
+   * values cost.
+   */
+  it("turns the image in the content stream for every EXIF orientation", () => {
+    const rectangle: PageGeometry = {
+      page: { width: 200, height: 100 },
+      image: { x: 10, y: 20, width: 80, height: 40 },
+    };
+
+    const expected: Record<ExifOrientation, number[]> = {
+      1: [80, 0, 0, 40, 10, 20],
+      2: [-80, 0, 0, 40, 90, 20],
+      3: [-80, 0, 0, -40, 90, 60],
+      4: [80, 0, 0, -40, 10, 60],
+      5: [0, -40, -80, 0, 90, 60],
+      6: [0, -40, 80, 0, 10, 60],
+      7: [0, 40, 80, 0, 10, 20],
+      8: [0, 40, -80, 0, 90, 20],
+    };
+
+    for (const orientation of [1, 2, 3, 4, 5, 6, 7, 8] as const) {
+      const text = latin1(
+        buildPdf([
+          { geometry: rectangle, image: jpegSource(3, { width: 80, height: 40 }, orientation) },
+        ]),
+      );
+
+      expect(contentMatrices(text)[0], `orientation ${String(orientation)}`).toEqual(
+        expected[orientation],
+      );
+    }
+  });
+
+  it("gives a decoded image the same turn as a passed-through one", () => {
+    // A progressive or CMYK JPEG is decoded and written as samples, but it is
+    // the same picture on the same page: the turn cannot depend on which path
+    // the image took.
+    const rectangle: PageGeometry = {
+      page: { width: 200, height: 100 },
+      image: { x: 10, y: 20, width: 80, height: 40 },
+    };
+
+    for (const orientation of [5, 6, 7, 8] as const) {
+      const passed = latin1(
+        buildPdf([
+          { geometry: rectangle, image: jpegSource(3, { width: 80, height: 40 }, orientation) },
+        ]),
+      );
+      const decoded = latin1(
+        buildPdf([
+          { geometry: rectangle, image: rawSource({ width: 80, height: 40 }, orientation) },
+        ]),
+      );
+
+      expect(contentMatrices(decoded)[0], `orientation ${String(orientation)}`).toEqual(
+        contentMatrices(passed)[0],
+      );
+    }
+  });
+
+  it("writes a turned picture onto the page the geometry function laid out for it", () => {
+    // A 96 x 128 photo tagged value 6 is viewed as 128 x 96: A4 is used
+    // sideways, and the matrix is the quarter turn inside that box.
+    const stored = { width: 96, height: 128 };
+    const geometry = pageGeometry(stored, "a4", 6);
+    const inspected = inspectPdf(buildPdf([{ geometry, image: jpegSource(3, stored, 6) }]));
+
+    const box = /\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/.exec(inspected.text);
+    expect(Number(box?.[1])).toBeCloseTo(841.89, 2);
+    expect(Number(box?.[2])).toBeCloseTo(595.28, 2);
+
+    const [a, b, c, d, e, f] = contentMatrices(inspected.text)[0] ?? [];
+    // The image fills the page's height, is centred across its width, and is
+    // turned a quarter clockwise through the negative b and the positive c.
+    expect(a).toBeCloseTo(0, 6);
+    expect(b).toBeCloseTo(-geometry.image.height, 3);
+    expect(c).toBeCloseTo(geometry.image.width, 3);
+    expect(d).toBeCloseTo(0, 6);
+    expect(e).toBeCloseTo(geometry.image.x, 3);
+    expect(f).toBeCloseTo(geometry.image.y + geometry.image.height, 3);
   });
 
   it("points the trailer at the catalog and every page at the page tree", () => {

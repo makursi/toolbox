@@ -68,6 +68,49 @@ describe("page geometry", () => {
   });
 
   /*
+   * The page's proportions follow the picture as a visitor sees it, not the
+   * pixels as the file stores them: an EXIF orientation of 5-8 turns the
+   * picture, so the page must be laid out for the turned dimensions. This is
+   * the same geometry function with the orientation in hand, which is what
+   * keeps the row's miniature and the PDF agreeing.
+   */
+  it("lays the page out for the dimensions the orientation turns the picture to", () => {
+    const stored = { width: 96, height: 128 };
+    const landscape = { width: 128, height: 96 };
+
+    expect(pageGeometry(stored, "a4", 6)).toEqual(pageGeometry(landscape, "a4"));
+    expect(pageGeometry(stored, "a4", 6).page).toEqual({ width: 841.89, height: 595.28 });
+
+    // The quarter-turn values swap; the mirrored ones do not.
+    for (const orientation of [1, 2, 3, 4] as const) {
+      expect(pageGeometry(stored, "a4", orientation).page).toEqual({
+        width: 595.28,
+        height: 841.89,
+      });
+    }
+    for (const orientation of [5, 6, 7, 8] as const) {
+      expect(pageGeometry(stored, "a4", orientation).page).toEqual({
+        width: 841.89,
+        height: 595.28,
+      });
+    }
+  });
+
+  it("uses the turned dimensions for 原始尺寸 as well", () => {
+    const geometry = pageGeometry({ width: 96, height: 128 }, "original", 8);
+
+    // Viewed for value 8 the picture is 128 x 96, so 原始尺寸 is 96 x 72 pt and
+    // the image fills it exactly, the same as any other original-size page.
+    expect(geometry.page).toEqual({ width: 128 * ORIGINAL_SCALE, height: 96 * ORIGINAL_SCALE });
+    expect(geometry.image).toEqual({
+      x: 0,
+      y: 0,
+      width: 128 * ORIGINAL_SCALE,
+      height: 96 * ORIGINAL_SCALE,
+    });
+  });
+
+  /*
    * The row's miniature is drawn from this function, so "the row reshapes when
    * the visitor switches paper" is a claim about `pageGeometry`: A4 and Letter
    * are different shapes, and 原始尺寸 has no letterboxing to draw because the

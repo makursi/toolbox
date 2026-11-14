@@ -1,31 +1,49 @@
 import type { ImageSize } from "./geometry";
 import { readJpeg } from "./jpeg";
+import type { ExifOrientation } from "./orientation";
 import type { ImageFormat } from "./sniff";
 
 /**
- * An accepted image's pixel dimensions, read from its own header.
+ * An accepted image's header: the dimensions it stores and the EXIF turn.
  *
- * The row's miniature and the PDF writer's geometry both need the dimensions,
- * and asking a decoder for them would make a list of twenty images cost twenty
- * decodes before anything is drawn. So the header answers instead: JPEG has its
- * own walk, and PNG and WebP each put the size in the first chunk.
- *
- * Nothing here decodes pixels. A header that stops before the dimensions is
- * `null`, which the caller turns into a refusal sentence rather than a guess.
- * Admission reads the same numbers to hold the pixel limit without a decode; the
- * Worker's decode path takes its geometry from the dimensions the decoder
- * reports, which is the first place a header's claim is checked against pixels.
+ * A page needs both together. The dimensions decide the paper's proportions
+ * before anything is decoded, and the orientation decides which of them is the
+ * width a visitor sees; handing them out as one value is what keeps a caller
+ * from taking the size and forgetting the turn.
  */
-export function readImageSize(format: ImageFormat, bytes: Uint8Array): ImageSize | null {
+export type ImageHeader = { size: ImageSize; orientation: ExifOrientation };
+
+/**
+ * An accepted image's header, or `null` when the bytes stop before it.
+ *
+ * The row's miniature and the PDF writer's geometry both need this, and asking a
+ * decoder for it would make a list of twenty images cost twenty decodes before
+ * anything is drawn. So the header answers instead: JPEG has its own walk, and
+ * PNG and WebP each put the size in the first chunk. Only JPEG carries the EXIF
+ * orientation this Tool reads; a PNG or a WebP is upright.
+ *
+ * Nothing here decodes pixels. Admission reads the same numbers to hold the pixel
+ * limit without a decode; the Worker's decode path takes its geometry from the
+ * dimensions the decoder reports, which is the first place a header's claim is
+ * checked against pixels.
+ */
+export function readImageHeader(format: ImageFormat, bytes: Uint8Array): ImageHeader | null {
   if (format === "jpeg") {
     const info = readJpeg(bytes);
 
-    return info === null ? null : { width: info.width, height: info.height };
+    return info === null
+      ? null
+      : { size: { width: info.width, height: info.height }, orientation: info.orientation };
   }
 
-  if (format === "png") return readPngSize(bytes);
+  const size = format === "png" ? readPngSize(bytes) : readWebpSize(bytes);
 
-  return readWebpSize(bytes);
+  return size === null ? null : { size, orientation: 1 };
+}
+
+/** The stored pixel dimensions alone, for the callers that have no page to lay out. */
+export function readImageSize(format: ImageFormat, bytes: Uint8Array): ImageSize | null {
+  return readImageHeader(format, bytes)?.size ?? null;
 }
 
 const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

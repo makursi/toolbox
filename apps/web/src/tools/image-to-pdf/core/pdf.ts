@@ -1,4 +1,5 @@
 import type { PageGeometry, Rectangle } from "./geometry";
+import { orientationMatrix, type ExifOrientation } from "./orientation";
 
 /**
  * This repository's PDF writer: pages in, PDF bytes out.
@@ -24,19 +25,25 @@ export type JpegImage = {
    * recompressed and the visitor's photo keeps its own generation.
    */
   bytes: Uint8Array<ArrayBuffer>;
-  /** Pixel dimensions, from the JPEG's own frame header. */
+  /** The stored pixel dimensions, from the JPEG's own frame header. */
   width: number;
   height: number;
   /** Colour components: 1 = gray, 3 = YCbCr (PDF shows it as RGB), 4 = CMYK. */
   channels: number;
+  /**
+   * The EXIF orientation, which becomes the content stream's matrix. The bytes
+   * above are the picture as recorded, so the turn is placement, not pixels:
+   * no value of it causes a decode or a re-encode.
+   */
+  orientation: ExifOrientation;
 };
 
 /**
- * An image the browser had to decode: PNG and WebP take this path today, and
- * #198 gives progressive and four-channel JPEGs the same one. Its pixels are
- * packed as RGB samples and zlib-compressed by `core/packing.ts`, already
- * composited onto white page paper, so the stream carries `/Filter /FlateDecode`
- * and **no `/DecodeParms`**.
+ * An image the browser had to decode: PNG and WebP take this path, and since
+ * #198 progressive and four-channel JPEGs do too. Its pixels are packed as RGB
+ * samples and zlib-compressed by `core/packing.ts`, already composited onto
+ * white page paper, so the stream carries `/Filter /FlateDecode` and **no
+ * `/DecodeParms`**.
  *
  * The PNG predictor that would preserve the original compressed bytes is a legal
  * alternative and was deliberately not taken: it is one more thing every reader
@@ -48,9 +55,16 @@ export type RawRgbImage = {
   kind: "raw-rgb";
   /** Packed, white-composited, zlib-wrapped RGB samples. */
   bytes: Uint8Array<ArrayBuffer>;
-  /** Pixel dimensions of the samples, not of the file it came from. */
+  /** Pixel dimensions of the samples, as the decoder recorded them. */
   width: number;
   height: number;
+  /**
+   * The EXIF orientation the source file carried. The samples are the stored
+   * picture (a browser's decoder hands them back unrotated), so the turn is the
+   * same content-stream matrix a passed-through JPEG gets. Image kinds decide the
+   * stream's filter, never its placement.
+   */
+  orientation: ExifOrientation;
 };
 
 /**
@@ -145,11 +159,26 @@ function objectsPerPage(): number {
   return 3;
 }
 
-/** The content stream: scale the image XObject to the rectangle and draw it. */
-function contentStream(rectangle: Rectangle): string {
+/**
+ * The content stream: place the image XObject on the rectangle and turn it the
+ * way its EXIF orientation says.
+ *
+ * The rectangle is the geometry's display rectangle, and `orientationMatrix`
+ * maps the image's unit square into it. Value 1 is the plain scale-and-place the
+ * Tool started with; the other seven fold a mirror or a quarter turn in, and the
+ * negative scale a mirrored value produces is legal in `cm`. No pixel is
+ * touched: this is the whole of orientation handling on the passthrough path.
+ */
+function contentStream(rectangle: Rectangle, orientation: ExifOrientation): string {
+  const [a, b, c, d, e, f] = orientationMatrix(orientation);
+  const width = rectangle.width;
+  const height = rectangle.height;
+
   return [
     "q",
-    `${num(rectangle.width)} 0 0 ${num(rectangle.height)} ${num(rectangle.x)} ${num(rectangle.y)} cm`,
+    `${num(a * width)} ${num(b * height)} ${num(c * width)} ${num(d * height)} ${num(
+      rectangle.x + e * width,
+    )} ${num(rectangle.y + f * height)} cm`,
     "/Im0 Do",
     "Q",
     "",
@@ -216,7 +245,7 @@ export function buildPdf(pages: readonly PdfPage[]): Uint8Array<ArrayBuffer> {
     const pageNumber = 3 + index * perPage;
     const contentNumber = pageNumber + 1;
     const imageNumber = pageNumber + 2;
-    const content = contentStream(page.geometry.image);
+    const content = contentStream(page.geometry.image, page.image.orientation);
     const image = imageObject(page.image);
 
     writeObject(
