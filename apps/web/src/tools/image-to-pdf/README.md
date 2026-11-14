@@ -23,12 +23,14 @@ control by its accessible name and a name that changes with state cannot be
 declared. The line still accepts a drop.
 
 This is ticket #193's batch and refusal layer, built on #192's single-JPEG
-tracer. The whole path is real: the document is assembled by this repository,
-with no runtime PDF library. PNG and WebP are admitted and become rows here, but
-their pages are written by #195's decode path; converting a batch that contains
-one of them ends in a refusal until then. #194 adds the paper control, #195/#196
-the decode path and reordering, #197 progress and cancel, #198 EXIF orientation,
-#199 invalidation coverage, #200 the instruments, #201 the design notes.
+tracer. #194 has landed the paper control: A4, Letter or 原始尺寸, with every
+row reshaping to the chosen paper. The whole path is real: the document is
+assembled by this repository, with no runtime PDF library. PNG and WebP are
+admitted and become rows here, but their pages are written by #195's decode
+path; converting a batch that contains one of them ends in a refusal until then.
+#195/#196 add the decode path and reordering, #197 progress and cancel, #198 EXIF
+orientation, #199 invalidation coverage, #200 the instruments, #201 the design
+notes.
 
 Nothing is uploaded: files are read with the File API, their first bytes are
 sniffed, their headers give the page's dimensions, and the document is built in
@@ -37,8 +39,9 @@ a Worker from the original bytes.
 ## Layout
 
 ```
-ImageToPdf.tsx        the page: input region, page list, pinned result row
+ImageToPdf.tsx        the page: input region, page list, paper row, pinned result row
 page-row/             one row: page number, page miniature, name, remove
+paper-row/            the page-size row: A4 / Letter / 原始尺寸, one choice
 meta.ts               the Tool Registry entry
 rules.md              this Tool's own rules (page structure, input, geometry, the writer)
 README.md             this file: how it works, and what to check by hand
@@ -83,9 +86,11 @@ many places use it — the place that counts consumers is `packages/*`.
    order; the refused ones are listed once each, in the same order, under the
    input region.
 3. **Preview.** `PageRow` calls `pageGeometry` with the image's dimensions and
-   the paper — A4 today, because #194's control has not landed — and draws the
-   page's box and the image's true rectangle inside it. The PDF writer calls the
-   same function, so the preview cannot disagree with the file.
+   the chosen paper — A4 until the visitor picks another — and draws the page's
+   box and the image's true rectangle inside it. The PDF writer calls the same
+   function, so the preview cannot disagree with the file. Switching paper
+   reshapes every row, which is how the visitor sees a landscape photo's white
+   bands before downloading it.
 4. **Convert.** `usePdfBuild` reads each file's bytes, transfers them to one
    dedicated Worker, and waits for one response.
 5. **Write.** Inside the Worker (`worker/worker.ts`), each page's bytes are
@@ -97,9 +102,9 @@ many places use it — the place that counts consumers is `packages/*`.
    sentence until #195 lands the decode path.
 6. **Download.** The result's object URL is created when the build succeeds and
    revoked when the result is invalidated or the page unmounts. Adding at least
-   one page, removing one, or clearing the list resets the run and takes the
-   link away; a batch where every file was refused does not, because the list on
-   screen did not change.
+   one page, removing one, clearing the list, or changing the paper resets the
+   run and takes the link away; a batch where every file was refused does not,
+   because the list on screen did not change.
 
 The pure parts — `sniff`, `refusal`, `limits`, `admission`, `image-size`,
 `geometry`, `jpeg`, `pdf`, `naming` — are unit-tested in `core/__tests__/` under
@@ -113,10 +118,13 @@ CI runs `fmt:check`, the docs checks, `lint`, `typecheck`, `test`, `build` and
 build in a real browser and covers the items marked **▣**: a real JPEG through
 the page's own file input, the action pressed, the download captured, and the
 file parsed with `pdf-lib` — a second implementation installed as a dev
-dependency, never imported by app code; and a mixed batch in which two real JPEGs
-surround a GIF, an AVIF and a renamed text file, dropped as one gesture, with the
-refusals read as text, a second batch appended, and a PDF whose page count,
-image-XObject count and image bytes equal the accepted files in list order.
+dependency, never imported by app code. Since #194 it also reads the media box
+back for each of the three paper choices, drives the row from the keyboard, and
+checks that changing the paper takes the produced file away; and since #193 a
+mixed batch in which two real JPEGs surround a GIF, an AVIF and a renamed text
+file, dropped as one gesture, with the refusals read as text, a second batch
+appended, and a PDF whose page count, image-XObject count and image bytes equal
+the accepted files in list order.
 
 The unit tests hold what the gate cannot see: the exact wording of every refusal
 and limit sentence, the numbers behind them, and the admission of PNG and WebP
@@ -126,9 +134,9 @@ is #195's).
 Still by hand: opening the produced PDF in a real reader (Playwright saves a
 file, it does not draw it), on a phone and in a second browser; a twenty-image
 run and the three limits through the page rather than through `core/`; a PNG and
-a WebP page once #195 lands; the paper choices #194 adds; reordering #196;
-progress and cancel #197; EXIF orientations #198; and the invalidation cases
-#199 covers.
+a WebP page once #195 lands; whether the paper row and its hint read well in dark
+mode and at 390px; reordering #196; progress and cancel #197; EXIF orientations
+#198; and the invalidation cases #199 covers.
 
 ## Manual QA checklist
 
@@ -157,6 +165,24 @@ progress and cancel #197; EXIF orientations #198; and the invalidation cases
       collapses to the 继续添加 line, and that line still accepts a drop.
 - [ ] **▣** The converted mixed batch has exactly the accepted pages, in list
       order, with one image XObject each.
+- [ ] **▣** The page-size row offers A4, Letter and 原始尺寸 as one single
+      choice, A4 checked on a fresh page, and explains 原始尺寸 as the image's
+      own pixels at 96 dpi rather than as a paper size.
+- [ ] **▣** Downloading once per paper gives the media box the choice promises:
+      A4 595.28 x 841.89, Letter 612 x 792, and 原始尺寸 the source's pixels x
+      0.75.
+- [ ] **▣** Changing the paper takes a produced download away and re-arms 转换,
+      without a banner.
+- [ ] **▣** Tab reaches the row at the checked choice and the arrow keys change
+      the choice (wrapping at both ends); the selected item differs by
+      `aria-checked` and `data-state`, not only by colour.
+- [ ] **▣** A portrait and a landscape image in one run produce one document
+      with pages of both orientations.
+- [ ] Switching paper visibly reshapes every row: A4 and Letter draw different
+      page proportions, and 原始尺寸 has no white bands.
+- [ ] The paper row and its hint read correctly in dark mode and at 390px, and
+      the pinned result row still sits inside the viewport while the list
+      scrolls.
 - [ ] The file opens in a desktop reader, in a phone's reader, and in a second
       browser, with the whole image visible and centred.
 - [ ] A landscape JPEG produces a landscape page.
@@ -174,5 +200,5 @@ progress and cancel #197; EXIF orientations #198; and the invalidation cases
       opens the picker, the action and the download are reachable, and the row's
       移除 is a real button.
 
-The paper choices belong to #194's checklist; reordering, progress, cancel and
-the EXIF orientations to #195-#198; the invalidation cases to #199.
+Reordering, progress, cancel and the EXIF orientations belong to #195-#198; the
+invalidation cases to #199.

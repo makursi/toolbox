@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   avifFile,
@@ -10,6 +10,7 @@ import {
   open,
   renamedTextFile,
   todayPdfName,
+  type PdfFacts,
 } from "./image-to-pdf-page";
 
 /**
@@ -19,10 +20,38 @@ import {
  * implementation.
  *
  * What this proves is the structure a reader needs — a preamble, a page tree
- * with one page on A4 in the image's orientation, one image XObject per page,
- * and the original JPEG bytes inside the stream. What it cannot prove is that a
- * reader *draws* it: that stays in the Tool's README as a manual item.
+ * with one page per image, each page's media box on the chosen paper, one image
+ * XObject per page, and the original JPEG bytes inside the stream. What it cannot
+ * prove is that a reader *draws* it: that stays in the Tool's README as a manual
+ * item.
  */
+
+/** The papers' sizes in points, as a reader would state them. */
+const A4_PORTRAIT = { width: 595.28, height: 841.89 };
+const A4_LANDSCAPE = { width: 841.89, height: 595.28 };
+const LETTER_PORTRAIT = { width: 612, height: 792 };
+
+function expectBox(
+  box: { width: number; height: number } | undefined,
+  expected: { width: number; height: number },
+): void {
+  expect(box).toBeDefined();
+  expect(box?.width).toBeCloseTo(expected.width, 2);
+  expect(box?.height).toBeCloseTo(expected.height, 2);
+}
+
+/** Press the page's own download and read the file that lands on disk. */
+async function downloadPdf(page: Page): Promise<PdfFacts> {
+  const link = page.locator("a[download]");
+  await expect(link).toBeVisible();
+
+  const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+  const path = await download.path();
+  if (path === null) throw new Error("the download produced no file to read");
+
+  return inspectDownloadedPdf(path);
+}
+
 test("one JPEG becomes a one-page A4 PDF the site wrote itself", async ({ page }) => {
   await open(page);
 
@@ -209,4 +238,133 @@ test("a mixed batch keeps the accepted files and lists every refusal once", asyn
   await expect(page.getByText("有文件没能加入")).toHaveCount(0);
   await expect(page.getByText("继续添加")).toHaveCount(0);
   await expect(page.getByText("也可以把文件拖到这里")).toBeVisible();
+});
+
+/**
+ * The paper is a choice, and the three media boxes are the proof: the visitor's
+ * selection is not a preview preference, it is what every page in the file says.
+ *
+ * The same test carries the invalidation the control owes: a change takes the
+ * produced file away, because a download that no longer matches the preview is
+ * the worst thing this page can hand over.
+ */
+test("the paper row is one choice of three, and the download says which was chosen", async ({
+  page,
+}) => {
+  await open(page);
+
+  const group = page.getByRole("radiogroup", { name: "页面尺寸" });
+  await expect(group).toBeVisible();
+
+  const a4 = group.getByRole("radio", { name: "A4" });
+  const letter = group.getByRole("radio", { name: "Letter" });
+  const original = group.getByRole("radio", { name: "原始尺寸" });
+
+  /*
+   * A fresh page is on A4, and the group is a single choice: exactly one item is
+   * checked. `aria-checked`/`data-state` are the machine-readable half of the
+   * selection; the drawn half is border, weight and surface, never colour, and
+   * the row's own component carries those classes.
+   */
+  await expect(a4).toHaveAttribute("aria-checked", "true");
+  await expect(a4).toHaveAttribute("data-state", "on");
+  await expect(letter).toHaveAttribute("aria-checked", "false");
+  await expect(letter).toHaveAttribute("data-state", "off");
+  await expect(original).toHaveAttribute("aria-checked", "false");
+  await expect(original).toHaveAttribute("data-state", "off");
+
+  // 原始尺寸 is explained next to the choices: one pixel is three quarters of a
+  // point at 96 dpi, so the two words cannot be read as a paper size.
+  await expect(page.getByText("96 dpi")).toBeVisible();
+  await expect(page.getByText("不是一种纸")).toBeVisible();
+
+  const photo = await jpeg(page.context());
+  await chooseFiles(page, [photo]);
+  const convert = page.getByRole("button", { name: "转换" });
+
+  await convert.click();
+  const a4Pdf = await downloadPdf(page);
+  expect(a4Pdf.pageCount).toBe(1);
+  expectBox(a4Pdf.mediaBoxes[0], A4_PORTRAIT);
+
+  // Changing the paper invalidates the produced document: no banner, no error,
+  // the link is gone and the action is armed again.
+  await letter.click();
+  await expect(letter).toHaveAttribute("aria-checked", "true");
+  await expect(a4).toHaveAttribute("aria-checked", "false");
+  await expect(page.locator("a[download]")).toHaveCount(0);
+  await expect(convert).toBeEnabled();
+
+  await convert.click();
+  const letterPdf = await downloadPdf(page);
+  expectBox(letterPdf.mediaBoxes[0], LETTER_PORTRAIT);
+
+  // 原始尺寸 is the image's own pixels at 96 dpi: 96 x 128 px -> 72 x 96 pt.
+  await original.click();
+  await expect(original).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("a[download]")).toHaveCount(0);
+
+  await convert.click();
+  const originalPdf = await downloadPdf(page);
+  expectBox(originalPdf.mediaBoxes[0], { width: 96 * 0.75, height: 128 * 0.75 });
+});
+
+/**
+ * A group a pointer can use and a keyboard cannot is half a control. Tab enters
+ * the row at the checked item (the group is one Tab stop, which is what makes it
+ * read as one choice), and the arrow keys change the choice rather than only
+ * moving focus — the behaviour a radio group promises.
+ */
+test("Tab reaches the paper row and the arrow keys change the choice", async ({ page }) => {
+  await open(page);
+
+  const photo = await jpeg(page.context());
+  await chooseFiles(page, [photo]);
+
+  const a4 = page.getByRole("radio", { name: "A4" });
+  const letter = page.getByRole("radio", { name: "Letter" });
+  const original = page.getByRole("radio", { name: "原始尺寸" });
+
+  // Tab from the control before the row: its own remove button.
+  await page.getByRole("button", { name: "移除" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(a4).toBeFocused();
+
+  await page.keyboard.press("ArrowRight");
+  await expect(letter).toHaveAttribute("aria-checked", "true");
+  await expect(letter).toBeFocused();
+  await expect(a4).toHaveAttribute("aria-checked", "false");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(original).toHaveAttribute("aria-checked", "true");
+
+  // The row wraps, so the last choice's ArrowRight is the first choice again.
+  await page.keyboard.press("ArrowRight");
+  await expect(a4).toHaveAttribute("aria-checked", "true");
+
+  await page.keyboard.press("ArrowLeft");
+  await expect(original).toHaveAttribute("aria-checked", "true");
+});
+
+/**
+ * Orientation is not a control: each page takes its own image's. A mixed album
+ * therefore becomes one document with both orientations, without a question.
+ */
+test("a mixed album keeps each page in its own image's orientation", async ({ page }) => {
+  await open(page);
+
+  const portrait = await jpeg(page.context());
+  const landscape = await jpeg(page.context(), {
+    height: 96,
+    name: "landscape.jpg",
+    width: 128,
+  });
+
+  await chooseFiles(page, [portrait, landscape]);
+  await page.getByRole("button", { name: "转换" }).click();
+
+  const pdf = await downloadPdf(page);
+  expect(pdf.pageCount).toBe(2);
+  expectBox(pdf.mediaBoxes[0], A4_PORTRAIT);
+  expectBox(pdf.mediaBoxes[1], A4_LANDSCAPE);
 });

@@ -23,18 +23,20 @@ import {
 import { usePageList } from "./hooks/use-page-list/use-page-list";
 import { usePdfBuild } from "./hooks/use-pdf-build/use-pdf-build";
 import { PageRow } from "./page-row/page-row";
+import { PaperRow } from "./paper-row/paper-row";
 
 /**
  * The Image to PDF page.
  *
  * It is a client component by necessity: the files are read here, the document
  * is built in a Worker, and nothing leaves the tab. What it holds is only the
- * form; the page list is `usePageList` and one run is `usePdfBuild`, which is
- * also where the download's object URL is created and released.
+ * form; the page list is `usePageList`, the chosen paper is one piece of state
+ * here, and one run is `usePdfBuild`, which is also where the download's object
+ * URL is created and released.
  *
- * #194 adds the paper control under this component; until then the paper is the
- * default the row and the Worker both read, so the preview and the document
- * cannot disagree about it.
+ * The paper is passed to every row and to the build, so the miniature and the
+ * file cannot disagree about it. Changing it is a change to the document, and
+ * therefore invalidates a produced file exactly as touching the list does.
  */
 
 /**
@@ -51,8 +53,8 @@ export function ImageToPdf() {
   const { status, result, failure, start, reset } = usePdfBuild();
   const input = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [paper, setPaper] = useState<Paper>(DEFAULT_PAPER);
 
-  const paper: Paper = DEFAULT_PAPER;
   const building = status === "building";
   const empty = pages.length === 0;
 
@@ -86,6 +88,21 @@ export function ImageToPdf() {
     clear();
     reset();
   }, [clear, reset]);
+
+  /**
+   * Choose the paper, then invalidate any produced document.
+   *
+   * A file built for A4 cannot stay on screen while every row now draws Letter.
+   * Like the list's own changes, this is an invalidation and not a failure: no
+   * banner, no error sentence, just back to "not converted yet".
+   */
+  const choosePaper = useCallback(
+    (next: Paper) => {
+      setPaper(next);
+      reset();
+    },
+    [reset],
+  );
 
   const blocked = !building && pages.length === 0 ? noImagesHint : null;
 
@@ -236,6 +253,13 @@ export function ImageToPdf() {
       {pages.length === 0 && (
         <p className="text-sm leading-[1.45] text-muted-foreground">{emptyPages}</p>
       )}
+
+      {/*
+        The page-size row, between the page list and the result row. It is always
+        present: the choice is the page's, not a state of the list. Every row
+        above reshapes when it changes, and a produced document is invalidated.
+      */}
+      <PaperRow disabled={building} onChange={choosePaper} paper={paper} />
 
       {/*
         The result row stays on screen while the list scrolls. It is the page's

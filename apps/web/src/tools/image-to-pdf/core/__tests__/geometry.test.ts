@@ -67,6 +67,43 @@ describe("page geometry", () => {
     expect(geometry.image).toEqual({ x: 0, y: 0, width: 750, height: 1125 });
   });
 
+  /*
+   * The row's miniature is drawn from this function, so "the row reshapes when
+   * the visitor switches paper" is a claim about `pageGeometry`: A4 and Letter
+   * are different shapes, and 原始尺寸 has no letterboxing to draw because the
+   * image's rectangle is the whole page.
+   */
+  it("gives the miniature a different proportion on A4 than on Letter", () => {
+    const image = { width: 96, height: 128 };
+
+    const a4 = pageGeometry(image, "a4");
+    const letter = pageGeometry(image, "letter");
+
+    expect(a4.page.width / a4.page.height).toBeCloseTo(595.28 / 841.89, 6);
+    expect(letter.page.width / letter.page.height).toBeCloseTo(612 / 792, 6);
+    // The two ratios differ by more than the sixth decimal place a rounded box
+    // could hide: switching paper is visible on every row, not a token nudge.
+    expect(a4.page.width / a4.page.height).not.toBeCloseTo(
+      letter.page.width / letter.page.height,
+      4,
+    );
+  });
+
+  it("fills the whole page for 原始尺寸, so the miniature shows no white bands", () => {
+    const image = { width: 1200, height: 800 };
+    const geometry = pageGeometry(image, "original");
+
+    // The page has exactly the image's shape, and the rectangle covers it: the
+    // row can draw no letterboxing because there is none on the page.
+    expect(geometry.page.width / geometry.page.height).toBeCloseTo(image.width / image.height, 9);
+    expect(geometry.image).toEqual({
+      x: 0,
+      y: 0,
+      width: geometry.page.width,
+      height: geometry.page.height,
+    });
+  });
+
   it("contains a very wide image on A4 with white above and below", () => {
     const geometry = pageGeometry({ width: 4000, height: 100 }, "a4");
 
