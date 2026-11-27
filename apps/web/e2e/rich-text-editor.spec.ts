@@ -14,6 +14,7 @@ import {
   deleteImage,
   downloadFromFileMenu,
   dropImage,
+  dropImages,
   editor,
   fileTrigger,
   hidePage,
@@ -1371,6 +1372,30 @@ test("the eleventh image is refused with the document's own sentence", async ({ 
   }
 
   await insertImageFromToolbar(page, pngFile("第十一张.png"));
+
+  await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
+  await expect(imagesInCanvas(page)).toHaveCount(10);
+});
+
+/**
+ * One drop carrying two files (#216's admission, #215's fix).
+ *
+ * The two are admitted one after the other, so the second file's admission reads
+ * the document the first one changed: nine images in the document, a drop of two,
+ * and the tenth is taken while the eleventh is refused. Both admissions computed
+ * before either insert would have seen nine, let both files through, and left the
+ * document holding eleven — which is the state this case would find, not the
+ * count below.
+ */
+test("two files dropped together are admitted one after the other", async ({ page }) => {
+  await open(page);
+
+  for (let index = 0; index < 9; index += 1) {
+    await dropImage(page, pngFile(`第${index + 1}张.png`));
+    await expect(imagesInCanvas(page)).toHaveCount(index + 1);
+  }
+
+  await dropImages(page, [pngFile("第十张.png"), pngFile("第十一张.png")]);
 
   await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
   await expect(imagesInCanvas(page)).toHaveCount(10);

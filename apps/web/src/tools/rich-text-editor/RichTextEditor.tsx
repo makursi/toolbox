@@ -244,8 +244,12 @@ function EditorSurface({
    * The editor's drop and paste handlers are created with the editor, before
    * `insertImage` exists in this render, so they reach it through a ref. The ref is
    * refreshed whenever the editor changes, so a handler can never hold a stale one.
+   *
+   * The function it holds is asynchronous because a drop or a paste can carry more
+   * than one file, and the files have to be admitted and inserted one at a time
+   * (see the handlers below).
    */
-  const insertImageRef = useRef<(file: File) => void>(() => {});
+  const insertImageRef = useRef<(file: File) => Promise<void>>(async () => {});
 
   const requestImagePicker = useCallback(() => setImageRequest((count) => count + 1), []);
 
@@ -384,6 +388,15 @@ function EditorSurface({
        * `preventDefault` before the asynchronous insert is what stops the browser
        * from also doing its default with the file; the handlers return `true` so
        * ProseMirror does not treat the same bytes as text as well.
+       *
+       * The files are awaited one at a time, not fired together: admission counts
+       * the images and bytes the document already holds, so two files dropped
+       * together are two candidates against one state. Inserting both before
+       * either landed would compute both admissions from the state before the
+       * first node exists, and two files could each pass the ten-image and 40 MB
+       * limits while together going over one. Awaiting the first insert is what
+       * makes the second file's admission see the first one's node. A paste that
+       * carries several files is the same path with the same problem.
        */
       handleDrop: (_view, event, _slice, moved) => {
         if (moved) return false;
@@ -392,7 +405,9 @@ function EditorSurface({
         if (files.length === 0) return false;
 
         event.preventDefault();
-        for (const file of files) insertImageRef.current(file);
+        void (async () => {
+          for (const file of files) await insertImageRef.current(file);
+        })();
 
         return true;
       },
@@ -401,7 +416,9 @@ function EditorSurface({
         if (files.length === 0) return false;
 
         event.preventDefault();
-        for (const file of files) insertImageRef.current(file);
+        void (async () => {
+          for (const file of files) await insertImageRef.current(file);
+        })();
 
         return true;
       },
@@ -414,9 +431,13 @@ function EditorSurface({
    * The rules and the command are `editor/insert-image.ts`'s; what this callback
    * owns is the answer: a kept file clears any sentence left by the last one, and a
    * refused one paints the sentence that says which rule it broke.
+   *
+   * It returns a promise because its callers have to be able to wait for the node
+   * to land: a drop of several files admits the second one against a document the
+   * first one has already changed (see the drop and paste handlers above).
    */
   const insertImage = useCallback(
-    (file: File) => {
+    async (file: File) => {
       if (editor === null) return;
 
       /*
@@ -424,7 +445,11 @@ function EditorSurface({
        * it is not one of the four rules and has nothing the visitor could act on, so
        * the canvas stays as it was and the previous sentence is cleared.
        */
-      void insertImageFile(editor, file).then(setImageRefusal, () => setImageRefusal(null));
+      try {
+        setImageRefusal(await insertImageFile(editor, file));
+      } catch {
+        setImageRefusal(null);
+      }
     },
     [editor],
   );
@@ -470,7 +495,8 @@ function EditorSurface({
    * is part of the canvas a visitor aims at, and a browser's default for a file
    * dropped outside an editable is to navigate to it and leave the document.
    * `defaultPrevented` is how this half knows the editor already took the event, so
-   * a drop on the text is inserted once rather than twice.
+   * a drop on the text is inserted once rather than twice. The files are awaited
+   * one at a time for the reason the editor's own handlers give.
    */
   const handleCanvasDrop = (event: DragEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) return;
@@ -480,7 +506,9 @@ function EditorSurface({
 
     event.preventDefault();
 
-    for (const file of files) insertImageRef.current(file);
+    void (async () => {
+      for (const file of files) await insertImageRef.current(file);
+    })();
   };
 
   return (

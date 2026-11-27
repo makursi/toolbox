@@ -546,31 +546,37 @@ function entriesOf(files: readonly ImageFile[]) {
 }
 
 /**
- * Drop an image onto the editing surface, the way a visitor drags a file in.
+ * Drop image files onto the editing surface, the way a visitor drags a file in.
  *
- * The bytes are rebuilt into a real `File` inside the page and carried by a real
+ * The bytes are rebuilt into real `File`s inside the page and carried by one real
  * `DataTransfer`, so the editor's own drop handler is what reads them — the same
  * seam the converter and Image to PDF gates use. The target is the editable rather
  * than the card around it: that is where ProseMirror's handler listens, and the
  * card's padding is the canvas's own fallback, not the path under test.
+ *
+ * Several files go in one transfer and one event, which is the case the Tool's own
+ * admission has to answer for: a visitor who drags two pictures at once is not two
+ * visitors.
  */
+export async function dropImages(page: Page, files: readonly ImageFile[]): Promise<void> {
+  await editor(page).evaluate((element, entries) => {
+    const transfer = new DataTransfer();
+
+    for (const entry of entries) {
+      const binary = atob(entry.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+    }
+
+    element.dispatchEvent(
+      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
+  }, entriesOf(files));
+}
+
+/** Drop one image file; the single-file case of `dropImages`. */
 export async function dropImage(page: Page, file: ImageFile): Promise<void> {
-  await editor(page).evaluate(
-    (element, entries) => {
-      const transfer = new DataTransfer();
-
-      for (const entry of entries) {
-        const binary = atob(entry.base64);
-        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-        transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
-      }
-
-      element.dispatchEvent(
-        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
-      );
-    },
-    entriesOf([file]),
-  );
+  await dropImages(page, [file]);
 }
 
 /**
