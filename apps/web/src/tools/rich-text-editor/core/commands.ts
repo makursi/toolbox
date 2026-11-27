@@ -34,7 +34,8 @@ export type CommandId =
   | "blockquote"
   | "code-block"
   | "horizontal-rule"
-  | "link";
+  | "link"
+  | "table";
 
 export type CommandBlock =
   | "paragraph"
@@ -51,6 +52,7 @@ export type CommandBlock =
   | "codeBlock"
   | "horizontalRule"
   | "link"
+  | "table"
   | "document";
 
 export interface CommandSpec {
@@ -230,6 +232,21 @@ export const COMMANDS: readonly CommandSpec[] = [
     keywords: ["链接", "link", "url"],
     label: "链接",
   },
+  /*
+   * 表格 is the second interface command (#217). Its behaviour is a grid picker
+   * owned by `table-control/table-control.tsx`, so it has no chain in the executor
+   * map and `runCommand` answers `false` for it — the same exception as 链接. While
+   * the caret is inside a table the same toolbar button becomes the contextual
+   * 表格 menu; that is a state of this one command, not a second row.
+   */
+  {
+    block: "table",
+    group: "insert",
+    icon: "icon-[ph--table-bold]",
+    id: "table",
+    keywords: ["表格", "table", "grid"],
+    label: "表格",
+  },
 ];
 
 /** The commands in one group, in the table's order. */
@@ -268,8 +285,14 @@ export function filterCommands(query: string): readonly CommandSpec[] {
  * The slash menu inserts a block at the caret, so what it offers is exactly the
  * rows whose `block` names a node: a mark needs a selection the slash menu never
  * has, and 撤销 and 重做 act on the whole document rather than on a line.
+ *
  * 链接 is a node-shaped row by name only: its behaviour is the field the toolbar
- * and the selection toolbar open, so it is not a slash command either.
+ * and the selection toolbar open, so it is not a slash command. 表格 is the
+ * opposite — also a node-shaped row whose behaviour is an interface (#217) — and it
+ * *is* offered here: the menu has no second step, so applying it inserts the
+ * documented 3 × 3 directly (`TABLE_DEFAULT_SIZE`). The distinction is the
+ * command's, not the menu's: the table command says a table arrives, and the
+ * surface decides whether it arrives at a chosen size or the default one.
  */
 const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "paragraph",
@@ -280,6 +303,7 @@ const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "blockquote",
   "codeBlock",
   "horizontalRule",
+  "table",
 ]);
 
 /**

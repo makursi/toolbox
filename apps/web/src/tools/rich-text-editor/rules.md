@@ -1,6 +1,6 @@
 # rich-text-editor · 设计规则（工具级）
 
-> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、本地草稿、命令表、键盘、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、导入、导出、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）、#209（本地草稿）、#210（导出与文件名）、#211（导入）。
+> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、本地草稿、命令表、键盘、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、导入、导出、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）、#209（本地草稿）、#210（导出与文件名）、#211（导入）、#217（表格）。
 
 ## 词汇
 
@@ -14,7 +14,10 @@
 - **草稿（draft）**：这台浏览器里保存的那一份文档。一个 IndexedDB 数据库、一个对象仓库、一个键下的一条记录，记录里是 schema 版本、ProseMirror JSON 文档与写入时间戳。每台浏览器只有一份，没有文档列表。
 - **保存状态（save status）**：工具栏右端那四个状态：**未保存**（有改动，800ms 的防抖窗口还没关）、**保存中**（写入正在进行）、**已保存到本机**（记录已经提交）、**保存失败**（浏览器拒绝了这次写入，旁边出现「重试」）。状态句来自 `core/copy.ts`。
 - **命令表（command table）**：`core/commands.ts` 里的那一份列表，工具栏、斜杠菜单与浮动工具栏都从它渲染。它只描述命令，不执行命令。
-- **执行表（executor map）**：`editor/execute.ts` 里把每个命令 id 映射到一条 TipTap 链的对象，三个命令面共用它。`Record<Exclude<CommandId, "link">, ...>` 让「表里有、执行表里没有」成为 `tsc` 错误；链接是唯一有界面而没有链的命令，它由 `link-control/link-control.tsx` 负责。
+- **执行表（executor map）**：`editor/execute.ts` 里把每个命令 id 映射到一条 TipTap 链的对象，三个命令面共用它。`Record<Exclude<CommandId, "link" | "table">, ...>` 让「表里有、执行表里没有」成为 `tsc` 错误；链接与表格是两个有界面而没有链的命令：链接由 `link-control/link-control.tsx` 负责，表格由 `table-control/table-control.tsx` 负责。
+- **表格（table）**：文档里的一个表节点（`@tiptap/extension-table` 的 `TableKit`），由行、表头单元格与单元格组成。它的宽度是内容给的，**没有列宽、没有单元格样式、没有合并单元格、没有公式**，也不可拖动改列宽（`resizable: false`）。插入时第一行是表头行。
+- **网格选择器（grid picker）**：工具栏「表格」按钮打开的浮层，10 × 10 个单元格，指针悬停或键盘聚焦读出 `N 行 × M 列`，按下即提交该行数 × 列数。
+- **表格菜单（table menu）**：光标在表格里时同一个「表格」按钮打开的上下文菜单，七项：上方插入行、下方插入行、左侧插入列、右侧插入列、删除行、删除列、删除表格。两者都是临时浮层，不是常驻控件。
 - **工具栏（toolbar）**：画布上方那一行命令，按组排列：撤销重做、块类型、行内标记、列表、插入动作，右端是保存状态与文件菜单。它是页面级的命令条，不是画布的一部分。
 - **斜杠菜单（slash menu）**：在段落开头输入 `/` 打开的块命令列表，行是命令表过滤出来的；上下键移动、回车应用、Esc 关闭，位置跟着光标。
 - **浮动工具栏（selection toolbar）**：选区非空时出现在选区旁边的那一行，内容是五个行内标记加链接动作。它和钉在画布上方的那条工具栏是两件东西：那一条常驻，这一条只在有选区时存在。
@@ -62,20 +65,20 @@
 - `core/commands.ts` 是**编辑器命令的唯一清单**，字段是 `id`、`label`、`group`、`keywords`、`block`、`icon`。`group` 就是工具栏的分组（`history` / `block` / `mark` / `list` / `insert`）；`block` 是命令作用的文档构造（块命令是节点名，行内命令是 mark 名，撤销重做是 `document`）；`keywords` 同时收中文与英文，供斜杠菜单过滤。
 - **文件菜单的四项不在这张表里，这是有意的窄口**：导入与两次导出是围着文档做文件 I/O，不改变文档；清空是草稿仓库的删除，不是 `setContent(EMPTY_DOCUMENT)`，所以它没有一条编辑器链可写。把它们塞进表就得给执行表开第四个例外，而声明「表里的每一行都有执行器」比声明「菜单也渲染表」更值钱——所以在 `file-menu/file-menu.tsx` 里就这一次，`CommandGroup` 里也没有 `file` 这一档，表里更没有一行没人渲染的 `clear`。表曾经有过那一行，它指向第二个 `setContent(EMPTY_DOCUMENT)` 的定义，且用的是默认 update（会把清空当成一次改动写回一条空记录）；那条死定义已经删掉，清空只有「草稿与保存」一节里那一条活的路径。
 - **纯的部分是数据加过滤函数**：`filterCommands(query)` 按 label 与 keywords 做大小写不敏感的子串匹配，空查询返回整张表，命中结果保持表的顺序。`commandsInGroup(group)` 给工具栏按组取命令，同样保持顺序。
-- **执行不是这张表的事**。`editor/execute.ts` 的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<Exclude<CommandId, "link">, ...>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
+- **执行不是这张表的事**。`editor/execute.ts` 的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<Exclude<CommandId, "link" | "table">, ...>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
 - **表的单测只到数据，应用是门禁的**（#207 复审，spec 的那条「each command applied to a document produces the expected document」）：`core/__tests__/commands.test.ts` 盯 id 唯一、label 与 keywords 非空、组内顺序、过滤与斜杠菜单的谓词；**没有一条单测真的把命令作用到文档上**。原因是这一层没有无 DOM 的路：执行器是 TipTap 的链，TipTap 建编辑器要 `document`、`window` 与可编辑元素，而本仓的单测是 Node、无 DOM（`docs/adr/0003-vitest-for-unit-tests.md`）；要在这里跑它就得引 jsdom（新依赖）或在纯层重写一遍 TipTap 的行为（那是第二份实现，不是测试）。所以「命令生效」由门禁按坐标与键盘逐条按出来，纯层只保证表本身没有缺口。
-- **链接是唯一有界面没有链的命令**：`runCommand` 对它返回 `false`，调用方知道这个动作要开一个输入框；`link-control/link-control.tsx` 是那唯一的输入框，工具栏与浮动工具栏都用它。
+- **两个命令有界面没有链**：`runCommand` 对它们返回 `false`，调用方知道这个动作要开一个界面。**链接**的界面是地址框（`link-control/link-control.tsx`），工具栏与浮动工具栏都用它；**表格**的界面是网格选择器与表格菜单（`table-control/table-control.tsx`），只有工具栏那一个按钮会打开。两者的区别是界面有几个面：链接有两个入口，表格只有一个。
 - **三个命令面从同一张表渲染**：钉住的工具栏、斜杠菜单、浮动工具栏。加一条命令是一处编辑：表里加一行，执行表里加一个 handler；三处不需要各改一次。文件菜单是第四个面**而不**从表渲染，理由在上面那一条。
 
 ## 键盘
 
 - **user story 9 的整套快捷键**：撤销/重做 `Mod-Z` / `Mod-Shift-Z`，五个标记 `Mod-B` / `Mod-I` / `Mod-U` / `Mod-Shift-X` / `Mod-E`，标题 `Mod-Alt-1/2/3`，三个列表 `Mod-Shift-7/8/9`。除了链接之外**全部是 StarterKit 自带的 keymap**（History、Heading、BulletList、OrderedList、TaskList、Underline、Strike、Code），所以这里一条扩展都不加：再加一份就是同一条规则的第二份定义，而版本与默认配置在 `RichTextEditor.tsx` 的注释里。
-- **`Mod-K` 是这一片自己接的那一个**：链接是唯一「有界面没有链」的命令，地址框是 React 的，TipTap 的 keymap 打不开它。`editorProps.handleKeyDown` 先接住 `Mod-K`（`preventDefault`，所以那个 `k` 不会落进文档），把一次请求计数交给工具栏的 `LinkControl`（`openRequest`），由它打开地址框并预填现有的链接；计数而不是布尔值，是为了第二次按还是第二次打开。
+- **`Mod-K` 是这一片自己接的那一个**：链接没有链（表格是另一个，但它的界面不是键盘能一步打开的），地址框是 React 的，TipTap 的 keymap 打不开它。`editorProps.handleKeyDown` 先接住 `Mod-K`（`preventDefault`，所以那个 `k` 不会落进文档），把一次请求计数交给工具栏的 `LinkControl`（`openRequest`），由它打开地址框并预填现有的链接；计数而不是布尔值，是为了第二次按还是第二次打开。
 - 门禁真的按了这些键：`Control+B`、`Control+K`（链接的字段出现、应用后文档里有那个 `a`）、`Control+Alt+1`（标题）与 `Control+Shift+8`（项目符号列表），外加 `Control+Z` / `Control+Shift+Z`。只在工具栏上证明过的快捷键不算证明。
 
 ## 工具栏
 
-- 工具栏从表渲染，不另写一份控件清单：撤销/重做、块类型菜单、五个行内标记、三个列表、四个插入动作，右端是保存状态与文件菜单。
+- 工具栏从表渲染，不另写一份控件清单：撤销/重做、块类型菜单、五个行内标记、三个列表、五个插入动作（引用、代码块、分隔线、链接、表格），右端是保存状态与文件菜单。
 - **保存状态在工具栏右端、文件菜单左边**：它是这一行里唯一不靠访客点击就会变的东西，所以和文件菜单一起留在不滚动的 `shrink-0` 区。句子来自纯层的 `SAVE_STATUS_TEXT`，用 `<output>`（隐式 `role="status"`）加 `aria-live="polite"` 播报；`min-w-[6em]` 让「未保存」「保存中」「已保存到本机」之间切换时不把文件菜单推来推去。失败句更长，允许它自己撑宽；「重试」是 44px 的文字按钮，只在失败时存在。
 - **状态来自 `useEditorState`**（`hooks/use-editor-command-state/`）：光标处的 mark、列表、块类型都由编辑器的 state 读出来，组件里没有一份「加粗是不是开着」的副本。`pressed` 是 `Record<CommandId, boolean>`，所以新命令不会悄悄没有状态。这个 hook 也是浮动工具栏读状态的地方，两处不是两份。
 - **会切换的按钮带 `aria-pressed`**：五个行内标记、三个列表、引用与代码块是 Radix 的 `Toggle`，由 `pressed` 控制；读屏读到的是「已按下 / 未按下」，门禁读的也是这个属性。撤销、重做、分隔线、链接是动作按钮，不带 `aria-pressed`。
@@ -89,11 +92,23 @@
 ## 斜杠菜单
 
 - **触发是「段落开头」而不是「句子里」**：`@tiptap/suggestion` 以 `char: "/"`、`startOfLine: true` 配置，`allow` 再收一道口子，只认文档第一层的 `paragraph`。标题块里的 `/` 和嵌套块（列表项、引用里）里的 `/` 都是普通字符。
-- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`，共十条）。标记需要选区，链接需要选区加输入框，撤销/重做作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。清空根本不在表里，见「命令表」。
+- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`、`table`，共十一条）。标记需要选区，链接需要选区加输入框，撤销/重做作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。清空根本不在表里，见「命令表」。**表格是一个例外而不是矛盾**：它也有界面（网格选择器），但斜杠菜单没有第二步，所以它照常列出来，回车时按 `TABLE_DEFAULT_SIZE` 直接插入 3 × 3；命令说的是「来一张表」，界面由哪个面打开决定大小。这条分支在 `slash-menu-extension.ts`，有注释说明它与链接的区别。
 - **键位**：上下键在行间循环，回车应用（`/query` 先被删掉，命令再作用在那个空块上），Esc 关闭。Esc 是建议插件自己消费的：它先调用组件的 `onKeyDown`，再关闭菜单，所以组件对 Esc 返回 `false`，不重复处理。
 - **空格结束匹配**：`/标题 ` 里的空格让匹配结束、菜单关闭，`/标题` 留在文档里；只有真按了回车，`/query` 才会被当作过滤词删掉。这条是「输入不被吃掉」的实现，门禁里有对应断言。
 - **位置由插件的 `mount` 负责**：它把菜单元素挂到 body，用插件自己的 `clientRect`（光标处的矩形）在下方 4px 处定位，滚动与缩放由 Floating UI 跟随。菜单组件由 `ReactRenderer` 画进那个元素，所以它不在页面自己的 React 树里；键位通过 ref 句柄转进去，光标始终留在文档里。
 - **行是菜单项而不是标签页**：外层 `role="menu"` 名为「插入内容」，每行是 `role="menuitem"` 的按钮（图标 + 标签），当前行带 `aria-current="true"`，`tabIndex={-1}` 是故意的，焦点不离开文档；没有命中时显示「没有匹配的命令」（句子在 `core/copy.ts`）。每行是 44px 自己的框并带 `.touch-target`。
+
+## 表格
+
+- **一个表节点，没有第二套文档模型**：表格是 `@tiptap/extension-table` 的 `TableKit` 注册的 `table` / `tableRow` / `tableHeader` / `tableCell` 节点，和标题、列表一样住在 ProseMirror JSON 里，草稿、导出与撤销/重做都不需要知道它是「表格」。`TableKit` 以 `resizable: false` 配置：spec 排除列宽、拖拽改宽与单元格样式，所以表格只有一个由内容决定的宽度，单元格里就是一个普通段落。
+- **插入是一个两级手势**：工具栏「表格」按钮打开网格选择器（`table-control/table-control.tsx`），10 × 10 个 44px 单元格，每个格子有自己的可访问名（`2 行 × 3 列`），指针悬停或键盘聚焦时下方一行礼貌播报（`aria-live="polite"`）读出 `2 × 3 表格`，按下一个格子就插入该行数 × 列数，第一行是表头行。选择器有 10 格宽（约 440px），窄屏上在浮层内部横向滚动而不是把格子压到 44px 以下：44px 是控件的尺寸，不是建议。`.touch-target` 挂在每个格子自己的 `<button>` 上，不挂在网格容器上——伪元素属于它生成的那个元素，挂错层就是「看起来能点、其实点不到」。
+- **同一个按钮是两种界面**：光标在表格里时它打开表格菜单（七项，顺序是上方插入行、下方插入行、左侧插入列、右侧插入列、删除行、删除列、删除表格），否则打开网格选择器。状态来自 `useEditorCommandState` 的 `inTable`（`isActive("table")`），组件里没有「文档里有没有表」的副本；读屏靠 `aria-haspopup` 判断这一刻打开的是什么——表格里是 `menu`，表格外没有这个属性（选择器不是菜单，开合由 `aria-expanded` 说）。动作提交后浮层关闭时**不让焦点回到按钮**（`onCloseAutoFocus` 里按「这次关闭是不是提交」决定），因为每个动作都把焦点送回画布，把光标甩回工具栏会把刚插入的表丢掉；Esc 与点外面仍由 Radix 把焦点还给按钮。
+- **七项走第二张执行表**：`editor/execute.ts` 的 `TABLE_EXECUTORS` 把 `TableOperationId` 映射到 `addRowBefore` / `addRowAfter` / `addColumnBefore` / `addColumnAfter` / `deleteRow` / `deleteColumn` / `deleteTable`，`Record<TableOperationId, ...>` 让菜单多一行却没有动作成为 `tsc` 错误。它们不在命令表里，因为它们只作用于光标所在的表，不是文档级命令，也不从工具栏常驻渲染。
+- **删除表格留下一个段落**：ProseMirror 的 `deleteTable` 只删节点，一个「标题 + 表格」的文档会只剩标题，没有可写的块。所以 `delete-table` 不是一条链，而是「删表，再看文档里还有没有段落，没有就在末尾补一个空段落并把光标放进去」。这一段是动作的一部分而不是修补：验收要的就是删完还能接着写。
+- **斜杠菜单的 3 × 3 走同一个插入**：`表格` 是斜杠菜单里唯一一个「有界面」的行；菜单没有第二步，所以回车时用 `insertTable` 与 `TABLE_DEFAULT_SIZE` 直接插入 3 × 3。命令说「来一张表」，哪个面打开决定大小（见「斜杠菜单」）。
+- **样式在 `EDITOR_CLASS` 里**：表格的 DOM 是扩展自己的 `.tableWrapper` + `<table>`，所以 `EDITOR_CLASS` 让 `.tableWrapper` 横向滚动（宽表不能把 720px 阅读度量撑开），表格用折叠边框与发丝线，表头行用 secondary 表面读成表头，单元格有和画布一致的横向内距；单元格里的段落 `my-0`，否则画布的 `my-2` 会把内距加一倍。没有单元格颜色、对齐或宽度，那是 spec 排除的「cell styling」。
+- **门禁回答「真的生效」，纯层回答「说得对」**：`core/table.ts` 的尺寸、默认值与七项标签由 Vitest 盯住（`core/__tests__/table.test.ts`）；插入 2 × 3 后看到几行几列、在单元格里打字、七项各按一次后的行/列数、删表后还能在段落里接着写、斜杠菜单列出 `表格` 并插入 3 × 3，都由门禁按坐标与键盘按出来（`e2e/rich-text-editor.spec.ts`）。
+- **不在这里的**：合并单元格、公式、列宽、单元格样式、拖拽改宽；表格的导出与导入在 #219 / #220，Markdown 与 HTML 写手目前还不认识表节点。
 
 ## Markdown 输入规则
 
@@ -155,7 +170,7 @@
 - **画布不带 `.touch-target`**：它不是一个小可点控件，而是编辑面本身，命中区就是整块 720px 阅读度量。给它挂伪元素遮罩会把一层东西盖在文本上，而平台自己的内层命中（这里是光标放置）正是 `#172` 的 range 滑块丢掉的那一半。
 - **工具栏的每个控件都是 44×44 自己的框，并且带 `.touch-target`**：图标按钮 `size-11`，块类型触发器 `h-11`，文件菜单触发器 `size-11`。`.touch-target` 在这里是量具的标记，不是把 36px 撑到 44 的遮罩，所以不会有遮罩被滚动容器裁掉的问题（`overflow-x: auto` 会裁掉垂直方向多出来的那 4px）。按钮之间 `gap-2.5`（10px），相邻遮罩不重叠，量具从中心向外走时读得到 43。
   **`shrink-0` 不是装饰**：滚动区是一个 flex 容器，注册表 `Toggle` 自己的样式里没有 `shrink-0`，窄屏上它会被压回 `min-w-9` 的 36px，于是画出来 36×44、可点 35×45（2026-11-27 的实测，116 条失败全是这一个原因）。44px 的声明在 flex 里只是起点，`shrink-0` 才让它立住。
-- 工具栏的无障碍名是「格式工具栏」（`role="toolbar"`）。每个图标按钮有自己的 `aria-label`（撤销、加粗、项目符号列表……）；块类型触发器是 `块类型：<当前块>`；文件菜单是「文件」；保存状态是 `role="status"`（`<output>`）的礼貌播报。弹出层里的项（正文/标题 1–3、应用、移除、导入、导出、清空）是带文字的按钮，打开后才存在。
+- 工具栏的无障碍名是「格式工具栏」（`role="toolbar"`）。每个图标按钮有自己的 `aria-label`（撤销、加粗、项目符号列表……）；块类型触发器是 `块类型：<当前块>`；文件菜单是「文件」；保存状态是 `role="status"`（`<output>`）的礼貌播报。**表格按钮的名字是「表格」，两种状态同一个名字**：它是插入动作也是上下文菜单的入口，读屏靠 `aria-haspopup` 知道这一刻打开的是不是菜单（表格里是 `menu`，表格外没有）。网格选择器是一个名为「表格大小」的命名区域（`<section>`，不是 `role="group"` 的 `div`），每个格子是名为 `N 行 × M 列` 的按钮；表格菜单是名为「表格操作」的 `role="menu"`，七行是带文字的 `role="menuitem"`。弹出层里的项（正文/标题 1–3、应用、移除、导入、导出、清空、网格格子、表格菜单七行）都是打开后才存在的控件。
 - **导入确认是一个带名字的弹窗**：`role="alertdialog"`，标题「替换当前文档？」与说明各有一份，所以读屏读到的是一个完整的问句而不是两个孤立的按钮；「取消」与「替换」是弹窗自己的按钮，各 44px。焦点由 Radix 放进弹窗并限制在其中，Escape 等于取消。
 - **保存状态本身不是控件，不带 `.touch-target`**：它没有可点的框，就是一行字。失败态的「重试」才是控件，带 `.touch-target`、`h-11`，门禁在失败后按它的坐标按。
 - **斜杠菜单与浮动工具栏各有名字**：「插入内容」（`role="menu"`）与「选中文本的格式」（`role="toolbar"`）；行与按钮的名字来自命令表。两者都是**指针加键盘的组合**而不是 Tab 顺序里的一站：斜杠菜单的行 `tabIndex={-1}`，焦点留在文档里，读屏用户靠工具栏的同一批命令完成同一件事。
@@ -164,7 +179,7 @@
 ## 量具
 
 - **指纹（`ui-fingerprint.mjs`）按页声明**外壳的四个锚点、`tool-page`、`rich-text-toolbar`、`rich-text-canvas` 与 `rich-text-save-status`。工具栏、画布与保存状态是三个区域：工具栏移动时读数应该显示工具栏移动，而不是画布变形；保存状态的句子换宽度时，读数也应该显示状态自己的移动。
-- **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十六个（`撤销`、`重做`、`块类型`、五个标记、三个列表、四个插入动作、`文件`）。保存状态是句子而不是控件，不进点名清单；失败态才出现的「重试」也不进，因为量具打开的是页面的正常态，声明一个不存在的名字会让正常页面变红。弹出层与弹窗里的项只在被打开后才存在，包括 #211 的「导入」、#210 的两个导出项与「清空」、以及确认框的「取消」/「替换」；量具不替页面打开它们，这一点是 #210 明确接受、#211 沿用的退路，由门禁按坐标按、再读回下载的字节或导入后的块。它们照样带 `.touch-target`，所以打开时任何一次扫描都能量到 44px；`重试` 由门禁在注入一次失败后按坐标按。**这条量具还读两个状态**：`selection`（探针字进标题块、再套选区）让 `selection-toolbar-clearance` 读浮动行的位置，`scrolling` 让 `toolbar-scroll-end` 在窄屏把中间滚到底再读右端——它读之前会把滚动区的 `scrollLeft` 放回 0，因为同一趟扫描里 `hit-areas` 的 `scrollIntoView` 会把它拨走。
+- **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十七个（`撤销`、`重做`、`块类型`、五个标记、三个列表、五个插入动作、`文件`）。保存状态是句子而不是控件，不进点名清单；失败态才出现的「重试」也不进，因为量具打开的是页面的正常态，声明一个不存在的名字会让正常页面变红。弹出层与弹窗里的项只在被打开后才存在，包括 #211 的「导入」、#210 的两个导出项与「清空」、以及确认框的「取消」/「替换」；量具不替页面打开它们，这一点是 #210 明确接受、#211 沿用的退路，由门禁按坐标按、再读回下载的字节或导入后的块。它们照样带 `.touch-target`，所以打开时任何一次扫描都能量到 44px；`重试` 由门禁在注入一次失败后按坐标按。**#217 的「表格」按钮是常驻的，所以它在点名清单里**；它打开的网格选择器与表格菜单是临时浮层，单元格与七行只在打开后存在，所以不进清单，由门禁按坐标按它们——和「导入」同一条退路。**这条量具还读两个状态**：`selection`（探针字进标题块、再套选区）让 `selection-toolbar-clearance` 读浮动行的位置，`scrolling` 让 `toolbar-scroll-end` 在窄屏把中间滚到底再读右端——它读之前会把滚动区的 `scrollLeft` 放回 0，因为同一趟扫描里 `hit-areas` 的 `scrollIntoView` 会把它拨走。
 - **#208 的斜杠菜单仍不进 `controls` 清单**：它只在输入 `/` 到应用之间存在，而这份清单是「加载时就该在」的清单。它每个按钮都带 `.touch-target`，要量得先给量具一个「输入斜杠」的钩子，本片没有加，因为门禁已经按坐标按过它（先例是 `convert`）。**浮动工具栏现在进了量具**：`selection` 钩子把一行探针字送进标题块、再把选区套上去，`selection-toolbar-clearance` 读它的盒子与选区自己的盒子；`selection-toolbar` 的按钮仍然不在 `controls` 清单里（它们不在加载状态中存在），但那个面的位置这句话已经由量具回答，不再由门禁回答。
 - **两个占位符是画的句子，门禁读它们，而这是站点级例外**：它们是 `::before` 的 `content: attr(data-placeholder)`，`ui-fingerprint` 刻意不读伪元素、`touch-targets` 只读盒子与命中区域，所以这一条由门禁读 `getComputedStyle(el, "::before").content`。理由与「未来钩子需要什么」写在 `apps/web/docs/design/instruments.md` 的「量具够不到的那一条」里，不是这里的第二份规则。
 - **门禁只管行为**：按下一个控件之后文档变成什么、导出的字节、存下的记录、导入后的块、快捷键真的落下什么。位置、命中区域、滚动与「有没有东西动过」全在 `scripts/` 的两个量具里（`docs/adr/0012-playwright-for-the-browser-gate.md`）。

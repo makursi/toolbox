@@ -23,6 +23,16 @@ export interface EditorCommandState {
   readonly block: CommandId;
   readonly canRedo: boolean;
   readonly canUndo: boolean;
+  /**
+   * Whether the caret is inside a table.
+   *
+   * It is the 表格 button's state: outside a table it opens the grid picker, inside
+   * one it opens the contextual row/column menu (#217). It is read from the
+   * selection rather than from a copy of the document, like every other field here,
+   * so moving the caret in or out of a table flips the menu without the toolbar
+   * keeping a second answer.
+   */
+  readonly inTable: boolean;
   readonly pressed: Record<CommandId, boolean>;
 }
 
@@ -42,6 +52,7 @@ export function useEditorCommandState(editor: Editor): EditorCommandState {
         block,
         canRedo: current.can().redo(),
         canUndo: current.can().undo(),
+        inTable: current.isActive("table"),
         pressed: {
           undo: false,
           redo: false,
@@ -61,6 +72,7 @@ export function useEditorCommandState(editor: Editor): EditorCommandState {
           "code-block": current.isActive("codeBlock"),
           "horizontal-rule": false,
           link: current.isActive("link"),
+          table: false,
         },
       };
     },

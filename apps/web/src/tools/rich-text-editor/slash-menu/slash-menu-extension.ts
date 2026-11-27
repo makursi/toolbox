@@ -2,7 +2,8 @@ import { Extension, ReactRenderer } from "@tiptap/react";
 import { Suggestion } from "@tiptap/suggestion";
 
 import { slashCommands, type CommandSpec } from "../core/commands";
-import { runCommand } from "../editor/execute";
+import { TABLE_DEFAULT_SIZE } from "../core/table";
+import { insertTable, runCommand } from "../editor/execute";
 import { SlashMenu, type SlashMenuHandle } from "./slash-menu";
 
 /**
@@ -43,6 +44,21 @@ export const SlashMenuExtension = Extension.create({
           // The typed `/query` is not document content: it is the filter, so it
           // goes before the command runs and the command acts on the empty block.
           editor.chain().focus().deleteRange(range).run();
+
+          /*
+           * 表格 is the second command whose behaviour is an interface rather than a
+           * chain (#217), and this is where the two surfaces part company: the
+           * toolbar opens the grid picker, while the slash menu is a keyboard gesture
+           * that ends on Enter and has no second step. So it applies the documented
+           * default (`TABLE_DEFAULT_SIZE`, 3 × 3) through the same insert the picker
+           * commits. The command says a table arrives; the surface decides at what
+           * size. 链接 has no such branch: it is not a slash command at all.
+           */
+          if (props.id === "table") {
+            insertTable(editor, TABLE_DEFAULT_SIZE);
+            return;
+          }
+
           runCommand(editor, props.id);
         },
         render: () => {

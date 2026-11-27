@@ -16,10 +16,12 @@ import {
   hidePage,
   importDialog,
   importFromFileMenu,
+  insertTableOfSize,
   linkField,
   open,
   paintedPlaceholder,
   pressAt,
+  pressTableMenuItem,
   retrySave,
   saveStatus,
   selectBodyText,
@@ -29,6 +31,9 @@ import {
   slashMenu,
   slashMenuItems,
   storedDraft,
+  tableMenu,
+  tableMenuItem,
+  tableTrigger,
   textOf,
   titleBlock,
   toolbarControl,
@@ -39,8 +44,8 @@ import {
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
  * command table (#207), the three ways to write without leaving the keyboard (#208),
- * the two exports (#210), the local draft with its save status (#209), and the
- * import (#211).
+ * the two exports (#210), the local draft with its save status (#209), the import
+ * (#211), and the tables (#217).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -412,8 +417,8 @@ test("the keyboard shortcuts reach a mark, a heading, a list and the link action
  * The rows are the command table's block commands, so the count and the first row
  * are asserted against what a visitor sees rather than against the table: a table
  * that grew an extra row without the menu drawing it would be invisible here, which
- * is why the count is spelled out (ten: 正文, three headings, three lists, 引用,
- * 代码块 and 分隔线).
+ * is why the count is spelled out (eleven: 正文, three headings, three lists, 引用,
+ * 代码块, 分隔线 and 表格).
  */
 test("the slash menu filters by typing, moves with the arrow keys and applies with Enter", async ({
   page,
@@ -423,7 +428,7 @@ test("the slash menu filters by typing, moves with the arrow keys and applies wi
   await page.keyboard.type("/");
 
   await expect(slashMenu(page)).toBeVisible();
-  await expect(slashMenuItems(page)).toHaveCount(10);
+  await expect(slashMenuItems(page)).toHaveCount(11);
   await expect(slashMenuItems(page).first()).toHaveText("正文");
 
   await page.keyboard.type("标题");
@@ -454,6 +459,118 @@ test("Escape closes the slash menu, and the slash it opened on stays text", asyn
   await expect(slashMenu(page)).toBeHidden();
   await expect(bodyParagraph(page)).toHaveText("/");
   await expect(canvas(page).locator("h1")).toHaveCount(1);
+});
+
+/**
+ * Tables (#217), driven the way a visitor drives them.
+ *
+ * The picker and the contextual menu are transient surfaces the hit-area instrument
+ * deliberately does not declare; the gate opens them through the toolbar's own 表格
+ * button and presses their cells and rows at their coordinates. What is asserted is
+ * the table the canvas then holds — rows, header cells, cells and their text — not
+ * TipTap's state, so a picker that opened a 3 × 3 for every cell would fail here.
+ */
+test("the grid picker inserts the rows and columns it was given", async ({ page }) => {
+  await open(page);
+
+  // Outside a table the button opens the picker, so it is not a menu trigger.
+  await expect(tableTrigger(page)).not.toHaveAttribute("aria-haspopup");
+
+  await insertTableOfSize(page, 2, 3);
+
+  const table = canvas(page).locator("table");
+  await expect(table).toHaveCount(1);
+  await expect(table.locator("tr")).toHaveCount(2);
+  await expect(table.locator("tr").first().locator("th")).toHaveCount(3);
+  await expect(table.locator("td")).toHaveCount(3);
+
+  // Inside the table the same button is the contextual menu's trigger.
+  await expect(tableTrigger(page)).toHaveAttribute("aria-haspopup", "menu");
+});
+
+test("typing in a cell edits that cell", async ({ page }) => {
+  await open(page);
+  await insertTableOfSize(page, 2, 2);
+
+  const cell = canvas(page).locator("table th").nth(1);
+  await cell.click();
+  await page.keyboard.type("单元格内容");
+
+  await expect(cell).toHaveText("单元格内容");
+});
+
+test("inside a table the trigger becomes 表格 and each row and column action does what it says", async ({
+  page,
+}) => {
+  await open(page);
+  await insertTableOfSize(page, 2, 3);
+
+  const table = canvas(page).locator("table");
+  const rows = table.locator("tr");
+  const firstRowCells = table.locator("tr").first().locator("th, td");
+
+  await pressAt(page, tableTrigger(page));
+  await expect(tableMenu(page)).toBeVisible();
+  await expect(tableMenu(page).getByRole("menuitem")).toHaveCount(7);
+
+  // The menu is already open, so its first row is pressed where it stands; every
+  // later action reopens it, because choosing a row closes it.
+  await pressAt(page, tableMenuItem(page, "上方插入行"));
+  await expect(rows).toHaveCount(3);
+
+  await pressTableMenuItem(page, "下方插入行");
+  await expect(rows).toHaveCount(4);
+
+  await pressTableMenuItem(page, "左侧插入列");
+  await expect(firstRowCells).toHaveCount(4);
+
+  await pressTableMenuItem(page, "右侧插入列");
+  await expect(firstRowCells).toHaveCount(5);
+
+  await pressTableMenuItem(page, "删除行");
+  await expect(rows).toHaveCount(3);
+
+  await pressTableMenuItem(page, "删除列");
+  await expect(firstRowCells).toHaveCount(4);
+
+  /*
+   * 删除表格 is the one action that ends the table's existence, and the paragraph
+   * is part of it: a document that was the title and one table must not end with no
+   * block to type into. The keystroke after the deletion is what proves the caret
+   * is in that paragraph rather than in the title block.
+   */
+  await pressTableMenuItem(page, "删除表格");
+  await expect(table).toHaveCount(0);
+  await expect(tableTrigger(page)).not.toHaveAttribute("aria-haspopup");
+
+  await expect(bodyParagraph(page)).toHaveText("");
+  await page.keyboard.type("删除表格后继续写。");
+  await expect(bodyParagraph(page)).toHaveText("删除表格后继续写。");
+});
+
+/**
+ * The slash menu's half of the table insert: it has no second step, so 表格 applies
+ * the documented 3 × 3 (`TABLE_DEFAULT_SIZE`) rather than opening the picker.
+ */
+test("the slash menu lists 表格 and inserts a 3 × 3 table", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/");
+
+  await expect(slashItem(page, "表格")).toHaveCount(1);
+
+  await page.keyboard.type("表格");
+  await expect(slashMenuItems(page)).toHaveCount(1);
+  await expect(slashItem(page, "表格")).toHaveAttribute("aria-current", "true");
+
+  await page.keyboard.press("Enter");
+
+  await expect(slashMenu(page)).toBeHidden();
+  const table = canvas(page).locator("table");
+  await expect(table).toHaveCount(1);
+  await expect(table.locator("tr")).toHaveCount(3);
+  await expect(table.locator("tr").first().locator("th")).toHaveCount(3);
+  await expect(table.locator("td")).toHaveCount(6);
 });
 
 test("each Markdown block rule makes its block", async ({ page }) => {

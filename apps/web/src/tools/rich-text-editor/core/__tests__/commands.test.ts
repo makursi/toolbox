@@ -81,6 +81,14 @@ describe("the command table", () => {
     expect(commandById("heading-2").label).toBe("标题 2");
     expect(commandById("link").block).toBe("link");
   });
+
+  it("appends the table to the insert group, after the link", () => {
+    const insert = commandsInGroup("insert").map((command) => command.id);
+
+    expect(insert).toEqual(["blockquote", "code-block", "horizontal-rule", "link", "table"]);
+    expect(commandById("table").label).toBe("表格");
+    expect(commandById("table").block).toBe("table");
+  });
 });
 
 describe("the slash menu's commands", () => {
@@ -88,6 +96,10 @@ describe("the slash menu's commands", () => {
    * What a slash menu offers on an empty query: the rows that produce a block, in
    * the table's order. Spelled out rather than derived, so a mark, an action or a
    * document command leaking into the menu is a red test rather than a coincidence.
+   *
+   * 表格 is the last row and the second interface command (#217): the slash menu
+   * lists it like a block command even though applying it opens no picker and needs
+   * no chain — the menu inserts the documented 3 × 3 directly.
    */
   it("offers the block commands and nothing that needs a selection or the document", () => {
     expect(slashCommands("").map((command) => command.id)).toEqual([
@@ -101,7 +113,13 @@ describe("the slash menu's commands", () => {
       "blockquote",
       "code-block",
       "horizontal-rule",
+      "table",
     ]);
+  });
+
+  it("reaches 表格 by its Chinese word and by its English one", () => {
+    expect(slashCommands("表格").map((command) => command.id)).toEqual(["table"]);
+    expect(slashCommands("table").map((command) => command.id)).toEqual(["table"]);
   });
 
   it("filters by the same keywords as the pinned toolbar", () => {
