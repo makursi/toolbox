@@ -10,11 +10,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Toggle } from "@/components/ui/toggle";
 
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
-import { EMPTY_DOCUMENT } from "../core/document";
+import { SAVE_RETRY_LABEL, SAVE_STATUS_TEXT } from "../core/copy";
+import type { SaveStatus } from "../core/save";
 
 /**
  * The toolbar above the canvas: every command the table names, grouped the way
- * the table groups them.
+ * the table groups them, and the save status at the right end beside the file
+ * menu.
  *
  * It is the table's first renderer, not a second list. The middle groups come
  * from `commandsInGroup` in table order, so a command added to the core appears
@@ -26,10 +28,20 @@ import { EMPTY_DOCUMENT } from "../core/document";
  * what proves the chain applied: a toolbar that renders and does nothing is a
  * shape this component cannot check by itself.
  *
- * What is deliberately absent: the file menu holds 清空 and nothing else until
- * the import/export slices land, and there is no save status here yet. A control
- * for a feature that does not exist is a promise the page cannot keep.
+ * The file menu holds 清空 and nothing else until the import/export slices land.
+ * The save status beside it is the draft's own state (#209); its sentences come
+ * from the Tool's pure copy layer, and the retry control exists only while a write
+ * is refused.
  */
+
+export interface EditorToolbarProps {
+  readonly editor: Editor;
+  readonly saveStatus: SaveStatus;
+  /** 重试, shown only in the failure state. */
+  readonly onRetry: () => void;
+  /** 清空, which the writing surface routes through the draft store. */
+  readonly onClear: () => void;
+}
 
 /** Commands that read as on/off at the cursor; the rest are one-shot actions. */
 const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
@@ -65,7 +77,7 @@ function Separator() {
   return <span aria-hidden className="h-6 w-px shrink-0 bg-border" />;
 }
 
-export function EditorToolbar({ editor }: { editor: Editor }) {
+export function EditorToolbar({ editor, saveStatus, onRetry, onClear }: EditorToolbarProps) {
   const [blockOpen, setBlockOpen] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -181,7 +193,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       setHref(editor.getAttributes("link").href ?? "");
     },
     clear: () => {
-      editor.chain().focus().setContent(EMPTY_DOCUMENT).run();
+      onClear();
     },
   };
 
@@ -358,7 +370,34 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
         })}
       </div>
 
-      <div className="flex shrink-0 items-center border-l border-border pl-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-l border-border pl-2.5">
+        {/*
+         * The save status is page chrome beside the file menu, not a control in
+         * the scrolling groups: it must stay readable while the middle scrolls,
+         * and it is the one thing on this row that changes without the visitor
+         * pressing anything. `<output>` carries the implicit `role="status"` a
+         * screen reader announces politely for each sentence; the region's
+         * `data-slot` is what the fingerprint anchors. The minimum width stops
+         * 未保存 and 保存中 from shifting the file menu on every keystroke, while
+         * the failure sentence is allowed to be its own width because it is both
+         * longer and rarer.
+         */}
+        <div className="flex items-center gap-1.5" data-slot="rich-text-save-status">
+          <output
+            aria-atomic="true"
+            aria-live="polite"
+            className={`min-w-[6em] text-xs whitespace-nowrap ${
+              saveStatus === "failed" ? "text-foreground" : "text-muted-foreground"
+            }`}
+          >
+            {SAVE_STATUS_TEXT[saveStatus]}
+          </output>
+          {saveStatus === "failed" ? (
+            <Button className="touch-target h-11 px-2.5 text-xs" onClick={onRetry} variant="ghost">
+              {SAVE_RETRY_LABEL}
+            </Button>
+          ) : null}
+        </div>
         <Popover onOpenChange={setFileOpen} open={fileOpen}>
           <PopoverTrigger asChild>
             <Button aria-label="文件" className="touch-target size-11" size="icon" variant="ghost">

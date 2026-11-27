@@ -309,9 +309,14 @@ const PAGES = [
      * placeholders are painted `::before` sentences, so they are not controls and
      * no name here can reach them.
      *
-     * The save status and the rest of the file menu arrive with #209-#212, and each
-     * declares its own controls in its own ticket; this page declares only what
-     * exists today. `outgoing` is the whole document: this page has one layer.
+     * #209 adds the save status beside 文件. It is a sentence, not a control, so it
+     * does not enter `controls`; the retry it adds in the failure state does not
+     * exist on the page this Instrument opens, and declaring a name that is not
+     * there would make the page fail for being in its normal state. The retry is
+     * still a real 44px `<button>`, and the gate presses it at its coordinates after
+     * refusing a write. The rest of the file menu arrives with #210-#212, and each
+     * declares its own controls in its own ticket. `outgoing` is the whole document:
+     * this page has one layer.
      */
     controls: [
       "切换到",

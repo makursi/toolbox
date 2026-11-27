@@ -7,7 +7,7 @@ import {
   open as openImageToPdf,
   transparentPng,
 } from "./image-to-pdf-page";
-import { open as openRichTextEditor, writeInBody } from "./rich-text-editor-page";
+import { open as openRichTextEditor, saveStatus, writeInBody } from "./rich-text-editor-page";
 import { convertInEveryFormat } from "./tool-page";
 
 /**
@@ -135,12 +135,14 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
 });
 
 /**
- * The Rich Text Editor's page, held to the same rule (#206).
+ * The Rich Text Editor's page, held to the same rule (#206, with its draft in #209).
  *
- * Typing is the whole of the page's behaviour in this slice, and it is what the
- * listener watches: the editor is a third-party tree mounted into this document, so
- * the question is whether it brings anything with it. Later slices drive their own
- * behaviour through this same test when they land.
+ * Typing drives the editor and the draft's own write: the editor is a third-party
+ * tree mounted into this document, and the draft is IndexedDB, so the question is
+ * whether either brings a request with it. The save status is awaited rather than
+ * assumed, because a write that happened after the listener had been torn down would
+ * be a request nobody watched. Later slices drive their own behaviour through this
+ * same test when they land.
  */
 test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
   page,
@@ -151,6 +153,7 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   await openRichTextEditor(page);
   await writeInBody(page, "写一句，看看这一页会不会向外请求。");
   await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("写一句");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
 
   expect(watched.offSite, "requests off this origin").toEqual([]);
   expect(watched.noise, "console errors and warnings").toEqual([]);

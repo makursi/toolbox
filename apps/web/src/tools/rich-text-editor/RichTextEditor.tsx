@@ -2,10 +2,13 @@
 
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Placeholder } from "@tiptap/extensions";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
+import { useCallback } from "react";
 
 import { EMPTY_DOCUMENT } from "./core/document";
+import type { SaveStatus } from "./core/save";
+import { useDraft } from "./hooks/use-draft/use-draft";
 import { EditorToolbar } from "./toolbar/toolbar";
 
 /** What an empty document says, in the words a visitor reads. */
@@ -77,14 +80,14 @@ const EDITOR_CLASS = [
 ].join(" ");
 
 /**
- * The writing surface: one TipTap editor, the toolbar above it, and the document
- * they both act on.
+ * The writing surface: the draft, one TipTap editor, the toolbar above it, and the
+ * document they both act on.
  *
  * The canonical document is ProseMirror JSON (`apps/web/src/tools/rich-text-editor/rules.md`),
- * and this component is where it lives. Nothing is persisted yet: reloading the page
- * gives a fresh, empty document on purpose until the autosave slice lands. The
- * component takes no props, because the page is its only consumer and a surface for
- * a consumer that does not exist is how an API grows without a caller.
+ * and the local draft is that same document plus a schema version and a timestamp
+ * in IndexedDB (`core/draft.ts`). The page is the editor's only consumer, so the
+ * component takes no configuration: the draft's four operations arrive from
+ * `useDraft`, which owns the timer and the store.
  *
  * The editor is created **on the client only** (`immediatelyRender: false`): the
  * server cannot know anything about a document the visitor has not typed yet, and a
@@ -93,11 +96,65 @@ const EDITOR_CLASS = [
  * and the editor and toolbar arrive with hydration, which is the same reason the
  * gate waits for React before it types.
  *
+ * The draft is read before the editor exists. `initialDocument` is `null` until the
+ * store answers, and the surface below is mounted only once it does, so a returning
+ * visitor's document is the editor's initial content rather than a late `setContent`
+ * over a cursor that is already typing. Restore is silent: there is no prompt, and a
+ * missing or broken record is just the empty document.
+ *
  * The toolbar's own placeholder is the height the toolbar will have, so the canvas
  * does not jump when the editor arrives: the row is 44px of controls plus two 4px
  * paddings, and the placeholder is that box and nothing else.
  */
 export function RichTextEditor() {
+  const draft = useDraft();
+  const initialDocument = draft.initialDocument;
+
+  if (initialDocument === null) {
+    return (
+      <div className="mx-auto mt-10 w-full max-w-[960px] sm:mt-12">
+        <div aria-hidden className="h-[60px] rounded-lg border border-border bg-background" />
+        <div
+          className="mx-auto mt-6 w-full max-w-[720px] rounded-lg border border-border bg-background p-5"
+          data-slot="rich-text-canvas"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <EditorSurface
+      initialContent={initialDocument}
+      onChange={draft.change}
+      onClear={draft.clear}
+      onRetry={draft.retry}
+      saveStatus={draft.status}
+    />
+  );
+}
+
+interface EditorSurfaceProps {
+  readonly initialContent: JSONContent;
+  readonly saveStatus: SaveStatus;
+  readonly onChange: (document: JSONContent) => void;
+  readonly onRetry: () => void;
+  readonly onClear: () => void;
+}
+
+/**
+ * The mounted editor: TipTap, the extensions, the toolbar and the canvas.
+ *
+ * It is a component of its own so `useEditor` is not called on the server and not
+ * called conditionally: the outer surface picks between the placeholder and this
+ * surface, and `useEditor` only ever runs where there is a document to open.
+ */
+function EditorSurface({
+  initialContent,
+  saveStatus,
+  onChange,
+  onRetry,
+  onClear,
+}: EditorSurfaceProps) {
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -106,7 +163,7 @@ export function RichTextEditor() {
        * `openOnClick: false` is the important option: inside a contenteditable a
        * click is how the visitor puts the caret into a link, and a link that
        * navigates away from an unsaved document is a trap rather than a feature.
-       * The URL bar is the link action's job (#207); the export is #209's.
+       * The URL bar is the link action's job (#207); the export is #210's.
        */
       StarterKit.configure({
         link: {
@@ -156,7 +213,13 @@ export function RichTextEditor() {
         showOnlyCurrent: false,
       }),
     ],
-    content: EMPTY_DOCUMENT,
+    content: initialContent,
+    /*
+     * Every document change is the draft's business, but the editor does not know
+     * that: this is the one seam between TipTap and the save machine, and it hands
+     * over the canonical JSON rather than the editor's mutable state.
+     */
+    onUpdate: ({ editor: current }) => onChange(current.getJSON()),
     /*
      * `role="textbox"` is TipTap's own default on the contenteditable, so the only
      * thing this adds is the name a screen reader reads: an editable region with no
@@ -164,6 +227,19 @@ export function RichTextEditor() {
      */
     editorProps: { attributes: { "aria-label": EDITOR_LABEL, class: EDITOR_CLASS } },
   });
+
+  /*
+   * 清空 empties the canvas and the stored draft together.
+   *
+   * `emitUpdate: false` is what keeps the clear from scheduling a save of the empty
+   * document: the draft store's own removal is the write, and a save racing it
+   * would leave a record behind. The hook bumps the revision, so a write already in
+   * flight is ignored if it lands late.
+   */
+  const handleClear = useCallback(() => {
+    editor?.commands.setContent(EMPTY_DOCUMENT, { emitUpdate: false });
+    onClear();
+  }, [editor, onClear]);
 
   return (
     /*
@@ -182,7 +258,12 @@ export function RichTextEditor() {
       {editor === null ? (
         <div aria-hidden className="h-[60px] rounded-lg border border-border bg-background" />
       ) : (
-        <EditorToolbar editor={editor} />
+        <EditorToolbar
+          editor={editor}
+          onClear={handleClear}
+          onRetry={onRetry}
+          saveStatus={saveStatus}
+        />
       )}
 
       <div

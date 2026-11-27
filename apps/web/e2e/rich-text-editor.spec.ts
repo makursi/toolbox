@@ -6,12 +6,17 @@ import {
   blockTrigger,
   bodyParagraph,
   canvas,
+  editor,
   fileTrigger,
+  hidePage,
   linkField,
   open,
   paintedPlaceholder,
   pressAt,
+  retrySave,
+  saveStatus,
   selectBodyText,
+  storedDraft,
   textOf,
   titleBlock,
   toolbarControl,
@@ -256,6 +261,145 @@ test("undo and redo work from the keyboard and from the toolbar", async ({ page 
 
   await pressAt(page, toolbarControl(page, "重做"));
   await expect(bodyParagraph(page)).toHaveText("撤销测试。");
+});
+
+/**
+ * The local draft (#209): what the browser keeps, what the toolbar says about it,
+ * and what a returning visit and 清空 do.
+ *
+ * The store is read through the page's own IndexedDB rather than through a module:
+ * the claim is that the browser has the record, and a read through the Tool would
+ * agree with a broken writer that never touched the store.
+ */
+test.describe("the local draft", () => {
+  test("typing and pausing writes the draft and reports 已保存到本机", async ({ page }) => {
+    await open(page);
+
+    // A fresh context has no draft: the empty document is the state, not a save.
+    expect(await storedDraft(page)).toBeNull();
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    await writeInBody(page, "今天写一点东西。");
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    const stored = await storedDraft(page);
+
+    expect(stored?.version, "the record carries its schema version").toBe(1);
+    expect(typeof stored?.savedAt, "the record carries a timestamp").toBe("number");
+    expect(JSON.stringify(stored?.document), "the record carries the document").toContain(
+      "今天写一点东西。",
+    );
+  });
+
+  test("a reload restores the exact document, with no prompt", async ({ page }) => {
+    await open(page);
+    await writeInTitle(page, "草稿标题");
+    await writeInBody(page, "第一段。");
+    await selectBodyText(page);
+    await pressAt(page, toolbarControl(page, "加粗"));
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    const dialogs: string[] = [];
+    page.on("dialog", (dialog) => {
+      dialogs.push(dialog.message());
+      void dialog.dismiss();
+    });
+
+    await page.reload();
+    await expect(editor(page)).toBeVisible();
+
+    expect(await textOf(titleBlock(page))).toBe("草稿标题");
+    expect(await textOf(bodyParagraph(page))).toBe("第一段。");
+    // The mark is part of the document, not a class a re-render would drop: the
+    // stored JSON is what TipTap opened, so a restore keeps the bold run.
+    await expect(bodyParagraph(page).locator("strong")).toHaveText("第一段。");
+    expect(dialogs, "restore is silent: no prompt asks whether to open the draft").toEqual([]);
+  });
+
+  test("hiding the page writes immediately instead of waiting for the debounce", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInBody(page, "隐藏前写一句。");
+
+    // Hiding in the same evaluate as reading the status is what makes the claim
+    // about the flush: if the sentence was still 未保存, the 800ms window had not
+    // closed, so only the hidden page's own write can reach 已保存到本机 below.
+    const before = await hidePage(page);
+    expect(before, "the debounce had not elapsed when the page was hidden").toBe("未保存");
+
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    expect(await storedDraft(page)).not.toBeNull();
+  });
+
+  test("清空 empties the canvas and the stored draft, and a reload finds both empty", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInTitle(page, "要删掉的草稿");
+    await writeInBody(page, "这段也会消失。");
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    expect(await storedDraft(page)).not.toBeNull();
+
+    await pressAt(page, fileTrigger(page));
+    await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
+
+    await expect(canvas(page)).not.toContainText("要删掉的草稿");
+    await expect(canvas(page)).not.toContainText("这段也会消失。");
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    expect(await storedDraft(page), "the record is removed, not overwritten").toBeNull();
+
+    await page.reload();
+    await expect(editor(page)).toBeVisible();
+
+    expect(await textOf(titleBlock(page))).toBe("");
+    expect(await textOf(bodyParagraph(page))).toBe("");
+    expect(await paintedPlaceholder(titleBlock(page))).toBe(TITLE_PLACEHOLDER);
+    expect(await paintedPlaceholder(bodyParagraph(page))).toBe(BODY_PLACEHOLDER);
+    expect(await storedDraft(page), "the reload wrote nothing back").toBeNull();
+  });
+
+  test("a refused write shows the failure sentence and the retry writes the draft", async ({
+    page,
+  }) => {
+    await open(page);
+
+    /*
+     * Refuse exactly one write the way a browser refuses one: `put` throws the
+     * quota error a full disk would raise. Every later call is the real method, so
+     * the retry has a working store to write into.
+     */
+    await page.evaluate(() => {
+      // oxlint-disable-next-line typescript/unbound-method -- the original is re-bound with `.call(this, ...)` inside the replacement.
+      const original = IDBObjectStore.prototype.put;
+      let refused = false;
+
+      IDBObjectStore.prototype.put = function (
+        this: IDBObjectStore,
+        value: unknown,
+        key?: IDBValidKey,
+      ) {
+        if (!refused) {
+          refused = true;
+          throw new DOMException("the gate refused this write", "QuotaExceededError");
+        }
+
+        return original.call(this, value, key);
+      };
+    });
+
+    await writeInBody(page, "写一句，看看保存失败。");
+    await expect(saveStatus(page)).toContainText("保存失败");
+    await expect(retrySave(page)).toBeVisible();
+
+    await pressAt(page, retrySave(page));
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    const stored = await storedDraft(page);
+    expect(JSON.stringify(stored?.document), "the retry wrote the document that failed").toContain(
+      "写一句，看看保存失败。",
+    );
+  });
 });
 
 test.describe("at 390px", () => {
