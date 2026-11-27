@@ -56,6 +56,16 @@ draft untouched. The same HTML sanitiser runs on the editor's paste path, so
 pasted markup loses its scripts, styles and head material by the same rule. The
 confirmed import is a document change like any other, so the draft saves it.
 
+This slice (#220) makes the import read back what the two exports write. The
+Markdown reader learns GFM pipe tables and `![alt](data:…)` images; the HTML
+sanitiser learns `<table>` with its rows and cells and `data:` images while keeping
+the same whitelist, so a remote source or an event handler is dropped by the rule
+that already dropped them. An imported image meets the same admission an inserted
+file does — the same limits, the same sentence, and its alt text where a refused
+picture would have been — so a file with a tenth picture too many is cut to ten
+rather than imported whole. Both parsers and both writers now disagree about
+nothing but the image's width, which is the one thing Markdown cannot carry.
+
 The toolbar (#207) is what the document is written with. A visitor can start
 writing, turn a paragraph into 标题 1–3 and back, mark a selection bold, italic,
 underlined, struck through or inline code, make bulleted, numbered and task lists
@@ -239,10 +249,14 @@ one.
 12. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
     is read as text and its format is decided by `core/import.ts` from the extension
     (falling back to the content when the name says nothing). Markdown goes through
-    `documentFromMarkdown` to JSON; HTML goes through `sanitizeHtml` and then through
-    TipTap's `setContent`, whose DOMParser is the final word on the document either
-    way. If the draft says anything (`isEmptyDocument`), an alert dialog asks first:
-    cancelling closes it and changes nothing, confirming replaces the document. The
+    `importMarkdown` to JSON — the reader for the writer, tables and images included
+    (#220) — and its images then meet the same admission an inserted file does; HTML
+    goes through `importHtml` and then through TipTap's `setContent`, whose DOMParser
+    is the final word on the document either way. An image that breaks a rule is
+    replaced by its alt text and the first rule's sentence is painted above the
+    canvas, where a refused insert says the same thing. If the draft says anything
+    (`isEmptyDocument`), an alert dialog asks first: cancelling closes it and changes
+    nothing, confirming replaces the document. The
     confirmed replacement is a `setContent` that emits an update, so #209 saves it
     like any other change. The input's value is cleared after every choice, so
     importing the same file twice works. A file that sanitises to nothing leaves the
@@ -499,6 +513,14 @@ here re-runs it.
       document is editable, and exporting it again carries the added words.
 - [ ] **▣** 导入 an HTML file produces the same blocks, and its `<head>`, stylesheet
       and script do not survive.
+- [ ] **▣** 导入 a Markdown file with a GFM pipe table and a `data:` image produces
+      the table's header and body rows and the picture, and exporting it again writes
+      the same table and the same image line.
+- [ ] **▣** 导入 an HTML file with a `<table>` and a `data:` `<img>` produces the
+      same blocks; the image keeps its percentage width, and its `onerror` does not
+      survive. An image over the limits is refused with the insert path's sentence,
+      and its alt text stays as text; a remote image leaves its alt text and no
+      picture.
 - [ ] **▣** A non-empty draft asks 替换当前文档？ before the import; 取消 leaves the
       title and the body untouched, and 替换 replaces them.
 - [ ] **▣** Pasted HTML is sanitised by the editor's own paste path: a pasted

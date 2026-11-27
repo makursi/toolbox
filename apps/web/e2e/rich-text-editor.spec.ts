@@ -62,8 +62,8 @@ import {
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
  * command table (#207), the three ways to write without leaving the keyboard (#208),
  * the two exports (#210), the local draft with its save status (#209), the import
- * (#211), the images and tables that travel with the document (#216, #217), and
- * the two formats that now carry them (#219).
+ * (#211), the images and tables that travel with the document (#216, #217), the
+ * two formats that carry them (#219), and the same two formats read back (#220).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -174,6 +174,43 @@ const HTML_FIXTURE = [
   "<blockquote>引用一句。</blockquote>",
   '<pre><code class="language-js">const answer = 42;</code></pre>',
   "<hr>",
+  "</article></body></html>",
+].join("");
+
+/**
+ * The image and the table as an imported file carries them (#220).
+ *
+ * The PNG is the same file the insert tests hand the page, encoded the way a
+ * document carries a picture: there is no upload service, so the bytes travel in
+ * the file itself. The fixtures are a table and an image in each of the two
+ * formats, which is also what makes "the imported document exports back" a claim
+ * about both writers rather than about one.
+ */
+const PNG_DATA_URL = `data:image/png;base64,${pngFile().buffer.toString("base64")}`;
+
+const MARKDOWN_BLOCKS_FIXTURE = [
+  "# 图文导入",
+  "",
+  "| 项目 | 数量 |",
+  "| --- | --- |",
+  "| 甲 | 1 |",
+  "| 乙 | 2 |",
+  "",
+  `![照片](${PNG_DATA_URL})`,
+  "",
+].join("\n");
+
+const HTML_BLOCKS_FIXTURE = [
+  "<!doctype html>",
+  '<html lang="zh-CN"><head>',
+  "<title>忽略的标题</title>",
+  "<style>table { color: red }</style>",
+  "<script>window.__htmlBlocksPwned = true</script>",
+  "</head><body><article>",
+  "<h1>图文导入</h1>",
+  "<table><thead><tr><th>项目</th><th>数量</th></tr></thead>",
+  "<tbody><tr><td>甲</td><td>1</td></tr><tr><td>乙</td><td>2</td></tr></tbody></table>",
+  `<p><img src="${PNG_DATA_URL}" alt="照片" onerror="alert(1)" style="width: 50%"></p>`,
   "</article></body></html>",
 ].join("");
 
@@ -976,6 +1013,141 @@ test("the file menu imports an HTML file, and its head, script and style do not 
   const exported = await downloadFromFileMenu(page, "导出 HTML");
   expect(exported.suggestedFilename()).toBe(`HTML 导入-${todayStamp()}.html`);
   expect(await readDownload(exported)).toContain("<h1>HTML 导入</h1>");
+});
+
+/**
+ * The image and the table through the import (#220), in both formats.
+ *
+ * The file goes in through the file menu's own 导入 row, and the document is judged
+ * by the blocks the canvas renders: a real table with a header row and body rows, a
+ * real image whose `src` is the document's own bytes. The round trip is the last
+ * step of each case — the imported document is exported again and the bytes have to
+ * still carry the table and the picture, which is the claim that the two parsers and
+ * the two writers agree.
+ */
+test("a Markdown file with a table and a data image imports as those blocks, and re-exports", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(page, fileOf("图文.md", "text/markdown", MARKDOWN_BLOCKS_FIXTURE));
+
+  const table = canvas(page).locator("table");
+  await expect(table).toBeVisible();
+  await expect(table.locator("tr")).toHaveCount(3);
+  await expect(table.locator("th")).toHaveCount(2);
+  await expect(table.locator("th").first()).toHaveText("项目");
+  await expect(table.locator("td")).toHaveCount(4);
+  await expect(table.locator("td").first()).toHaveText("甲");
+  await expect(table.locator("td").last()).toHaveText("2");
+
+  const image = imagesInCanvas(page);
+  await expect(image).toHaveCount(1);
+  expect(await image.getAttribute("src")).toBe(PNG_DATA_URL);
+  expect(await image.getAttribute("alt")).toBe("照片");
+
+  // The imported document exports again with the same structure: the table as GFM
+  // and the picture as the one line GFM has for it.
+  const exported = await downloadFromFileMenu(page, "导出 Markdown");
+  const bytes = await readDownload(exported);
+
+  expect(bytes).toContain("| 项目 | 数量 |");
+  expect(bytes).toContain("| --- | --- |");
+  expect(bytes).toContain("| 甲 | 1 |");
+  expect(bytes).toContain(`![照片](${PNG_DATA_URL})`);
+});
+
+test("an HTML file with a table and a data image imports as those blocks, and re-exports", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(page, fileOf("图文.html", "text/html", HTML_BLOCKS_FIXTURE));
+
+  const table = canvas(page).locator("table");
+  await expect(table).toBeVisible();
+  await expect(table.locator("th")).toHaveCount(2);
+  await expect(table.locator("th").first()).toHaveText("项目");
+  await expect(table.locator("td")).toHaveCount(4);
+  await expect(table.locator("td").first()).toHaveText("甲");
+
+  const image = imagesInCanvas(page);
+  await expect(image).toHaveCount(1);
+  expect(await image.getAttribute("src")).toBe(PNG_DATA_URL);
+  expect(await image.getAttribute("alt")).toBe("照片");
+  // The width is part of the document, and the HTML export carries it; the
+  // sanitiser's whitelist is what lets that one value through and nothing else.
+  expect(await image.getAttribute("style")).toContain("width: 50%");
+  expect(await image.getAttribute("onerror"), "an event handler is not carried").toBeNull();
+
+  expect(await page.evaluate("window.__htmlBlocksPwned")).toBeUndefined();
+
+  const exported = await downloadFromFileMenu(page, "导出 HTML");
+  const standalone = await readDownload(exported);
+
+  expect(standalone).toContain("<table>");
+  expect(standalone).toContain("<th>项目</th>");
+  expect(standalone).toContain("<td>甲</td>");
+  expect(standalone).toContain(`<img src="${PNG_DATA_URL}" alt="照片" style="width: 50%">`);
+});
+
+/**
+ * A remote image is not a picture this page can draw (#215, #220): the CSP allows
+ * `img-src 'self'` and there is no upload service, so the file is read and the alt
+ * text is the text that remains — in both formats, and without failing the import.
+ */
+test("a remote image in an imported file is dropped and its alt text stays as text", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(
+    page,
+    fileOf(
+      "远程.md",
+      "text/markdown",
+      ["# 远程图片", "", "前文 ![远程照片](https://example.com/photo.png) 后文"].join("\n"),
+    ),
+  );
+
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+  await expect(canvas(page).locator("p").first()).toContainText("远程照片");
+
+  await importFromFileMenu(
+    page,
+    fileOf(
+      "远程.html",
+      "text/html",
+      '<h1>远程图片</h1><p>前文<img src="https://example.com/photo.png" alt="远程照片">后文</p>',
+    ),
+  );
+  await expect(importDialog(page)).toBeVisible();
+  await answerImportDialog(page, "替换");
+
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+  await expect(canvas(page).locator("p").first()).toContainText("远程照片");
+});
+
+/**
+ * The admission an imported data image meets is the one an inserted file meets
+ * (#220): the eleventh image is refused with the sentence a visitor already knows,
+ * and its alt text is what the document keeps in its place. The document never
+ * holds more than ten, because the import does not get to keep what an insert could
+ * not have put there.
+ */
+test("an import over ten images keeps ten and says the count's sentence", async ({ page }) => {
+  await open(page);
+
+  const fixture = [
+    "# 十一张",
+    "",
+    ...Array.from({ length: 11 }, (_, index) => `![第${index + 1}张](${PNG_DATA_URL})`),
+  ].join("\n\n");
+
+  await importFromFileMenu(page, fileOf("十一张.md", "text/markdown", fixture));
+
+  await expect(imagesInCanvas(page)).toHaveCount(10);
+  await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
+  // The refused image's alt text is where the picture would have been.
+  await expect(canvas(page)).toContainText("第11张");
+  await expect(canvas(page).locator('img[alt="第11张"]')).toHaveCount(0);
 });
 
 /**

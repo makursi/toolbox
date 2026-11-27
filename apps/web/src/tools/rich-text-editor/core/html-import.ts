@@ -1,12 +1,12 @@
 /**
- * Sanitised HTML for the editor's paste and import paths (#211).
+ * Sanitised HTML for the editor's paste and import paths (#211, tables and images #220).
  *
  * The editor's schema is a closed list: a document has paragraphs, headings,
- * lists, quotes, code blocks and rules, and inline text has bold, italic,
- * underline, strike, code and link. Everything else a pasted or imported document
- * may carry (scripts, stylesheets, a `<head>`, layout wrappers, event handlers,
- * `javascript:` URLs, images this path still drops; reading an image out of markup
- * is #220's job) is either dropped or unwrapped here, before a parser ever sees it.
+ * lists, quotes, code blocks, rules, images and tables, and inline text has bold,
+ * italic, underline, strike, code and link. Everything else a pasted or imported
+ * document may carry (scripts, stylesheets, a `<head>`, layout wrappers, event
+ * handlers, `javascript:` URLs, a remote image, a `data:` URL over one of the
+ * image limits) is either dropped or unwrapped here, before a parser ever sees it.
  *
  * The output is a fragment of the elements the schema does know, and the final
  * conversion to JSON is TipTap's own: the editor hands this markup to
@@ -19,12 +19,20 @@
  * pasted `<script>` and an imported `<script>` are removed by one rule rather
  * than two.
  *
+ * An image source is kept only when it is a `data:` URL this Tool can measure, and
+ * the image then meets the same admission an inserted file does — an import is a
+ * whole document, so its batch starts empty and every image after the tenth is
+ * dropped whatever its size. A source that fails either test leaves its alt text,
+ * which is the answer the Markdown reader gives the same file (#220).
+ *
  * The parser is a forgiving tokeniser over a small tree, not a browser: an
  * unclosed tag, a stray `<` or a mismatched closing tag is text or is closed by
  * its parent, and no input makes this throw. Text is entity-decoded on the way in
  * and escaped on the way out, so `&amp;` survives as one `&` rather than becoming
  * `&amp;amp;`.
  */
+
+import { importAdmission, type ImageRefusal, type ImportAdmission } from "./admission";
 
 interface TextNode {
   readonly type: "text";
@@ -69,7 +77,6 @@ const DROPPED_ELEMENTS = new Set([
   "frameset",
   "head",
   "iframe",
-  "img",
   "input",
   "link",
   "map",
@@ -137,14 +144,42 @@ const ALLOWED_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
 /** A link's language class, as the editor's code block reads it back. */
 const LANGUAGE_CLASS = /^language-([A-Za-z0-9_+#.-]+)$/u;
 
+/** The sanitised fragment, and the images whose source or size it had to refuse. */
+export interface HtmlImport {
+  readonly html: string;
+  readonly refusals: readonly ImageRefusal[];
+}
+
+/**
+ * What an imported HTML file becomes: the fragment, and the rules its images broke.
+ *
+ * The two travel together because an import has a sentence to show about a refused
+ * image (the one `core/copy.ts` gives every refusal), and the fragment alone cannot
+ * carry it. The admission starts empty: an import replaces the document, so the
+ * count and the total are about the file's own images.
+ */
+export function importHtml(source: string): HtmlImport {
+  const admission = importAdmission();
+  const html = serialize(transformNodes(parseFragment(source), { admission }));
+
+  return { html, refusals: admission.refusals };
+}
+
 /**
  * The sanitised fragment for a pasted or imported document.
  *
  * `""` means the source held nothing the editor can carry. Callers treat that as
- * an empty document rather than as markup.
+ * an empty document rather than as markup. The refusal sentences are dropped here
+ * because the paste path has nowhere to say one; the image is refused all the same,
+ * and its alt text is what the document gets.
  */
 export function sanitizeHtml(source: string): string {
-  return serialize(transformNodes(parseFragment(source)));
+  return importHtml(source).html;
+}
+
+/** What the transform needs besides the tree: the batch's running image admission. */
+interface SanitizeContext {
+  readonly admission: ImportAdmission;
 }
 
 /** A stack entry while the tree is being built: the root, or an open element. */
@@ -307,8 +342,8 @@ function parseFragment(source: string): HtmlNode[] {
 }
 
 /** The children with each one sanitised. */
-function transformNodes(nodes: readonly HtmlNode[]): HtmlNode[] {
-  return nodes.flatMap((node) => (node.type === "text" ? [node] : transformElement(node)));
+function transformNodes(nodes: readonly HtmlNode[], context: SanitizeContext): HtmlNode[] {
+  return nodes.flatMap((node) => (node.type === "text" ? [node] : transformElement(node, context)));
 }
 
 /** The name an element is kept under, or its own name. */
@@ -316,8 +351,12 @@ function resolvedTag(tag: string): string {
   return TAG_ALIASES[tag] ?? tag;
 }
 
-function transformElement(element: ElementNode): HtmlNode[] {
+function transformElement(element: ElementNode, context: SanitizeContext): HtmlNode[] {
   const tag = resolvedTag(element.tag);
+
+  // An image is read before the drop list, and the drop list no longer holds it:
+  // it is a node the document has, as long as its source is one this Tool can draw.
+  if (tag === "img") return transformImage(element, context);
 
   if (DROPPED_ELEMENTS.has(tag)) return [];
 
@@ -341,19 +380,21 @@ function transformElement(element: ElementNode): HtmlNode[] {
     ];
   }
 
-  if (tag === "ul" || tag === "ol") return [transformList(element, tag)];
+  if (tag === "ul" || tag === "ol") return [transformList(element, tag, context)];
 
-  if (tag === "li") return [transformListItem(element, false)];
+  if (tag === "li") return [transformListItem(element, false, context)];
+
+  if (tag === "table") return transformTable(element, context);
 
   if (tag === "a") {
     const href = safeHref(element.attrs.href);
 
-    if (href === null) return transformNodes(element.children);
+    if (href === null) return transformNodes(element.children, context);
 
     return [
       {
         attrs: { href },
-        children: transformNodes(element.children),
+        children: transformNodes(element.children, context),
         tag: "a",
         type: "element",
       },
@@ -364,16 +405,114 @@ function transformElement(element: ElementNode): HtmlNode[] {
     return [
       {
         attrs: {},
-        children: transformNodes(element.children),
+        children: transformNodes(element.children, context),
         tag,
         type: "element",
       },
     ];
   }
 
-  // A wrapper the schema has no node for (div, section, span, table, …) keeps
-  // its words and loses its box.
-  return transformNodes(element.children);
+  // A wrapper the schema has no node for (div, section, span, …) keeps its words
+  // and loses its box.
+  return transformNodes(element.children, context);
+}
+
+/**
+ * An `<img>` as the document's own image, or the alt text that remains of it.
+ *
+ * A source is kept only when it is a base64 `data:` URL this Tool can measure and
+ * admit. The rejection is the same decision for both halves: a remote `https:` image
+ * would be a request this site's CSP never allows and an upload service this site
+ * does not have, and an image over a limit is one the document may not hold — its
+ * alt text is the words that were written about it, which is what a reader can still
+ * use. An image with no alt leaves nothing rather than an empty node.
+ *
+ * `style` is not a kept attribute; the one value read from it is the percentage
+ * width this Tool's own writer puts there, because that number is part of the
+ * document — it is the Markdown export that has to drop it, not the HTML one.
+ */
+function transformImage(element: ElementNode, context: SanitizeContext): HtmlNode[] {
+  const alt = element.attrs.alt ?? "";
+  const verdict = context.admission.admit(element.attrs.src);
+
+  if (verdict?.kind !== "admitted") return alt === "" ? [] : [{ text: alt, type: "text" }];
+
+  const src = (element.attrs.src ?? "").trim();
+  // `src` first, in the order the writer puts them: the two are read back by the
+  // same parser, and a round trip that reorders attributes is noise in a diff.
+  const attrs: Record<string, string> = { src, alt };
+  const width = percentageWidth(element);
+
+  if (width !== null) attrs.style = `width: ${String(width)}%`;
+
+  return [{ attrs, children: [], tag: "img", type: "element" }];
+}
+
+/** The percentage width an `<img>` declares, clamped to the node's own 1–100. */
+function percentageWidth(element: ElementNode): number | null {
+  const written = /(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)\s*%/iu.exec(element.attrs.style ?? "");
+  const raw = written?.[1] ?? element.attrs.width ?? "";
+  const parsed = Number.parseFloat(raw);
+
+  if (!Number.isFinite(parsed)) return null;
+
+  return Math.min(100, Math.max(1, Math.round(parsed)));
+}
+
+/**
+ * A table, and the two wrapper elements a table may carry.
+ *
+ * `thead`, `tbody` and `tfoot` are not nodes of this document — its table is rows of
+ * cells, and its first row is the header — so the wrappers are taken off and their
+ * rows kept in order. Anything else directly inside the table (`caption`, stray
+ * text) is not a cell and says nothing about the document; a table with no rows left
+ * says nothing at all.
+ */
+function transformTable(element: ElementNode, context: SanitizeContext): HtmlNode[] {
+  const rows = tableRows(element).flatMap((row) => {
+    const transformed = transformRow(row, context);
+
+    return transformed === null ? [] : [transformed];
+  });
+
+  return rows.length === 0 ? [] : [{ attrs: {}, children: rows, tag: "table", type: "element" }];
+}
+
+/** The `<tr>`s under a table, with any `thead`/`tbody`/`tfoot` wrapper taken off. */
+function tableRows(element: ElementNode): ElementNode[] {
+  return element.children.flatMap((child) => {
+    if (child.type !== "element") return [];
+
+    const tag = resolvedTag(child.tag);
+    if (tag === "tr") return [child];
+    if (tag === "thead" || tag === "tbody" || tag === "tfoot") return tableRows(child);
+
+    return [];
+  });
+}
+
+/**
+ * One row: its `<td>`/`<th>` cells, and nothing else.
+ *
+ * A row with no cells is dropped rather than kept as an empty grid line. A cell with
+ * no content gets the paragraph its schema requires, so `<td></td>` is an empty cell
+ * rather than a cell the parser has to invent content for.
+ */
+function transformRow(row: ElementNode, context: SanitizeContext): HtmlNode | null {
+  const cells = row.children.flatMap((child): HtmlNode[] => {
+    if (child.type !== "element") return [];
+
+    const tag = resolvedTag(child.tag);
+    if (tag !== "td" && tag !== "th") return [];
+
+    const content = transformNodes(child.children, context);
+    const children: HtmlNode[] =
+      content.length === 0 ? [{ attrs: {}, children: [], tag: "p", type: "element" }] : content;
+
+    return [{ attrs: {}, children, tag, type: "element" }];
+  });
+
+  return cells.length === 0 ? null : { attrs: {}, children: cells, tag: "tr", type: "element" };
 }
 
 /** A code block: the text of everything inside it, with its language if it had one. */
@@ -433,13 +572,17 @@ function languageOf(element: ElementNode | undefined): string {
  * read here and written back in the editor's own shape, which is what makes an
  * exported file importable again.
  */
-function transformList(element: ElementNode, tag: "ul" | "ol"): ElementNode {
+function transformList(
+  element: ElementNode,
+  tag: "ul" | "ol",
+  context: SanitizeContext,
+): ElementNode {
   const task = tag === "ul" && isTaskList(element);
   const items = element.children
     .filter(
       (child): child is ElementNode => child.type === "element" && resolvedTag(child.tag) === "li",
     )
-    .map((item) => transformListItem(item, task));
+    .map((item) => transformListItem(item, task, context));
   const attrs: Record<string, string> = {};
 
   if (task) {
@@ -454,7 +597,11 @@ function transformList(element: ElementNode, tag: "ul" | "ol"): ElementNode {
 }
 
 /** One list item, as a task item when its list is a task list. */
-function transformListItem(element: ElementNode, task: boolean): ElementNode {
+function transformListItem(
+  element: ElementNode,
+  task: boolean,
+  context: SanitizeContext,
+): ElementNode {
   const checked = task && isChecked(element);
   const attrs: Record<string, string> = {};
 
@@ -465,7 +612,7 @@ function transformListItem(element: ElementNode, task: boolean): ElementNode {
 
   return {
     attrs,
-    children: transformNodes(element.children),
+    children: transformNodes(element.children, context),
     tag: "li",
     type: "element",
   };

@@ -8,8 +8,10 @@ import {
   type AdmissionState,
   type ImageProbe,
   admitImage,
+  dataUrlImageProbe,
   imageUsage,
   imageUsageAfterReplacement,
+  importAdmission,
   sniffImageType,
 } from "@/tools/rich-text-editor/core/admission";
 
@@ -231,5 +233,90 @@ describe("imageUsageAfterReplacement", () => {
     expect(
       imageUsageAfterReplacement({ count: 0, totalBytes: 0 }, "https://example.com/photo.png"),
     ).toEqual({ count: 0, totalBytes: 0 });
+  });
+});
+
+/**
+ * A data URL measured as if it were a file (#220).
+ *
+ * An imported document carries its images as strings, not as files, so the limits
+ * have to reach into the string: the head is decoded from the payload's first
+ * characters and the size from its own length. A source that is not a base64
+ * `data:` URL answers `null` — there is no file there to measure, and the import
+ * turns it into its alt text rather than calling it an image.
+ */
+describe("dataUrlImageProbe", () => {
+  const PNG_1X1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  it("reads a base64 data URL's head and its decoded size", () => {
+    const file = dataUrlImageProbe(PNG_1X1);
+
+    expect(file === null ? null : sniffImageType(file.head)).toBe("png");
+    expect(file?.size).toBe(70);
+    expect(dataUrlImageProbe(dataUrlOf(3000))?.size).toBe(3000);
+    // The head is decoded four characters at a time, so the sniff sees the
+    // signature in its own order rather than off by the padding.
+    expect(dataUrlImageProbe(dataUrlOf(3))?.head.length).toBeGreaterThan(0);
+  });
+
+  it("answers null for a source that is not a measurable data URL", () => {
+    expect(dataUrlImageProbe("https://example.com/photo.png")).toBeNull();
+    expect(dataUrlImageProbe("/photo.png")).toBeNull();
+    expect(dataUrlImageProbe("data:image/png,not-base64")).toBeNull();
+    expect(dataUrlImageProbe("data:image/png;base64,")).toBeNull();
+    expect(dataUrlImageProbe("")).toBeNull();
+    expect(dataUrlImageProbe(null)).toBeNull();
+    expect(dataUrlImageProbe(undefined)).toBeNull();
+  });
+});
+
+/**
+ * A whole document's images arriving at once (#220).
+ *
+ * The same rule as an insert, asked of a batch: the count and the total start empty
+ * because an import replaces the document, and every image after the tenth is
+ * refused whatever its size. The refusals accumulate in the order the images
+ * appeared, which is what lets the import show the first one as its sentence.
+ */
+describe("importAdmission", () => {
+  const PNG_1X1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  it("admits ten images in order and refuses the eleventh by count", () => {
+    const admission = importAdmission();
+
+    for (let index = 0; index < MAX_IMAGES_PER_DOCUMENT; index += 1) {
+      expect(admission.admit(PNG_1X1)).toEqual({ kind: "admitted", size: 70, type: "png" });
+    }
+
+    expect(admission.admit(PNG_1X1)).toEqual({ kind: "refused", refusal: "count" });
+    expect(admission.refusals).toEqual(["count"]);
+  });
+
+  it("refuses one file over its format's limit while admitting the one before it", () => {
+    const admission = importAdmission();
+    /** A PNG-headed payload of `bytes` bytes, so the sniffer and the size both read it. */
+    const dataUrlOfSize = (bytes: number): string => {
+      const payload = Buffer.alloc(bytes);
+      PNG.forEach((byte, index) => {
+        payload[index] = byte;
+      });
+
+      return `data:image/png;base64,${payload.toString("base64")}`;
+    };
+
+    expect(admission.admit(dataUrlOfSize(MAX_IMAGE_BYTES))).toMatchObject({ kind: "admitted" });
+    expect(admission.admit(dataUrlOfSize(MAX_IMAGE_BYTES + 1))).toEqual({
+      kind: "refused",
+      refusal: "size",
+    });
+  });
+
+  it("answers null — and no sentence — for a source it cannot measure", () => {
+    const admission = importAdmission();
+
+    expect(admission.admit("https://example.com/photo.png")).toBeNull();
+    expect(admission.refusals).toEqual([]);
   });
 });
