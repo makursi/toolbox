@@ -395,3 +395,52 @@ export async function storedDraft(page: Page): Promise<StoredDraftRecord | null>
 export function canvas(page: Page): Locator {
   return page.locator(CANVAS);
 }
+
+/**
+ * The toolbar's 表格 button (#217): one control in two states.
+ *
+ * Outside a table it opens the grid picker, inside a table the contextual menu. The
+ * name is the same in both, so every press goes through it; what the button opens is
+ * asserted by the region that appears and by `aria-haspopup`.
+ */
+export function tableTrigger(page: Page): Locator {
+  return toolbarControl(page, "表格");
+}
+
+/** The grid picker's region, by the name its section carries. */
+export function tableGrid(page: Page): Locator {
+  return page.getByRole("region", { name: "表格大小" });
+}
+
+/** One cell of the grid picker, by the size a screen reader reads on it. */
+export function tableGridCell(page: Page, rows: number, columns: number): Locator {
+  return tableGrid(page).getByRole("button", { name: `${rows} 行 × ${columns} 列`, exact: true });
+}
+
+/** The contextual 表格 menu, by the name its region carries. */
+export function tableMenu(page: Page): Locator {
+  return page.getByRole("menu", { name: "表格操作" });
+}
+
+/** One row of the contextual menu, by the words the Tool gives it. */
+export function tableMenuItem(page: Page, label: string): Locator {
+  return tableMenu(page).getByRole("menuitem", { name: label, exact: true });
+}
+
+/**
+ * Insert a table of the chosen size through the page's own grid picker.
+ *
+ * Both presses are coordinate presses: the trigger is a toolbar control, and the
+ * cells are the transient surface the hit-area instrument deliberately does not
+ * declare, so this is the path that proves they are reachable with a pointer.
+ */
+export async function insertTableOfSize(page: Page, rows: number, columns: number): Promise<void> {
+  await pressAt(page, tableTrigger(page));
+  await pressAt(page, tableGridCell(page, rows, columns));
+}
+
+/** Open the contextual menu from inside the table and press one of its rows. */
+export async function pressTableMenuItem(page: Page, label: string): Promise<void> {
+  await pressAt(page, tableTrigger(page));
+  await pressAt(page, tableMenuItem(page, label));
+}

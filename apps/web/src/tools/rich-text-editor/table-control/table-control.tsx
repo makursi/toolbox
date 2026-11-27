@@ -1,7 +1,7 @@
 "use client";
 
 import type { Editor } from "@tiptap/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -63,14 +63,25 @@ export interface TableControlProps {
 
 export function TableControl({ editor, inTable }: TableControlProps) {
   const [open, setOpen] = useState(false);
+  /*
+   * Whether the popover is closing because one of its own actions ran. Radix returns
+   * the focus to the trigger on every close, which is right after Escape or a click
+   * outside and wrong after a commit: every action chains `.focus()`, so the caret
+   * is already where it belongs — in the new table's first cell, or in the paragraph
+   * 删除表格 leaves behind — and sending it back to the toolbar button would take it
+   * away. The flag is what tells the two closes apart.
+   */
+  const committed = useRef(false);
   const command = commandById("table");
 
   const pick = (size: TableSize) => {
+    committed.current = true;
     insertTable(editor, size);
     setOpen(false);
   };
 
   const run = (id: TableOperationId) => {
+    committed.current = true;
     runTableOperation(editor, id);
     setOpen(false);
   };
@@ -80,7 +91,7 @@ export function TableControl({ editor, inTable }: TableControlProps) {
       <PopoverTrigger asChild>
         <Button
           aria-expanded={open}
-          aria-haspopup={inTable ? "menu" : "grid"}
+          aria-haspopup={inTable ? "menu" : undefined}
           aria-label={command.label}
           className="touch-target size-11"
           size="icon"
@@ -89,7 +100,16 @@ export function TableControl({ editor, inTable }: TableControlProps) {
           <span aria-hidden className={`icon ${command.icon}`} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-2">
+      <PopoverContent
+        align="start"
+        className="w-auto p-2"
+        onCloseAutoFocus={(event) => {
+          if (!committed.current) return;
+
+          committed.current = false;
+          event.preventDefault();
+        }}
+      >
         {inTable ? <TableMenu onRun={run} /> : <TableGrid onPick={pick} />}
       </PopoverContent>
     </Popover>
