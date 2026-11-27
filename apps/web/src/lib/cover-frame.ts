@@ -9,37 +9,54 @@ import type { ImageSize } from "@/lib/image-header";
  * when the frame its crop leaves is big enough: the Cover Generator's
  * 1920×1080 file leaves 1440×1080, which passes.
  *
- * The floor is 1320×990: below it the card would upscale the file and the
- * visitor would see a blur. The floor is expressed for the 4:3 frame, so the
- * numbers mean the same thing whatever ratio the source file has.
+ * The floor is 1320×990, and it is a quality margin rather than the point at
+ * which the card runs out of pixels: the frame is 220×165 on a wide screen
+ * (`md:w-[220px]` at 4:3, capped at 180px tall) and at most about 240×180 on a
+ * phone, so even a 660×495 cover is still downscaled, and the true upscale
+ * point is around 480×360. 1320×990 is six times the wide card's box — three
+ * times the 440×330 a 2× screen needs — which is the margin the register's rule
+ * buys. The floor is expressed for the 4:3 frame, so the numbers mean the same
+ * thing whatever ratio the source file has.
+ *
+ * The same floor is written twice on purpose: `scripts/assets.py` refuses at
+ * write time and this module refuses at read time, so neither is a stray copy.
+ * The script floors its derived side exactly as `centredFrame` does, so the box
+ * the command writes is the box this measures.
  */
 
-/** The card's frame: the 4:3 shape the card reserves for a cover. */
-const cardRatio: ImageSize = { width: 4, height: 3 };
+/** The two sides of a ratio in their reduced terms — a shape, not pixels. */
+type Ratio = readonly [width: number, height: number];
 
-/** The smallest 4:3 frame a cover may leave: below it the card would upscale and blur. */
+/** The card's frame: the 4:3 shape the card reserves for a cover. */
+const cardRatio: Ratio = [4, 3];
+
+/**
+ * The smallest 4:3 frame a cover may leave: a quality margin six times the
+ * card's 220×165 wide-screen box, not the point at which it would upscale.
+ */
 const cardFloor: ImageSize = { width: 1320, height: 990 };
 
 /**
  * The largest centred 4:3 frame that fits inside `size`.
  *
- * The derived side is floored, never rounded: this number is the frame the card
- * can actually fill, so a fraction of a pixel is pixels the file does not have.
- * Rounding would claim 751 from 1001×3/4 = 750.75, a pixel the crop cannot
- * supply.
+ * The derived side is floored, never rounded: the floored side is the largest
+ * one that still has the ratio, and a rounded side would exceed it. For a
+ * 1001×1000 source the height is 1001×3/4 = 750.75, so 750 is the largest whole
+ * height the 4:3 box allows; 751 would be taller than the ratio permits, even
+ * though the source itself is 1000 tall.
  */
 export function centredFrame(size: ImageSize): ImageSize {
-  if (size.width === 0 || size.height === 0) return { width: 0, height: 0 };
+  const [ratioWidth, ratioHeight] = cardRatio;
 
-  if (size.width * cardRatio.height <= size.height * cardRatio.width) {
+  if (size.width * ratioHeight <= size.height * ratioWidth) {
     return {
       width: size.width,
-      height: Math.floor((size.width * cardRatio.height) / cardRatio.width),
+      height: Math.floor((size.width * ratioHeight) / ratioWidth),
     };
   }
 
   return {
-    width: Math.floor((size.height * cardRatio.width) / cardRatio.height),
+    width: Math.floor((size.height * ratioWidth) / ratioHeight),
     height: size.height,
   };
 }

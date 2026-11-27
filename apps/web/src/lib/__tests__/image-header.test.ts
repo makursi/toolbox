@@ -33,7 +33,10 @@ function big(value: number): number[] {
   return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
-/** A 24-bit RGB PNG header, ending just after IHDR's width and height. */
+/**
+ * An 8-bit RGBA PNG header (bit depth 8, colour type 6), ending after IHDR's
+ * compression, filter and interlace bytes.
+ */
 function png(width: number, height: number): Uint8Array {
   return bytes(
     ...PNG_SIGNATURE,
@@ -80,13 +83,9 @@ function vp8lPayload(width: number, height: number): number[] {
   return [0x2f, ...little(packed, 4)];
 }
 
-/**
- * A JPEG with one `APP0` segment before the `SOF0` frame, so the walk has to
- * skip a length-prefixed segment before it finds the size.
- */
-function jpeg(width: number, height: number): Uint8Array {
-  const app0 = [0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46];
-  const frame = [
+/** A `SOF0` frame: precision, height, width, then three components. */
+function sof0(width: number, height: number): number[] {
+  const payload = [
     0x08,
     (height >> 8) & 0xff,
     height & 0xff,
@@ -103,9 +102,73 @@ function jpeg(width: number, height: number): Uint8Array {
     0x11,
     0,
   ];
-  const length = frame.length + 2;
+  const length = payload.length + 2;
 
-  return bytes(0xff, 0xd8, ...app0, 0xff, 0xc0, (length >> 8) & 0xff, length & 0xff, ...frame);
+  return [0xff, 0xc0, (length >> 8) & 0xff, length & 0xff, ...payload];
+}
+
+/**
+ * A JPEG with one `APP0` segment before the `SOF0` frame, so the walk has to
+ * skip a length-prefixed segment before it finds the size.
+ */
+function jpeg(width: number, height: number): Uint8Array {
+  const app0 = [0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46];
+
+  return bytes(0xff, 0xd8, ...app0, ...sof0(width, height));
+}
+
+/** A JPEG whose `APP1` segment carries `payload`, before the `SOF0` frame. */
+function jpegWithApp1(payload: number[], width: number, height: number): Uint8Array {
+  const length = payload.length + 2;
+
+  return bytes(
+    0xff,
+    0xd8,
+    0xff,
+    0xe1,
+    (length >> 8) & 0xff,
+    length & 0xff,
+    ...payload,
+    ...sof0(width, height),
+  );
+}
+
+/**
+ * One little-endian `APP1/Exif` payload: the signature, a TIFF header and a
+ * single directory entry holding the orientation tag as a SHORT.
+ */
+function exifPayload(orientation: number): number[] {
+  return [
+    ...ascii("Exif"),
+    0x00,
+    0x00, // the signature's terminator
+    0x49,
+    0x49, // "II": little-endian
+    0x2a,
+    0x00, // 42
+    0x08,
+    0x00,
+    0x00,
+    0x00, // the first directory, eight bytes into the TIFF header
+    0x01,
+    0x00, // one entry
+    0x12,
+    0x01, // tag 0x0112, the orientation
+    0x03,
+    0x00, // type 3, SHORT
+    0x01,
+    0x00,
+    0x00,
+    0x00, // one value
+    orientation,
+    0x00,
+    0x00,
+    0x00, // the value, then padding to four bytes
+    0x00,
+    0x00,
+    0x00,
+    0x00, // no next directory
+  ];
 }
 
 describe("readImageSize", () => {
@@ -129,6 +192,56 @@ describe("readImageSize", () => {
     expect(readImageSize(webp("VP8L", vp8lPayload(1001, 750)))).toEqual({
       width: 1001,
       height: 750,
+    });
+  });
+
+  it("reports the dimensions a JPEG's EXIF turn displays", () => {
+    // 5-8 turn the picture by a quarter, so the stored sides swap.
+    for (const orientation of [5, 6, 7, 8]) {
+      expect(readImageSize(jpegWithApp1(exifPayload(orientation), 1200, 800))).toEqual({
+        width: 800,
+        height: 1200,
+      });
+    }
+
+    // 1-4 keep them: 2 and 4 mirror, 3 is a half turn, none swaps the sides.
+    for (const orientation of [1, 2, 3, 4]) {
+      expect(readImageSize(jpegWithApp1(exifPayload(orientation), 1200, 800))).toEqual({
+        width: 1200,
+        height: 800,
+      });
+    }
+  });
+
+  it("treats a malformed Exif segment as upright", () => {
+    // "Exif\0\0" then a big-endian TIFF header whose directory offset runs past
+    // the segment. Nothing here can be read, so the stored size is displayed —
+    // the choice pinned for a segment that parses to nothing.
+    const malformed = [
+      ...ascii("Exif"),
+      0x00,
+      0x00,
+      0x4d,
+      0x4d,
+      0x00,
+      0x2a,
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+    ];
+
+    expect(readImageSize(jpegWithApp1(malformed, 1200, 800))).toEqual({
+      width: 1200,
+      height: 800,
+    });
+  });
+
+  it("leaves PNG and WebP upright", () => {
+    expect(readImageSize(png(1200, 800))).toEqual({ width: 1200, height: 800 });
+    expect(readImageSize(webp("VP8X", vp8xPayload(1200, 800)))).toEqual({
+      width: 1200,
+      height: 800,
     });
   });
 

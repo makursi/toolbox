@@ -9,7 +9,9 @@ import { readImageSize, type ImageSize } from "@/lib/image-header";
  * The claim is **the file covers the card's 4:3 box**, not "the file is 4:3":
  * the card reserves a 4:3 frame and crops the cover into it, so a 16:9 file can
  * still pass — the Cover Generator's 1920×1080 cover leaves a 1440×1080 frame.
- * The floor is 1320×990, below which the card would upscale and blur.
+ * The floor is 1320×990, a quality margin six times the card's 220×165
+ * wide-screen box rather than the point at which it would upscale (that is
+ * about 480×360), so this pins the register's margin, not a blur threshold.
  *
  * The refusal path is exercised on a tiny image built inline, so a file on disk
  * is not needed to prove the message names the file and the numbers. The
@@ -64,8 +66,9 @@ describe("centredFrame", () => {
   });
 
   it("floors the derived side instead of rounding up", () => {
-    // 1001×3/4 is 750.75. Rounding would claim 751, which the impossible frame
-    // does not have; the floor is what keeps the number from overstating it.
+    // 1001×3/4 is 750.75. The source is 1000 tall, so a 751st pixel exists;
+    // flooring is about the ratio, not supply: 750 is the largest whole side
+    // that still has 4:3, and 751 would exceed the box of width 1001.
     expect(centredFrame({ width: 1001, height: 1000 })).toEqual({ width: 1001, height: 750 });
   });
 });
