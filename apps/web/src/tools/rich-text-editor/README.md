@@ -177,8 +177,10 @@ apps/web/e2e/
 ```
 
 The page entry the instruments carry is not a file: one line in
-`apps/web/scripts/touch-targets.mjs` names this page and its always-visible controls,
-and one line in `apps/web/scripts/ui-fingerprint.mjs` declares its anchors, including
+`apps/web/scripts/touch-targets.mjs` names this page, its always-visible controls, and
+the three states its claims reach (a selected run of text, the toolbar scrolled to its
+end, and an image selected with the panel drawn); one line in
+`apps/web/scripts/ui-fingerprint.mjs` declares its anchors, including
 `rich-text-save-status`. The fingerprint's baseline is a local file, not a repository
 one.
 
@@ -411,9 +413,9 @@ canvas's line becoming ink while the editing surface holds the focus; the draft
 surviving a real tab close rather than a Playwright reload; a browser that refuses the
 write for quota rather than the gate's injected refusal; and the whole page at 360,
 375, 390, 768 and 1024 px still reading as a page whose canvas keeps its measure (the
-overflow, the toolbar's scrolling and pinned end, the hit areas and the selection row's
-clearance are printed by the hit-area instrument, which a person reads rather than
-re-measures).
+overflow, the toolbar's scrolling and pinned end, the hit areas, the selection row's
+clearance and the image panel's clearance are printed by the hit-area instrument,
+which a person reads rather than re-measures).
 
 ## Manual QA checklist
 
@@ -463,15 +465,17 @@ here re-runs it.
 - [ ] **▣** `/图片` lists 图片 in the slash menu, and Enter opens the same picker.
 - [ ] **▣** Pressing an image shows the panel, and a caret in the title takes it away;
       its four controls are 替换, 替代文本, 删除 and 宽度 25 % / 50 % / 75 % / 100 %.
-- [ ] **▣** Each width preset changes the drawn width and the `width` in the stored
-      draft, and a reload draws the same share of the measure.
+- [ ] **▣** Each width preset writes the image's own `style` width and the `width` in
+      the stored draft, and a reload draws the same share of the measure.
 - [ ] **▣** 替代文本 opens holding the current alt, sets it, and both the draft and a
       reload keep the new sentence.
 - [ ] **▣** 删除 removes the node and 撤销 brings it back with its bytes and its alt.
 - [ ] **▣** 替换 swaps the bytes and keeps the alt and the width; a refused
       replacement shows its rule's sentence and changes nothing, and the document
       still holds one image.
-- [ ] **▣** At 390px the panel is drawn inside the viewport and clear of the picture.
+- [ ] **▣** At 390px pressing an image still opens the panel and its three actions are
+      reachable; that it is drawn inside the viewport and clear of the picture is the
+      hit-area instrument's `image-panel-clearance`.
 - [ ] **▣** 表格 opens the grid picker; choosing 2 rows × 3 columns inserts a 2 × 3
       table with a header row, and typing in a cell edits that cell.
 - [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each

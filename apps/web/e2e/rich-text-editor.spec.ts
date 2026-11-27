@@ -1475,7 +1475,7 @@ test("selecting an image shows the panel, and a text selection hides it", async 
   await expect(widthPreset(page, 100)).toHaveAttribute("aria-pressed", "true");
 });
 
-test("each width preset changes the drawn width and the stored width", async ({ page }) => {
+test("each width preset writes the image's own style and the stored width", async ({ page }) => {
   await open(page);
   await bodyParagraph(page).click();
   await insertImageFromToolbar(page, pngFile("宽度.png"));
@@ -1485,8 +1485,6 @@ test("each width preset changes the drawn width and the stored width", async ({ 
   await expect(imagePanel(page)).toBeVisible();
 
   const image = imagesInCanvas(page).first();
-  const full = await image.boundingBox();
-  if (full === null) throw new Error("the image has no geometry");
 
   for (const percent of [50, 25, 75]) {
     await pressAt(page, widthPreset(page, percent));
@@ -1496,17 +1494,15 @@ test("each width preset changes the drawn width and the stored width", async ({ 
      * writes it through `style.cssText`, so the browser serialises it back with its
      * own spacing and a trailing semicolon. The percentage is the claim; the
      * serialisation is the browser's.
+     *
+     * What the picture's box is at that percentage is not read here: how a share of
+     * the measure becomes pixels is geometry, and geometry lives in the hit-area
+     * Instrument (`docs/adr/0012-playwright-for-the-browser-gate.md`). The gate
+     * proves what the document carries — the style the node renders and the draft's
+     * `width`.
      */
     expect(await image.getAttribute("style")).toContain(`width: ${percent}%`);
     await expect(widthPreset(page, percent)).toHaveAttribute("aria-pressed", "true");
-
-    const box = await image.boundingBox();
-    if (box === null) throw new Error(`the image has no geometry at ${percent}%`);
-
-    // The picture is drawn at the share of the measure the preset names, measured
-    // against the width it had at 100 %: a percentage is only meaningful relative to
-    // the measure, and this is that ratio in pixels.
-    expect(Math.abs(box.width - (full.width * percent) / 100)).toBeLessThan(2);
   }
 
   // The node's attribute is document content, so the draft carries the last preset.
@@ -1762,41 +1758,23 @@ test.describe("at 390px", () => {
   /*
    * The image panel at 390px (#218).
    *
-   * The ticket asks for a bar that stays inside the viewport on a phone, and the
-   * screen is the only place that can be shown: the panel is a transient surface, so
-   * the hit-area Instrument does not open it, and the rule that places it is
-   * arithmetic in `core/image-panel.ts` with its own unit tests. What is left here is
-   * the one claim arithmetic cannot make — that the browser draws the real bar
-   * inside the real screen, and off the picture it edits.
+   * The bar's geometry — inside the viewport, off the picture it edits — moved to
+   * the hit-area Instrument (`image-panel-clearance`, #215 review): it reaches the
+   * state through the page's own 插入图片 input, which leaves the picture selected,
+   * and reads the panel's and the picture's boxes against the viewport. What is
+   * left here is the phone's behaviour: pressing the picture still opens the panel,
+   * and its controls are there to press.
    */
-  test("the image panel is drawn inside the viewport and clear of the image", async ({ page }) => {
+  test("the image panel opens for a selected image at 390px", async ({ page }) => {
     await open(page);
     await bodyParagraph(page).click();
     await insertImageFromToolbar(page, pngFile("窄屏.png"));
     await selectImage(page);
 
-    const panel = imagePanel(page);
-    await expect(panel).toBeVisible();
-
-    const bar = await panel.boundingBox();
-    const picture = await imagesInCanvas(page).first().boundingBox();
-    const viewport = page.viewportSize();
-    if (bar === null || picture === null || viewport === null) {
-      throw new Error("the panel, the image or the viewport has no geometry");
+    await expect(imagePanel(page)).toBeVisible();
+    for (const name of ["替换", "替代文本", "删除"]) {
+      await expect(imagePanelControl(page, name)).toBeVisible();
     }
-
-    expect(bar.x).toBeGreaterThanOrEqual(0);
-    expect(bar.y).toBeGreaterThanOrEqual(0);
-    expect(bar.x + bar.width).toBeLessThanOrEqual(viewport.width);
-    expect(bar.y + bar.height).toBeLessThanOrEqual(viewport.height);
-
-    // Above the picture or below it, never on it: the bar edits the image, so it
-    // may not hide the thing it is editing.
-    const clear = bar.y + bar.height <= picture.y || bar.y >= picture.y + picture.height;
-    expect(
-      clear,
-      `a bar at ${bar.y}…${bar.y + bar.height} covers ${picture.y}…${picture.y + picture.height}`,
-    ).toBe(true);
   });
 });
 
