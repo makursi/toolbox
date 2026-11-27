@@ -1,0 +1,265 @@
+import type { JSONContent } from "@tiptap/react";
+
+import { documentTitle } from "./document";
+
+/**
+ * The document as a complete, standalone HTML file (#210).
+ *
+ * The exported file has to open on its own, away from this site: it carries a
+ * doctype, a charset, the document's title in `<title>` and a small stylesheet,
+ * and it names nothing it would have to fetch. The stylesheet is written in the
+ * file rather than linked, and the font stack is the system's own — this site's
+ * rule that nothing is loaded from a third party applies to what it exports too,
+ * because the file a visitor sends someone must not become a request either.
+ *
+ * The markup is the document's own: every block and mark ProseMirror holds is
+ * rendered as the element with that meaning, and every text run is escaped, so a
+ * document that contains `<script>` is a document about `<script>`.
+ */
+
+/** The marks with a plain element, applied innermost first. */
+const MARK_ELEMENTS = [
+  { element: "u", type: "underline" },
+  { element: "s", type: "strike" },
+  { element: "em", type: "italic" },
+  { element: "strong", type: "bold" },
+] as const;
+
+/** A mark's `type`, as it appears in ProseMirror JSON. */
+type Mark = NonNullable<JSONContent["marks"]>[number];
+
+/** The embedded stylesheet: one reading measure, a warm monochrome page, both schemes. */
+const STYLESHEET = [
+  ":root { color-scheme: light dark; }",
+  "body { margin: 0; padding: 48px 24px; background: #faf9f7; color: #1c1b19; }",
+  'article { max-width: 720px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 16px; line-height: 1.75; }',
+  "h1, h2, h3, h4, h5, h6 { margin: 1.6em 0 0.6em; line-height: 1.3; font-weight: 600; }",
+  "h1 { margin-top: 0; font-size: 2rem; }",
+  "h2 { font-size: 1.5rem; }",
+  "h3 { font-size: 1.25rem; }",
+  "p { margin: 0.75em 0; }",
+  "ul, ol { margin: 0.75em 0; padding-left: 1.6em; }",
+  "li { margin: 0.3em 0; }",
+  "li > p { margin: 0; }",
+  "blockquote { margin: 1.25em 0; padding-left: 1em; border-left: 3px solid #d6d1c7; color: #57534b; }",
+  "hr { margin: 2em 0; border: 0; border-top: 1px solid #d6d1c7; }",
+  "a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }",
+  "code { padding: 0.15em 0.35em; border-radius: 4px; background: #f1efeb; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }",
+  "pre { margin: 1.25em 0; padding: 16px; overflow-x: auto; border-radius: 8px; background: #f1efeb; line-height: 1.6; }",
+  "pre code { padding: 0; background: none; font-size: 0.875rem; }",
+  "ul.task-list { padding-left: 0; list-style: none; }",
+  "ul.task-list ul.task-list { padding-left: 1.6em; }",
+  "li.task-list-item input { margin-right: 0.5em; }",
+  "@media (prefers-color-scheme: dark) {",
+  "  body { background: #1c1b19; color: #f2efe8; }",
+  "  blockquote { border-left-color: #4a463f; color: #b8b2a7; }",
+  "  hr { border-top-color: #4a463f; }",
+  "  code, pre { background: #2b2926; }",
+  "}",
+].join("\n");
+
+/** Escape a text run or an attribute value; the two differ only in where they are read. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;");
+}
+
+/** A code block's language, reduced to the characters a class name accepts. */
+function languageClass(node: JSONContent): string {
+  const language = typeof node.attrs?.language === "string" ? node.attrs.language.trim() : "";
+  const safe = language.replace(/[^A-Za-z0-9_+#.-]/gu, "");
+
+  return safe === "" ? "" : ` class="language-${escapeHtml(safe)}"`;
+}
+
+/** The literal text inside a code block, hard breaks included. */
+function codeText(node: JSONContent): string {
+  return (node.content ?? [])
+    .map((child) => (typeof child.text === "string" ? child.text : codeText(child)))
+    .join("")
+    .replace(/\r\n?/gu, "\n");
+}
+
+/**
+ * Wrap a run in the marks it carries, link outermost so the whole emphasised
+ * phrase is the link's text.
+ */
+function applyMarks(text: string, marks: readonly Mark[]): string {
+  const types = new Set(marks.map((mark) => mark.type));
+  let output = text;
+
+  for (const mark of MARK_ELEMENTS) {
+    if (types.has(mark.type)) output = `<${mark.element}>${output}</${mark.element}>`;
+  }
+
+  if (types.has("link")) {
+    const href = marks.find((mark) => mark.type === "link")?.attrs?.href;
+    if (typeof href === "string" && href !== "") {
+      output = `<a href="${escapeHtml(href)}">${output}</a>`;
+    }
+  }
+
+  return output;
+}
+
+/** One text node: code first, because a code span's content is literal. */
+function renderText(node: JSONContent): string {
+  const text = node.text ?? "";
+  const marks = node.marks ?? [];
+
+  if (marks.some((mark) => mark.type === "code"))
+    return applyMarks(`<code>${escapeHtml(text)}</code>`, marks);
+
+  return applyMarks(escapeHtml(text), marks);
+}
+
+/** A block's inline content. */
+function renderInline(nodes: readonly JSONContent[] | undefined): string {
+  let output = "";
+
+  for (const node of nodes ?? []) {
+    if (node.type === "hardBreak") {
+      output += "<br>";
+      continue;
+    }
+
+    if (node.type === "text" && typeof node.text === "string" && node.text !== "") {
+      output += renderText(node);
+      continue;
+    }
+
+    if (node.content !== undefined) output += renderInline(node.content);
+  }
+
+  return output;
+}
+
+/** The heading level a document may carry, clamped to the six HTML has. */
+function headingLevel(node: JSONContent): number {
+  const level = Number(node.attrs?.level ?? 1);
+
+  return Number.isInteger(level) && level >= 1 && level <= 6 ? level : 1;
+}
+
+/** One list item, with its marker as the element the list asked for. */
+function renderListItem(item: JSONContent, task: boolean): string {
+  const children = item.content ?? [];
+  const first = children[0];
+  const firstParagraph = first?.type === "paragraph" ? first : undefined;
+  const head = firstParagraph === undefined ? "" : renderInline(firstParagraph.content);
+  const rest = firstParagraph === undefined ? children : children.slice(1);
+  const checkbox = task
+    ? `<input type="checkbox" disabled${item.attrs?.checked === true ? " checked" : ""}>`
+    : "";
+  const className = task ? ' class="task-list-item"' : "";
+
+  const blocks = rest.map(renderBlock).filter((block) => block !== "");
+
+  return `<li${className}>${checkbox}${head}${blocks.length === 0 ? "" : `\n${blocks.join("\n")}`}</li>`;
+}
+
+/** A bulleted, ordered or task list. */
+function renderList(node: JSONContent): string {
+  const task = node.type === "taskList";
+  const ordered = node.type === "orderedList";
+  const items = (node.content ?? [])
+    .filter((item) => item.type === "listItem" || item.type === "taskItem")
+    .map((item) => renderListItem(item, task));
+
+  if (items.length === 0) return "";
+
+  if (task) return `<ul class="task-list">\n${items.join("\n")}\n</ul>`;
+
+  if (ordered) {
+    const start = Number(node.attrs?.start ?? 1);
+    const attribute = Number.isFinite(start) && start !== 1 ? ` start="${String(start)}"` : "";
+
+    return `<ol${attribute}>\n${items.join("\n")}\n</ol>`;
+  }
+
+  return `<ul>\n${items.join("\n")}\n</ul>`;
+}
+
+/** One block as HTML; `""` means it says nothing. */
+function renderBlock(node: JSONContent): string {
+  switch (node.type) {
+    case "heading": {
+      const inline = renderInline(node.content);
+      if (inline === "") return "";
+      const level = String(headingLevel(node));
+
+      return `<h${level}>${inline}</h${level}>`;
+    }
+
+    case "paragraph": {
+      const inline = renderInline(node.content);
+
+      return inline === "" ? "" : `<p>${inline}</p>`;
+    }
+
+    case "blockquote": {
+      const inner = (node.content ?? [])
+        .map(renderBlock)
+        .filter((block) => block !== "")
+        .join("\n");
+
+      return inner === "" ? "" : `<blockquote>\n${inner}\n</blockquote>`;
+    }
+
+    case "codeBlock":
+      return `<pre><code${languageClass(node)}>${escapeHtml(codeText(node))}</code></pre>`;
+
+    case "horizontalRule":
+      return "<hr>";
+
+    case "bulletList":
+    case "orderedList":
+    case "taskList":
+      return renderList(node);
+
+    default:
+      return (node.content ?? [])
+        .map(renderBlock)
+        .filter((block) => block !== "")
+        .join("\n");
+  }
+}
+
+/**
+ * The complete document: doctype, charset, title, stylesheet and the article the
+ * document's blocks become.
+ *
+ * A document with no heading still opens with a name: `<title>无标题</title>` is
+ * the same sentence the empty title block paints in the editor, so the browser
+ * tab and the page agree about what this file is.
+ */
+export function htmlFromDocument(document: JSONContent): string {
+  const title = documentTitle(document);
+  const article = (document.content ?? [])
+    .map(renderBlock)
+    .filter((block) => block !== "")
+    .join("\n");
+
+  const lines = [
+    "<!doctype html>",
+    '<html lang="zh-CN">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${escapeHtml(title === "" ? "无标题" : title)}</title>`,
+    "<style>",
+    STYLESHEET,
+    "</style>",
+    "</head>",
+    "<body>",
+    "<article>",
+  ];
+
+  if (article !== "") lines.push(article);
+  lines.push("</article>", "</body>", "</html>", "");
+
+  return lines.join("\n");
+}

@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Download, type Locator, type Page } from "@playwright/test";
 
 /**
  * How the gate drives the Rich Text Editor.
@@ -167,11 +167,29 @@ export async function selectBodyText(page: Page): Promise<void> {
 }
 
 /**
- * The file menu's trigger. `清空` is inside the popover, so the gate opens the
- * menu by pressing this and then presses the item.
+ * The file menu's trigger. 清空 and the two exports are inside the popover, so
+ * the gate opens the menu by pressing this and then presses the item.
  */
 export function fileTrigger(page: Page): Locator {
   return page.getByRole("button", { name: "文件", exact: true });
+}
+
+/**
+ * Open the file menu, press one of its items, and return the download it starts.
+ *
+ * The item is pressed at its coordinates like every other control on this page:
+ * the menu is a popover that appears over the page, and a button that looks right
+ * and is dead to the pointer is exactly the failure the toolbar's coordinate
+ * presses exist to catch. Waiting for the download before the assertion is what
+ * makes the read-back a fact about the bytes rather than about the click.
+ */
+export async function downloadFromFileMenu(page: Page, label: string): Promise<Download> {
+  await pressAt(page, fileTrigger(page));
+
+  const item = page.getByRole("button", { name: label, exact: true });
+  const [download] = await Promise.all([page.waitForEvent("download"), pressAt(page, item)]);
+
+  return download;
 }
 
 /** The link popover's URL field. */
