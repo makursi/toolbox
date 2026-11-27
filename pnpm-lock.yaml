@@ -203,13 +203,13 @@ importers:
         specifier: ^1.5.0
         version: 1.5.0
       '@tiptap/extension-image':
-        specifier: 3.35.0
+        specifier: ^3.35.0
         version: 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))
       '@tiptap/extension-list':
         specifier: ^3.35.0
         version: 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)
       '@tiptap/extension-table':
-        specifier: 3.35.0
+        specifier: ^3.35.0
         version: 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)
       '@tiptap/extensions':
         specifier: ^3.35.0
