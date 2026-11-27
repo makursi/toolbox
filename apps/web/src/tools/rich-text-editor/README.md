@@ -32,7 +32,8 @@ admission and leaves the picture exactly as it was if the file is refused; 替�
 a one-field popover that sets the alt text; 删除, which takes the node out and is
 undone like any other change; and the width presets 25 / 50 / 75 / 100 %. The alt
 and the width are the node's own attributes, so the draft keeps them, a reload
-brings them back, and the exports will carry them (#219).
+brings them back, and both exports carry them: the HTML file keeps the width, and
+the Markdown file inlines the picture and drops only the width (#219).
 
 This slice (#208) adds the three ways to write without leaving the keyboard. Typing
 `/` at the start of a paragraph opens a menu of the block commands; typing after the
