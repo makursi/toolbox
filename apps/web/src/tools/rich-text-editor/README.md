@@ -433,7 +433,8 @@ here re-runs it.
 - [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each
       action adds or removes the row, column or table it names; 删除表格 leaves a
       paragraph to type in.
-- [ ] **▣** `/表格` inserts the documented 3 × 3 table.
+- [ ] **▣** `/表格` inserts the documented 3 × 3 table; deleting it with 删除表格
+      leaves exactly one empty paragraph, and the caret types into it.
 - [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard; a mark
       (`Control+B`), the link (`Control+K`), a heading (`Control+Alt+1`) and a list
       (`Control+Shift+8`) also work from the keyboard.
