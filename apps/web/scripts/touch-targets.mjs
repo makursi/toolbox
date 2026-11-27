@@ -291,7 +291,8 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206) with its toolbar (#207).
+     * The fourth Tool's page (#206) with its toolbar (#207) and the two surfaces
+     * that only exist while something is being done to the document (#208).
      *
      * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
      * area is the whole 720px reading measure, and an overlay across it would sit on
@@ -308,6 +309,14 @@ const PAGES = [
      * declares only what is on the page without opening anything. The two
      * placeholders are painted `::before` sentences, so they are not controls and
      * no name here can reach them.
+     *
+     * #208's two surfaces are transient in the same way and are declared the same
+     * way: the slash menu exists only between typing `/` and applying a row, and the
+     * selection toolbar only while a selection is not empty (it is not in the
+     * document at all otherwise, which is why it cannot be measured in this
+     * Instrument's default state). Both carry the class on every one of their own
+     * buttons, and the gate presses them at their coordinates; nothing here names
+     * them, because a name in this list is a control that must be there on load.
      *
      * The save status and the rest of the file menu arrive with #209-#212, and each
      * declares its own controls in its own ticket; this page declares only what

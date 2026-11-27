@@ -1,6 +1,6 @@
 # rich-text-editor · 设计规则（工具级）
 
-> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、命令表、工具栏、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）。
+> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、命令表、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）。
 
 ## 词汇
 
@@ -10,9 +10,11 @@
 - **画布（canvas）**：文档的编辑区，一块约 **720px** 的阅读度量。标题就是它的第一行，没有第二个标题输入框。
 - **标题块（title block）**：文档的第一个节点，一个 H1。它在页面里是画布的第一行，在导出文件里是文档标题。
 - **正文段（body paragraph）**：标题块之后的段落；一次回车产生一个新的段落。
-- **命令表（command table）**：`core/commands.ts` 里的那一份列表，工具栏从它渲染，斜杠菜单（#208）也从它渲染。它只描述命令，不执行命令。
-- **执行表（executor map）**：工具栏组件里把每个命令 id 映射到一个 TipTap 链的对象。`Record<CommandId, () => void>` 让「表里有、执行表里没有」成为 `tsc` 错误。
+- **命令表（command table）**：`core/commands.ts` 里的那一份列表，工具栏、斜杠菜单（#208）与浮动工具栏（#208）都从它渲染。它只描述命令，不执行命令。
+- **执行表（executor map）**：`editor/execute.ts` 里把每个命令 id 映射到一条 TipTap 链的对象，三个命令面共用它。`Record<Exclude<CommandId, "link">, ...>` 让「表里有、执行表里没有」成为 `tsc` 错误；链接是唯一有界面而没有链的命令，它由 `link-control/link-control.tsx` 负责。
 - **工具栏（toolbar）**：画布上方那一行命令，按组排列：撤销重做、块类型、行内标记、列表、插入动作，右端是文件菜单。它是页面级的命令条，不是画布的一部分。
+- **斜杠菜单（slash menu）**：在段落开头输入 `/` 打开的块命令列表，行是命令表过滤出来的；上下键移动、回车应用、Esc 关闭，位置跟着光标。
+- **浮动工具栏（selection toolbar）**：选区非空时出现在选区旁边的那一行，内容是五个行内标记加链接动作。它和钉在画布上方的那条工具栏是两件东西：那一条常驻，这一条只在有选区时存在。
 
 ## 页面结构
 
@@ -34,10 +36,11 @@
 
 ## 命令表
 
-- `core/commands.ts` 是**唯一的命令清单**，字段是 `id`、`label`、`group`、`keywords`、`block`、`icon`。`group` 就是工具栏的分组（`history` / `block` / `mark` / `list` / `insert` / `file`）；`block` 是命令作用的文档构造（块命令是节点名，行内命令是 mark 名，撤销重做与清空是 `document`）；`keywords` 同时收中文与英文，供 #208 的斜杠菜单过滤。
+- `core/commands.ts` 是**唯一的命令清单**，字段是 `id`、`label`、`group`、`keywords`、`block`、`icon`。`group` 就是工具栏的分组（`history` / `block` / `mark` / `list` / `insert` / `file`）；`block` 是命令作用的文档构造（块命令是节点名，行内命令是 mark 名，撤销重做与清空是 `document`）；`keywords` 同时收中文与英文，供斜杠菜单过滤。
 - **纯的部分是数据加过滤函数**：`filterCommands(query)` 按 label 与 keywords 做大小写不敏感的子串匹配，空查询返回整张表，命中结果保持表的顺序。`commandsInGroup(group)` 给工具栏按组取命令，同样保持顺序。
-- **执行不是这张表的事**。工具栏组件里的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<CommandId, () => void>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
-- **斜杠菜单（#208）从同一张表渲染**。加一条命令是一处编辑：表里加一行，执行表里加一个 handler；工具栏与斜杠菜单不需要各改一次。
+- **执行不是这张表的事**。`editor/execute.ts` 的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<Exclude<CommandId, "link">, ...>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
+- **链接是唯一有界面没有链的命令**：`runCommand` 对它返回 `false`，调用方知道这个动作要开一个输入框；`link-control/link-control.tsx` 是那唯一的输入框，工具栏与浮动工具栏都用它。
+- **三个命令面从同一张表渲染**：钉住的工具栏、斜杠菜单、浮动工具栏。加一条命令是一处编辑：表里加一行，执行表里加一个 handler；三处不需要各改一次。
 
 ## 工具栏
 
@@ -49,6 +52,32 @@
 - **链接是一个小弹出层**：一个「链接地址」输入框、一个「应用」、以及链接存在时出现的「移除」。它设置、编辑、移除选区上的链接；输入框在打开时预填当前链接的地址，所以第二次打开是编辑而不是重设。`StarterKit` 的 Link 扩展以 `openOnClick: false` 配置：在 contenteditable 里点链接是把光标放进去，不是离开一份还没保存的文档。
 - **文件菜单现在只有「清空」**。它把文档换回 `EMPTY_DOCUMENT`，占位符随之回来；导入、导出与保存状态是 #209–#212。
 - **任务列表的复选框名是中文**：`TaskItem` 的 `a11y.checkboxLabel` 写成「未完成：… / 已完成：…」，因为扩展的默认名是英文，而这一页的界面是中文。任务项嵌套由 `nested: true` 打开。
+- **会切换的控件是一个组件**：`command-toggle/command-toggle.tsx` 是那枚「按下的状态是墨色实心、44px 自己的框、`shrink-0`」的按钮，工具栏与浮动工具栏都用它，所以同一状态在两处的画法与命中区只有一份。
+
+## 斜杠菜单
+
+- **触发是「段落开头」而不是「句子里」**：`@tiptap/suggestion` 以 `char: "/"`、`startOfLine: true` 配置，`allow` 再收一道口子，只认文档第一层的 `paragraph`。标题块里的 `/` 和嵌套块（列表项、引用里）里的 `/` 都是普通字符。
+- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`，共十条）。标记需要选区，链接需要选区加输入框，撤销/重做/清空作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。
+- **键位**：上下键在行间循环，回车应用（`/query` 先被删掉，命令再作用在那个空块上），Esc 关闭。Esc 是建议插件自己消费的：它先调用组件的 `onKeyDown`，再关闭菜单，所以组件对 Esc 返回 `false`，不重复处理。
+- **空格结束匹配**：`/标题 ` 里的空格让匹配结束、菜单关闭，`/标题` 留在文档里；只有真按了回车，`/query` 才会被当作过滤词删掉。这条是「输入不被吃掉」的实现，门禁里有对应断言。
+- **位置由插件的 `mount` 负责**：它把菜单元素挂到 body，用插件自己的 `clientRect`（光标处的矩形）在下方 4px 处定位，滚动与缩放由 Floating UI 跟随。菜单组件由 `ReactRenderer` 画进那个元素，所以它不在页面自己的 React 树里；键位通过 ref 句柄转进去，光标始终留在文档里。
+- **行是菜单项而不是标签页**：外层 `role="menu"` 名为「插入内容」，每行是 `role="menuitem"` 的按钮（图标 + 标签），当前行带 `aria-current="true"`，`tabIndex={-1}` 是故意的，焦点不离开文档；没有命中时显示「没有匹配的命令」（句子在 `core/copy.ts`）。每行是 44px 自己的框并带 `.touch-target`。
+
+## Markdown 输入规则
+
+- **本片没有新增任何扩展**，这是查过的结论而不是省略：`#` / `##` / `###`（Heading）、`-`（BulletList）、`1.`（OrderedList）、`>`（Blockquote）、围栏反引号（CodeBlock）、反引号对（Code，行内）、`---`（HorizontalRule）、`**` / `*` / `~~`（Bold / Italic / Strike），**全部由 StarterKit 自带**，版本与它的默认配置见 `RichTextEditor.tsx` 的注释。再加一条扩展就是同一条规则的第二份定义。
+- **规则只在完整构造出现时触发**：`#` 后面要有空格，`**`、`~~`、反引号都要有收尾，`---` 要正好是整段文本。所以以这些字符开头但不成规则的段落仍是文字（`#没有空格`、`>没有空格`、`-没有空格`、`1.没有空格`、`` `未闭合 ``、`**未闭合`），门禁逐条断言两端。
+- **`---` 在第三个 `-` 落下时就是分隔线**：这是 Markdown 自己的行为，不是把文字吃掉；`---abc` 这种「先成规则再继续打字」的路径不成立，因为规则在第三个字符时已经生效。
+
+## 浮动工具栏
+
+- **只在选区非空时存在**：组件在选区为空时直接不渲染，所以文档里没有一排隐藏的按钮。这是命中区量具的要求：`.touch-target` 是它的标记，一排 `visibility: hidden` 的按钮会被量成「哪里都点不到」的控件。
+- **内容是同一张表的行内标记加链接**：五个标记来自 `commandsInGroup("mark")`，链接来自 `commandById("link")`，没有第二份清单；标记按钮与工具栏共用 `CommandToggle`，链接输入框与工具栏共用 `LinkControl`。
+- **位置来自选区自己的矩形**：`coordsAtPos(from)` 与 `coordsAtPos(to)` 取两个角，行底放在「选区顶 − 8px」；上方放不下时翻到「选区底 + 8px」；左右夹在视口边缘内 8px。两个方向都只碰选区的边，不盖住字。用编辑器的位置而不是 `window.getSelection`，是因为按下其中一个按钮之后浏览器选区已经不在，而文档里的选区还在，命令作用的正是后者。
+- **两遍：先画、再量、再定位**。第一遍用已知的宽高（首帧是 0）放置，`useLayoutEffect` 在浏览器绘制前量到真实高度并落位，所以没有「先盖住再跳开」的一帧。
+- **滚动与缩放重算位置**：行是 `position: fixed`，页面一滚它就会离开选区，所以 `scroll`（捕获阶段）与 `resize` 触发重算。
+- **为什么不用 `@tiptap/extension-floating-menu`**：这一页确实依赖它，但它的插件在 `show()` 之前先算位置、再把元素挂回文档，React 画的这一行会在「还没有内容的盒子」上定位，行会落在选区上（也就是这条规则要防的那件事）。它的 React 绑定 `@tiptap/react/menus` 同样用不了：那个入口为了同文件的 `BubbleMenu` 静态 import 了本工具没有声明的 `@tiptap/extension-bubble-menu`。理由写在 `selection-toolbar/selection-toolbar.tsx` 顶部。
+- **无障碍名是「选中文本的格式」**，每个按钮的名字来自命令表；读屏读到的是第二个工具栏区域，而不是一排和上面重名的按钮。
 
 ## 占位符
 
@@ -73,11 +102,11 @@
 
 - **指纹（`ui-fingerprint.mjs`）按页声明**外壳的四个锚点、`tool-page`、`rich-text-toolbar` 与 `rich-text-canvas`。工具栏与画布是两个区域：工具栏移动时读数应该显示工具栏移动，而不是画布变形。
 - **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十六个（`撤销`、`重做`、`块类型`、五个标记、三个列表、四个插入动作、`文件`）。弹出层里的项只在被打开后才存在，量具不替页面打开它们，由门禁按坐标按；它们照样带 `.touch-target`。
+- **#208 的两个面是瞬态的，因此不进 `controls` 清单**：斜杠菜单由建议插件挂到 body，浮动工具栏只在选区非空时存在，而这份清单是「加载时就该在」的清单。它们每个按钮都带 `.touch-target`，但量法在这里不适用：要量得先给量具一个「制造选区 / 输入斜杠」的钩子（先例是 `convert`），本片没有加，因为门禁已经按坐标按过它们。
 - 两个占位符是画出来的句子，不是控件，没有名字可以声明；它们由门禁读 `::before` 的内容来盯住。
 
 ## 推迟（不在本片范围内）
 
-- 斜杠菜单、Markdown 输入规则与浮动工具栏（#208）。
 - 自动保存、保存状态与导入导出（#209–#211）。
 - 封面：它在 #212 落地，属于首页卡片与站点素材规则，不进本页的规则。
 - 把编辑器抽成 Package：页面是第一个消费者，第二个消费者出现之前不抽。

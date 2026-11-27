@@ -5,27 +5,44 @@ nothing requested from anywhere after the page has loaded. The canonical documen
 ProseMirror JSON, and its title is the document's own first line rather than a second
 input beside the canvas.
 
-This slice (#207) adds the toolbar and the command table behind it. A visitor can
-start writing, turn a paragraph into 标题 1–3 and back, mark a selection bold,
-italic, underlined, struck through or inline code, make bulleted, numbered and task
-lists (nested, and a task can be checked), insert a quote, a code block and a rule,
-set, edit and remove a link on selected text, undo and redo, and clear the document
-from the file menu. The toolbar reads the state at the cursor, so a mark that is on
-says so and the block menu names the block the caret is in.
+This slice (#208) adds the three ways to write without leaving the keyboard. Typing
+`/` at the start of a paragraph opens a menu of the block commands; typing after the
+slash filters it, the arrow keys move the choice, Enter applies it and Escape closes
+it. The Markdown input rules turn `#`/`##`/`###`, `-`, `1.`, `>`, a backtick pair,
+` ``` `, `---`, `**`, `*` and `~~` into their blocks and marks as they are typed,
+and a paragraph that begins with the same characters but makes no rule stays text.
+Selecting text shows a toolbar next to the selection with the inline marks and the
+link action, placed above it (or below it when there is no room above) so that it
+never covers the words.
 
-Everything the toolbar can do comes from one table in the Tool's pure core
-(`core/commands.ts`). The toolbar renders it; the slash menu in #208 will render the
-same table. What each command _does_ is a TipTap chain in the toolbar's executor map,
-and that map is typed `Record<CommandId, () => void>`, so a command in the table with
-no handler is a `tsc` error rather than a dead button.
+The toolbar and the command table landed in #207. A visitor can start writing, turn a
+paragraph into 标题 1–3 and back, mark a selection bold, italic, underlined, struck
+through or inline code, make bulleted, numbered and task lists (nested, and a task
+can be checked), insert a quote, a code block and a rule, set, edit and remove a link
+on selected text, undo and redo, and clear the document from the file menu. The
+toolbar reads the state at the cursor, so a mark that is on says so and the block menu
+names the block the caret is in.
 
-What is deliberately **not here yet**, and lands in its own ticket: the slash menu,
-Markdown input rules, the selection toolbar (#208), autosave and restore (#209),
-export (#210) and import (#211). The Tool's cover landed in #212 and is the homepage
-card's illustration; it does not change this page. Nothing is saved yet either: a
-reload gives a fresh empty document, which is the current state rather than a bug.
-The page is known to both instruments and to the browser gate, so none of this is
-unmeasured.
+Everything the three surfaces can do comes from one table in the Tool's pure core
+(`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
+marks plus the link, and the pinned toolbar all of them. What each command _does_ is
+one executor in `editor/execute.ts`, and that map is typed
+`Record<Exclude<CommandId, "link">, …>`, so a command in the table with no handler is
+a `tsc` error rather than a dead button. 链接 is the one command that is an interface
+rather than a chain: the pinned toolbar and the floating toolbar both open the same
+`link-control/link-control.tsx`.
+
+The Markdown input rules add no extension at all, and that is a checked conclusion
+rather than an omission: every rule #208 names ships with StarterKit, which the Tool
+already loads. The gate proves each rule and each of its near-misses, because a rule
+nobody exercised is a rule nobody has.
+
+What is deliberately **not here yet**, and lands in its own ticket: autosave and
+restore (#209), export (#210) and import (#211). The Tool's cover landed in #212 and
+is the homepage card's illustration; it does not change this page. Nothing is saved
+yet either: a reload gives a fresh empty document, which is the current state rather
+than a bug. The page is known to both instruments and to the browser gate, so none of
+this is unmeasured.
 
 The Tool's own design rules, the command table's contract, the toolbar's groups and
 hit areas, the two placeholders and why the canvas is not a `.touch-target`, are in
@@ -34,14 +51,23 @@ hit areas, the two placeholders and why the canvas is not a `.touch-target`, are
 ## Layout
 
 ```
-RichTextEditor.tsx              the writing surface: TipTap, the extensions, the canvas typography
-toolbar/toolbar.tsx             the toolbar, the block menu, the link popover, the file menu, the executor map
-core/commands.ts                the one command table, and the filter the slash menu will use
-core/document.ts                what an empty document is, for the editor and for 清空
-core/__tests__/commands.test.ts the table's contract in Vitest
-meta.ts                         the Tool Registry entry
-rules.md                        this Tool's own rules, linked from this file
-README.md                       this file: what it does, its files, a run, and the checklist
+RichTextEditor.tsx                        the writing surface: TipTap, the extensions, the canvas typography
+toolbar/toolbar.tsx                       the pinned toolbar: the block menu, the file menu, the table's groups
+slash-menu/slash-menu-extension.ts        `/` at the start of a paragraph, and the plugin that follows the caret
+slash-menu/slash-menu.tsx                 the menu itself: rows, arrow keys, Enter
+selection-toolbar/selection-toolbar.tsx   the row that follows a selection: the marks and the link, placed clear of the words
+command-toggle/command-toggle.tsx         one command as a toggle, the pressed state's one appearance and hit area
+link-control/link-control.tsx             the link action's trigger, field, 应用 and 移除
+editor/execute.ts                         what each command does: one executor for all three surfaces
+hooks/use-editor-command-state/…          the state at the cursor, read through TipTap's selector
+core/commands.ts                          the one command table, its filters, and the slash menu's subset
+core/copy.ts                              the two menus' sentences, held where a test can read them
+core/document.ts                          what an empty document is, for the editor and for 清空
+core/__tests__/commands.test.ts           the table's contract in Vitest
+core/__tests__/copy.test.ts               the menu sentences' punctuation in Vitest
+meta.ts                                   the Tool Registry entry
+rules.md                                  this Tool's own rules, linked from this file
+README.md                                 this file: what it does, its files, a run, and the checklist
 ```
 
 ```
@@ -78,16 +104,35 @@ fingerprint's baseline is a local file, not a repository one.
    the rule inserts one; the link action opens one field and sets, edits or removes
    the link on the selection. Undo and redo work from the toolbar and from the
    keyboard, because they are the editor's own history.
-5. **Read back.** The text is the editor's own document: the gate reads it from the
+5. **Write without the mouse.** Typing `/` where a paragraph starts opens the slash
+   menu at the caret; what follows filters it (`标题` leaves the three headings), the
+   arrow keys move the highlight, Enter deletes the typed `/query` and applies the
+   command, and Escape closes the menu and leaves the slash as text. A space ends the
+   match, so `/标题 ` is text rather than a command nobody can see. The rows are the
+   table's block commands, so the menu and the pinned toolbar cannot disagree.
+6. **Type Markdown.** `#`/`##`/`###`, `-`, `1.`, `>`, a backtick pair, a fenced
+   backtick block, `---`, `**`, `*` and `~~` become their block or mark as they are
+   typed. Each rule needs its complete construct, so `#没有空格`, `-没有空格`,
+   `` `未闭合 `` and `**未闭合` stay text — the gate holds both ends.
+7. **Select and format.** A non-empty selection shows the floating toolbar just above
+   the words (below them when there is no room above), with the five inline marks and
+   the link action; pressing one applies it to the same document selection the pinned
+   toolbar acts on. It is not in the document at all while the selection is empty.
+8. **Read back.** The text is the editor's own document: the gate reads it from the
    contenteditable after typing, and the blocks are not re-seeded from the initial
    content when the page renders again.
 
 The extension set is the minimum the slices after this one need: `StarterKit` (with
 Link configured `openOnClick: false`), `TaskList` and `TaskItem` from
-`@tiptap/extension-list`, and `Placeholder` from `@tiptap/extensions`. No third-party
-asset and no new dependency came with it; the TipTap tree arrived in
-`chore(web): the TipTap tree at V1's minimum` and is the dependency expansion the
-Tool's spec records.
+`@tiptap/extension-list`, `Placeholder` from `@tiptap/extensions`, and #208's
+`SlashMenuExtension`, which is `@tiptap/suggestion` wrapped in an `Extension` so the
+plugin gets the editor it needs. The two menus' sentences live in `core/copy.ts`.
+No third-party asset came with any of it, and no new dependency did either: the TipTap
+tree arrived in `chore(web): the TipTap tree at V1's minimum`, which is the dependency
+expansion the Tool's spec records. `@tiptap/extension-floating-menu` is installed and
+is _not_ used: its React binding imports a package this Tool does not declare, and its
+bare plugin positions its element before re-adding it, so a React row would be placed
+against a box with no height. `selection-toolbar.tsx` says so in place.
 
 ## What CI covers, and what is still yours
 
@@ -112,6 +157,19 @@ browser and covers the items marked **▣**:
   document and brings the body placeholder back.
 - ▣ The link action sets a link on selected text, reopens with its address prefilled,
   edits it, and removes it.
+- ▣ `/` opens the slash menu with the ten block commands in the table's order, `标题`
+  filters it to the three headings, the arrow keys move the highlight and Enter
+  applies 标题 2, leaves no `/标题` in the document and closes the menu.
+- ▣ Escape closes the slash menu and leaves the slash it opened on as text.
+- ▣ Each Markdown block rule makes its block (`#`/`##`/`###`, `-`, `1.`, `>`, a
+  fenced backtick block, `---`), and each mark rule marks its words (`**`, `*`,
+  `~~`, a backtick pair).
+- ▣ A paragraph that begins with the same characters but makes no rule stays text
+  (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick, an
+  unclosed `**`), and a slash inside a sentence is a slash.
+- ▣ The selection toolbar shows the five marks and the link on a selection, sits
+  clear of the selected words, applies 加粗 at its own coordinates, and is gone when
+  the selection becomes a caret.
 - ▣ Undo and redo work from the keyboard (`Control+z`, `Control+Shift+z`) and from
   the toolbar's own buttons.
 - ▣ At 390px the middle groups scroll horizontally while the file menu's position
@@ -122,19 +180,26 @@ browser and covers the items marked **▣**:
 
 `pnpm test` covers the command table: ids are unique, every command has a label and
 keywords, `commandsInGroup` keeps the table's order, `filterCommands` matches by
-keyword and returns the table's order, and an empty query returns the whole table.
-The one structural claim a unit test cannot make, that every id has an executor, is
-the typed executor map in `toolbar/toolbar.tsx`: `tsc` is what holds it.
+keyword and returns the table's order, an empty query returns the whole table, and
+`slashCommands` offers exactly the ten block commands — filtering by the same
+keywords and never reaching a mark, the link or a whole-document command. A second
+test file holds the two menus' sentences: no em dash, no `——`, no Latin punctuation
+at the end of a Chinese one. The one structural claim a unit test cannot make, that
+every id has an executor, is the typed executor map in `editor/execute.ts`: `tsc` is
+what holds it.
 
 Still by hand: opening the page in both colour schemes and reading the toolbar, the
-pressed state, the canvas and its placeholders against the palette; typing Chinese
-through a real IME, which a Playwright keyboard does not simulate (the gate types
-characters, not composition events); whether a screen reader announces the two
-placeholders, the toolbar's name and each control's state; focus order through the
-toolbar and the popovers; the canvas's line becoming ink while the editing surface
-holds the focus; and the whole page at 360, 375, 390, 768 and 1024 px looking for
-horizontal overflow, a toolbar that scrolls where it should, and a canvas that still
-reads as a page.
+pressed state, the slash menu, the floating row, the canvas and its placeholders
+against the palette; typing Chinese through a real IME, which a Playwright keyboard
+does not simulate (the gate types characters, not composition events) — both into a
+paragraph and after a `/`; whether the slash menu follows the caret when the page
+scrolls while it is open, and whether it opens where a person expects on a phone
+keyboard; whether a screen reader announces the slash menu's role and highlighted
+row, and the second toolbar as 选中文本的格式 rather than as a duplicate of the first;
+focus order through the toolbar and the popovers; the canvas's line becoming ink while
+the editing surface holds the focus; and the whole page at 360, 375, 390, 768 and
+1024 px looking for horizontal overflow, a toolbar that scrolls where it should, a
+floating row that stays inside the viewport, and a canvas that still reads as a page.
 
 ## Manual QA checklist
 
@@ -163,6 +228,20 @@ here re-runs it.
 - [ ] **▣** 引用, 代码块 and 分隔线 insert their block; 清空 empties the document.
 - [ ] **▣** 链接 sets, edits and removes a link on selected text.
 - [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard.
+- [ ] **▣** `/` opens the slash menu with the ten block commands in the table's
+      order; `标题` filters it to three; the arrow keys move the highlighted row and
+      Enter applies 标题 2, closes the menu and leaves no `/标题` in the document.
+- [ ] **▣** Escape closes the slash menu and leaves the slash it opened on as text.
+- [ ] **▣** Each Markdown block rule makes its block: `#`, `##`, `###`, `-`, `1.`,
+      `>`, a fenced backtick block and `---`.
+- [ ] **▣** Each Markdown mark rule marks its words: `**`, `*`, `~~` and a backtick
+      pair, with the delimiters gone from the document.
+- [ ] **▣** A paragraph that begins with the same characters but makes no rule stays
+      text (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick,
+      an unclosed `**`), and a slash inside a sentence is a slash.
+- [ ] **▣** The selection toolbar shows the five marks and the link on a selection,
+      sits clear of the selected words, applies 加粗 at its own coordinates, and is
+      gone once the selection is a caret.
 - [ ] **▣** At 390px the middle groups scroll, the file menu does not move, and the
       page does not gain a horizontal scrollbar.
 - [ ] **▣** The homepage card links to `/tools/rich-text-editor`, and the sitemap
@@ -172,9 +251,10 @@ here re-runs it.
 
 ### A person must still check
 
-- [ ] Both colour schemes: the toolbar's hairlines, the pressed ink state, the
-      canvas's type and the two placeholder sentences are readable, and the
-      placeholder colour is the measured one.
+- [ ] Both colour schemes: the toolbar's hairlines, the pressed ink state, the slash
+      menu's card and highlighted row, the floating row, the canvas's type and the
+      two placeholder sentences are readable, and the placeholder colour is the
+      measured one.
 - [ ] Chinese input through a real IME composes into the paragraph and the first
       committed character takes the body placeholder away. The gate types
       characters, not composition events.
@@ -202,3 +282,14 @@ here re-runs it.
       selection is a link.
 - [ ] A long code line scrolls inside its block instead of widening the canvas, and
       a checked task item's line-through and dimmed text are legible in both schemes.
+- [ ] The slash menu opens where the caret is, closes when the page is scrolled while
+      it is open, and does not open for a `/` typed in the middle of a sentence, in
+      the title heading, or in a list item's paragraph.
+- [ ] Chinese input through a real IME filters the slash menu: the composed
+      characters appear as the query rather than committing a command mid-composition.
+- [ ] A screen reader announces the slash menu as a menu named 插入内容 and its rows,
+      and the floating row as 选中文本的格式 with the same mark names as the pinned
+      toolbar; both menus are pointer-only for a tab user, which is deliberate.
+- [ ] The selection toolbar sits above a one-line selection, flips below one near the
+      top of the viewport, stays inside the viewport for a selection at either margin,
+      and follows a scroll while it is open.
