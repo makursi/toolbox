@@ -204,3 +204,29 @@ export function admitImage(file: ImageProbe, usage: AdmissionState): AdmissionVe
 
   return { kind: "admitted", size: file.size, type };
 }
+
+/**
+ * What a document would hold if the image at `replacedSrc` were swapped for another
+ * file (#218).
+ *
+ * 替换 is not a second insert: the bytes replace the ones an image already holds, so
+ * the document gains no image and no allocation. Measuring a replacement against the
+ * document as it stands would refuse to correct the tenth picture in a full
+ * document — "a document may hold ten images" is satisfied by a swap — and would
+ * refuse a 4 MB file into a document whose 40 MB is partly this image's own bytes.
+ *
+ * The replaced image is taken out by its source rather than by its position: this
+ * module reads the document as data and has no positions, and the source is what the
+ * count and the total are both about. A source that holds no bytes (a remote URL,
+ * which the CSP never draws) subtracts nothing from the total and still counts one
+ * image, which is exactly how `imageUsage` counted it.
+ */
+export function imageUsageAfterReplacement(
+  usage: AdmissionState,
+  replacedSrc: unknown,
+): AdmissionState {
+  return {
+    count: Math.max(0, usage.count - 1),
+    totalBytes: Math.max(0, usage.totalBytes - dataUrlByteLength(replacedSrc)),
+  };
+}

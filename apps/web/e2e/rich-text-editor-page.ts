@@ -594,3 +594,91 @@ export async function pasteImage(page: Page, file: ImageFile): Promise<void> {
     entriesOf([file]),
   );
 }
+
+/**
+ * The panel an image gets while it is selected (#218), by the name its region carries.
+ *
+ * It exists only in that state, so a case that expects it can see it and a case that
+ * has taken the selection off the image counts zero.
+ */
+export function imagePanel(page: Page): Locator {
+  return page.getByRole("region", { name: "图片操作" });
+}
+
+/** One control of the panel, by the name a screen reader reads on it. */
+export function imagePanelControl(page: Page, name: string): Locator {
+  return imagePanel(page).getByRole("button", { name, exact: true });
+}
+
+/** One width preset: the name says the share of the measure it sets. */
+export function widthPreset(page: Page, percent: number): Locator {
+  return imagePanelControl(page, `宽度 ${percent}%`);
+}
+
+/**
+ * Select an image the way a visitor does: press it.
+ *
+ * A picture is a block of its own, so a press on it selects the node rather than
+ * placing a caret, and that selection is the whole of what the panel attaches to.
+ * The press goes through `pressAt` like every other control on this page: the panel
+ * exists because the click landed on the picture, which is worth proving at
+ * coordinates rather than by dispatching a selection into the editor.
+ */
+export async function selectImage(page: Page, index = 0): Promise<void> {
+  await pressAt(page, imagesInCanvas(page).nth(index));
+}
+
+/** 替换: the panel's own button, and the file chooser behind it. */
+export async function replaceImage(page: Page, file: ImageFile): Promise<void> {
+  const chooser = page.waitForEvent("filechooser");
+  await pressAt(page, imagePanelControl(page, "替换"));
+
+  await (await chooser).setFiles(file);
+}
+
+/** 删除: the control that takes the node out of the document. */
+export async function deleteImage(page: Page): Promise<void> {
+  await pressAt(page, imagePanelControl(page, "删除"));
+}
+
+/** 替代文本: open the one-field alt popover from the panel. */
+export async function openAltPopover(page: Page): Promise<void> {
+  await pressAt(page, imagePanelControl(page, "替代文本"));
+}
+
+/** The alt field inside the open popover, by the label's own words. */
+export function altField(page: Page): Locator {
+  return page.getByRole("textbox", { name: "替代文本" });
+}
+
+/**
+ * Give the selected image alt text through the panel's own popover.
+ *
+ * The field is filled and 应用 is pressed at its coordinates: both are real controls,
+ * and the claim is that the picture's `alt` follows them.
+ */
+export async function setAltText(page: Page, alt: string): Promise<void> {
+  await openAltPopover(page);
+  await altField(page).fill(alt);
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+}
+
+/**
+ * A second real PNG, different from `pngFile`'s in its bytes and its size.
+ *
+ * 替换's claim is that the bytes change, and two files holding the same bytes have
+ * the same `data:` URL: this is a 2×2 picture of its own, so the `src` a replacement
+ * leaves behind is a fact about the file rather than about its name. It is drawn
+ * from an encoder rather than by appending to another PNG, so the browser really
+ * decodes it.
+ */
+export function replacementPng(name = "替换.png"): ImageFile {
+  return {
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP8UGHDwMDAxAAGABSOAahZBMcNAAAAAElFTkSuQmCC",
+      "base64",
+    ),
+    mimeType: "image/png",
+    name,
+  };
+}

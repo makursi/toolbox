@@ -5,16 +5,20 @@ import { expect, test, type Download } from "@playwright/test";
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
+  altField,
   answerImportDialog,
   blockTrigger,
   bodyParagraph,
   canvas,
   clearDocument,
+  deleteImage,
   downloadFromFileMenu,
   dropImage,
   editor,
   fileTrigger,
   hidePage,
+  imagePanel,
+  imagePanelControl,
   imagesInCanvas,
   importDialog,
   importFromFileMenu,
@@ -23,6 +27,7 @@ import {
   linkField,
   notAnImage,
   open,
+  openAltPopover,
   oversizedPng,
   paintedPlaceholder,
   pasteImage,
@@ -30,9 +35,12 @@ import {
   pressAt,
   pressTableMenuItem,
   refusalNotice,
+  replaceImage,
+  replacementPng,
   retrySave,
   saveStatus,
   selectBodyText,
+  selectImage,
   selectionControl,
   selectionToolbar,
   slashItem,
@@ -45,6 +53,7 @@ import {
   textOf,
   titleBlock,
   toolbarControl,
+  widthPreset,
   writeInBody,
   writeInTitle,
 } from "./rich-text-editor-page";
@@ -1081,6 +1090,168 @@ test("the slash menu lists 图片, and applying it opens the same insert", async
 });
 
 /**
+ * The image panel (#218): the four controls an image gets while it is selected.
+ *
+ * Every case starts by pressing the picture, because that is how a visitor selects
+ * one and the panel exists only in that state. What is asserted is the document's
+ * own answer — the `style` the image is drawn with, the `alt` a screen reader reads,
+ * whether the node is still there, and the JSON the draft stores — never the panel's
+ * internals. The panel is transient, so the hit-area Instrument does not declare it;
+ * these presses at coordinates are what proves its controls are reachable.
+ */
+test("selecting an image shows the panel, and a text selection hides it", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("面板.png"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(imagePanel(page)).toHaveCount(0);
+
+  await selectImage(page);
+
+  await expect(imagePanel(page)).toBeVisible();
+  await expect(imagePanelControl(page, "替换")).toBeVisible();
+  await expect(imagePanelControl(page, "替代文本")).toBeVisible();
+  await expect(imagePanelControl(page, "删除")).toBeVisible();
+  for (const percent of [25, 50, 75]) {
+    await expect(widthPreset(page, percent)).toBeVisible();
+  }
+  // 100 % is the width a fresh image already has, so its preset says so.
+  await expect(widthPreset(page, 100)).toHaveAttribute("aria-pressed", "true");
+
+  // A caret somewhere else is no longer an image selection, and the panel is gone
+  // rather than hidden: a row of invisible buttons is a row of targets that answer
+  // nowhere.
+  await titleBlock(page).click();
+  await expect(imagePanel(page)).toHaveCount(0);
+});
+
+test("each width preset changes the drawn width and the stored width", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("宽度.png"));
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  await selectImage(page);
+  await expect(imagePanel(page)).toBeVisible();
+
+  const image = imagesInCanvas(page).first();
+  const full = await image.boundingBox();
+  if (full === null) throw new Error("the image has no geometry");
+
+  for (const percent of [50, 25, 75]) {
+    await pressAt(page, widthPreset(page, percent));
+
+    /*
+     * The style is read as a substring rather than compared whole: ProseMirror
+     * writes it through `style.cssText`, so the browser serialises it back with its
+     * own spacing and a trailing semicolon. The percentage is the claim; the
+     * serialisation is the browser's.
+     */
+    expect(await image.getAttribute("style")).toContain(`width: ${percent}%`);
+    await expect(widthPreset(page, percent)).toHaveAttribute("aria-pressed", "true");
+
+    const box = await image.boundingBox();
+    if (box === null) throw new Error(`the image has no geometry at ${percent}%`);
+
+    // The picture is drawn at the share of the measure the preset names, measured
+    // against the width it had at 100 %: a percentage is only meaningful relative to
+    // the measure, and this is that ratio in pixels.
+    expect(Math.abs(box.width - (full.width * percent) / 100)).toBeLessThan(2);
+  }
+
+  // The node's attribute is document content, so the draft carries the last preset.
+  await expect(saveStatus(page)).toHaveText("未保存");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+  expect(JSON.stringify((await storedDraft(page))?.document)).toContain('"width":75');
+
+  await page.reload();
+  expect(await imagesInCanvas(page).first().getAttribute("style")).toContain("width: 75%");
+});
+
+test("替代文本 sets the alt, and a reload keeps it", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+  await expect(imagesInCanvas(page).first()).toHaveAttribute("alt", "照片");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  await selectImage(page);
+  await openAltPopover(page);
+
+  // The field opens holding what the document says now, so reopening is an edit.
+  await expect(altField(page)).toHaveValue("照片");
+
+  await altField(page).fill("一只在海边的猫");
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+
+  await expect(imagesInCanvas(page).first()).toHaveAttribute("alt", "一只在海边的猫");
+
+  await expect(saveStatus(page)).toHaveText("未保存");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+  expect(JSON.stringify((await storedDraft(page))?.document)).toContain('"alt":"一只在海边的猫"');
+
+  await page.reload();
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(imagesInCanvas(page).first()).toHaveAttribute("alt", "一只在海边的猫");
+});
+
+test("删除 removes the image, and undo brings it back", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("要删掉的.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  await selectImage(page);
+  await deleteImage(page);
+
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+  await expect(imagePanel(page)).toHaveCount(0);
+
+  await pressAt(page, toolbarControl(page, "撤销"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("要删掉的");
+  expect(await imagesInCanvas(page).first().getAttribute("style")).toContain("width: 100%");
+});
+
+test("替换 swaps the bytes, and a refused replacement leaves the image unchanged", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("第一张.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  const before = await imagesInCanvas(page).first().getAttribute("src");
+
+  await selectImage(page);
+
+  // A file the rules refuse: the sentence says which rule, and the picture keeps
+  // every byte it had, including the alt text the visitor can still edit.
+  await replaceImage(page, notAnImage());
+
+  await expect(refusalNotice(page)).toHaveText("只支持 JPEG、PNG、WebP 和 GIF 图片。");
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toBe(before);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("第一张");
+
+  // A file they take: the bytes are the new file's, and the alt and the width are
+  // the ones the document already held, because replacing a picture is not editing
+  // the visitor's description of it.
+  await replaceImage(page, replacementPng());
+
+  const after = await imagesInCanvas(page).first().getAttribute("src");
+  expect(after, "the source is the new file's own data URL").not.toBe(before);
+  expect(after).toMatch(/^data:image\/png;base64,/);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("第一张");
+  expect(await imagesInCanvas(page).first().getAttribute("style")).toContain("width: 100%");
+  // A file the rules take clears the sentence the refused one left.
+  await expect(refusalNotice(page)).toHaveCount(0);
+  // One image, not two: a replacement is not an insert.
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+});
+
+/**
  * The local draft (#209): what the browser keeps, what the toolbar says about it,
  * and what a returning visit and 清空 do.
  *
@@ -1237,6 +1408,46 @@ test.describe("at 390px", () => {
     await expect(page.getByRole("button", { name: "导出 Markdown", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "导出 HTML", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "清空", exact: true })).toBeVisible();
+  });
+
+  /*
+   * The image panel at 390px (#218).
+   *
+   * The ticket asks for a bar that stays inside the viewport on a phone, and the
+   * screen is the only place that can be shown: the panel is a transient surface, so
+   * the hit-area Instrument does not open it, and the rule that places it is
+   * arithmetic in `core/image-panel.ts` with its own unit tests. What is left here is
+   * the one claim arithmetic cannot make — that the browser draws the real bar
+   * inside the real screen, and off the picture it edits.
+   */
+  test("the image panel is drawn inside the viewport and clear of the image", async ({ page }) => {
+    await open(page);
+    await bodyParagraph(page).click();
+    await insertImageFromToolbar(page, pngFile("窄屏.png"));
+    await selectImage(page);
+
+    const panel = imagePanel(page);
+    await expect(panel).toBeVisible();
+
+    const bar = await panel.boundingBox();
+    const picture = await imagesInCanvas(page).first().boundingBox();
+    const viewport = page.viewportSize();
+    if (bar === null || picture === null || viewport === null) {
+      throw new Error("the panel, the image or the viewport has no geometry");
+    }
+
+    expect(bar.x).toBeGreaterThanOrEqual(0);
+    expect(bar.y).toBeGreaterThanOrEqual(0);
+    expect(bar.x + bar.width).toBeLessThanOrEqual(viewport.width);
+    expect(bar.y + bar.height).toBeLessThanOrEqual(viewport.height);
+
+    // Above the picture or below it, never on it: the bar edits the image, so it
+    // may not hide the thing it is editing.
+    const clear = bar.y + bar.height <= picture.y || bar.y >= picture.y + picture.height;
+    expect(
+      clear,
+      `a bar at ${bar.y}…${bar.y + bar.height} covers ${picture.y}…${picture.y + picture.height}`,
+    ).toBe(true);
   });
 });
 

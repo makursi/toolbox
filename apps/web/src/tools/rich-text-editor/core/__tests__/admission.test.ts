@@ -9,6 +9,7 @@ import {
   type ImageProbe,
   admitImage,
   imageUsage,
+  imageUsageAfterReplacement,
   sniffImageType,
 } from "@/tools/rich-text-editor/core/admission";
 
@@ -191,6 +192,44 @@ describe("imageUsage", () => {
         content: [{ content: [{ text: "只有字。", type: "text" }], type: "paragraph" }],
         type: "doc",
       }),
+    ).toEqual({ count: 0, totalBytes: 0 });
+  });
+});
+
+/**
+ * What a replacement is measured against (#218).
+ *
+ * 替换 swaps the bytes of an image the document already holds, so the image being
+ * replaced is not one more image and its bytes are not one more allocation: a full
+ * ten-image document must still be able to correct a picture. Reading the document's
+ * usage and taking the replaced node out of it is that rule, and it is here rather
+ * than in the insert module so it can be held without a browser.
+ */
+describe("imageUsageAfterReplacement", () => {
+  it("counts the replaced image out, so a full document can still swap one", () => {
+    const replaced: AdmissionState = { count: MAX_IMAGES_PER_DOCUMENT, totalBytes: 5000 };
+    const usage = imageUsageAfterReplacement(replaced, dataUrlOf(1000));
+
+    expect(usage).toEqual({ count: MAX_IMAGES_PER_DOCUMENT - 1, totalBytes: 4000 });
+    // The eleventh image is refused, but replacing one of the ten is not an
+    // eleventh: the file that swaps in is still admitted.
+    expect(admitImage(probe(PNG, 1024), usage).kind).toBe("admitted");
+  });
+
+  it("frees the bytes the replaced image held, so the total is about what is kept", () => {
+    const usage = imageUsageAfterReplacement(
+      { count: 2, totalBytes: MAX_TOTAL_IMAGE_BYTES },
+      dataUrlOf(4 * MB),
+    );
+
+    expect(usage.totalBytes).toBe(MAX_TOTAL_IMAGE_BYTES - 4 * MB);
+    // 36 MB kept plus this 4 MB file lands on the limit rather than over it.
+    expect(admitImage(probe(PNG, 4 * MB), usage).kind).toBe("admitted");
+  });
+
+  it("never goes below zero for a source that holds no bytes of its own", () => {
+    expect(
+      imageUsageAfterReplacement({ count: 0, totalBytes: 0 }, "https://example.com/photo.png"),
     ).toEqual({ count: 0, totalBytes: 0 });
   });
 });

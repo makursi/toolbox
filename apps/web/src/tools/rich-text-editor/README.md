@@ -23,8 +23,16 @@ another origin — so it survives a reload with the draft. JPEG, PNG and WebP up
 file outside those rules is refused with the sentence for the rule it broke. The
 node carries the file's name as its alt text and a percentage width, so the picture
 fills the 720px measure without leaving it. The slash menu lists 图片 and inserts
-through the same path. The image panel (replace, alt text, delete, width presets)
-is the next slice, #218.
+through the same path.
+
+This slice (#218) adds the panel an image gets while it is selected. Pressing a
+picture selects the node, and a bar appears above it (below it when there is no room
+above, and never on it) with four things: 替换, which reads a file through the same
+admission and leaves the picture exactly as it was if the file is refused; 替代文本,
+a one-field popover that sets the alt text; 删除, which takes the node out and is
+undone like any other change; and the width presets 25 / 50 / 75 / 100 %. The alt
+and the width are the node's own attributes, so the draft keeps them, a reload
+brings them back, and the exports will carry them (#219).
 
 This slice (#208) adds the three ways to write without leaving the keyboard. Typing
 `/` at the start of a paragraph opens a menu of the block commands; typing after the
@@ -105,14 +113,18 @@ selection-toolbar/selection-toolbar.tsx  the row that follows a selection: the m
 command-toggle/command-toggle.tsx        one command as a toggle, the pressed state's one appearance and hit area
 link-control/link-control.tsx            the link action's trigger, field, 应用 and 移除
 image-insert/image-insert.tsx            插入图片: the button and the hidden file input it opens
+image-panel/image-panel.tsx              the panel an image gets while selected: 替换, 替代文本, 删除, and the four width presets
 table-control/table-control.tsx          the 表格 button: the grid picker outside a table, the contextual row/column menu inside one
 editor/execute.ts                        what each command does: one executor for all three surfaces, plus the table's own operations
 editor/image-extension.ts                the image node: base64 allowed, width as a percentage, clamped to the measure
-editor/insert-image.ts                   the one insert the toolbar, a drop and a paste share
+editor/insert-image.ts                   the one insert the toolbar, a drop and a paste share, and the one replacement 替换 uses
 hooks/use-editor-command-state/…         the state at the cursor, read through TipTap's selector
+hooks/use-selected-image/…               the image the selection is on, as the panel needs it
+hooks/use-viewport-reposition/…          the one-per-frame redraw a fixed-position row needs on scroll and resize
 core/commands.ts                         the one command table, its filters, and the slash menu's subset
 core/table.ts                            the table's rules: the grid's extent, the one-click default, and the seven actions' words
-core/admission.ts                        what an image may be: the sniffed type, the two per-file limits, the count and the total
+core/image-panel.ts                      the panel's rules: the four presets, the four controls' words, and where the bar sits
+core/admission.ts                        what an image may be: the sniffed type, the two per-file limits, the count and the total, and what a replacement is measured against
 core/document.ts                         what an empty document is, whether it says anything, where its title comes from, and the two readers both writers share (code text and heading level)
 core/draft.ts                            the stored record's shape, its schema version and the guard that reads it back
 core/save.ts                             the save-state machine: the 800ms debounce, the flush, the retry and old-revision rejection
@@ -128,6 +140,7 @@ hooks/use-draft/use-draft.ts             the timer, the store and React: silent 
 core/__tests__/commands.test.ts          the table's contract in Vitest
 core/__tests__/admission.test.ts         the image rules: each sniff, each limit, the document's count and total
 core/__tests__/table.test.ts             the table's rules: the grid, the default size, the seven actions
+core/__tests__/image-panel.test.ts       the panel's rules: the four presets, its words, and where the bar goes
 core/__tests__/save.test.ts              the state machine's transitions in Vitest
 core/__tests__/copy.test.ts              the save status's wording, the menu sentences and the punctuation in Vitest
 core/__tests__/draft.test.ts             the stored record's guard in Vitest
@@ -428,6 +441,17 @@ here re-runs it.
       are each refused with their own sentence between the toolbar and the canvas,
       and a file the rules take clears it.
 - [ ] **▣** `/图片` lists 图片 in the slash menu, and Enter opens the same picker.
+- [ ] **▣** Pressing an image shows the panel, and a caret in the title takes it away;
+      its four controls are 替换, 替代文本, 删除 and 宽度 25 % / 50 % / 75 % / 100 %.
+- [ ] **▣** Each width preset changes the drawn width and the `width` in the stored
+      draft, and a reload draws the same share of the measure.
+- [ ] **▣** 替代文本 opens holding the current alt, sets it, and both the draft and a
+      reload keep the new sentence.
+- [ ] **▣** 删除 removes the node and 撤销 brings it back with its bytes and its alt.
+- [ ] **▣** 替换 swaps the bytes and keeps the alt and the width; a refused
+      replacement shows its rule's sentence and changes nothing, and the document
+      still holds one image.
+- [ ] **▣** At 390px the panel is drawn inside the viewport and clear of the picture.
 - [ ] **▣** 表格 opens the grid picker; choosing 2 rows × 3 columns inserts a 2 × 3
       table with a header row, and typing in a cell edits that cell.
 - [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each
