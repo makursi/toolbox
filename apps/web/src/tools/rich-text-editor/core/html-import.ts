@@ -33,6 +33,7 @@
  */
 
 import { importAdmission, type ImageRefusal, type ImportAdmission } from "./admission";
+import { imageAltText } from "./image";
 
 interface TextNode {
   readonly type: "text";
@@ -435,7 +436,11 @@ function transformImage(element: ElementNode, context: SanitizeContext): HtmlNod
   const alt = element.attrs.alt ?? "";
   const verdict = context.admission.admit(element.attrs.src);
 
-  if (verdict?.kind !== "admitted") return alt === "" ? [] : [{ text: alt, type: "text" }];
+  if (verdict?.kind !== "admitted") {
+    const text = imageAltText(alt);
+
+    return text === null ? [] : [{ text, type: "text" }];
+  }
 
   const src = (element.attrs.src ?? "").trim();
   // `src` first, in the order the writer puts them: the two are read back by the

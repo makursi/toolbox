@@ -7,6 +7,7 @@ import {
   type ImportAdmission,
 } from "./admission";
 import { EMPTY_DOCUMENT } from "./document";
+import { imageAltText } from "./image";
 
 /**
  * GitHub Flavored Markdown to ProseMirror JSON (#211, tables and images #220).
@@ -173,9 +174,9 @@ function admitImages(nodes: readonly JSONContent[], admission: ImportAdmission):
 
       if (verdict?.kind === "admitted") return [node];
 
-      const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt : "";
+      const alt = imageAltText(node.attrs?.alt);
 
-      return alt === "" ? [] : [{ content: [{ text: alt, type: "text" }], type: "paragraph" }];
+      return alt === null ? [] : [{ content: [{ text: alt, type: "text" }], type: "paragraph" }];
     }
 
     const content = node.content;
@@ -534,9 +535,9 @@ function flattenImages(nodes: readonly JSONContent[]): JSONContent[] {
   return nodes.flatMap((node) => {
     if (node.type !== "image") return [node];
 
-    const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt : "";
+    const alt = imageAltText(node.attrs?.alt);
 
-    return alt === "" ? [] : [{ text: alt, type: "text" }];
+    return alt === null ? [] : [{ text: alt, type: "text" }];
   });
 }
 
@@ -1241,7 +1242,9 @@ function inlineImage(source: string, index: number, marks: readonly Mark[]): Inl
   const alt = unescapeLabel(source.slice(index + 2, labelEnd));
 
   if (dataUrlImageProbe(destination) === null) {
-    return { nodes: alt === "" ? [] : [textNode(alt, marks)], next: end + 1 };
+    const remaining = imageAltText(alt);
+
+    return { nodes: remaining === null ? [] : [textNode(remaining, marks)], next: end + 1 };
   }
 
   return { nodes: [{ attrs: { alt, src: destination }, type: "image" }], next: end + 1 };

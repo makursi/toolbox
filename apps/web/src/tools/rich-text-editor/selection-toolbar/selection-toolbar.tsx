@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { CommandToggle } from "../command-toggle/command-toggle";
 import { commandsInGroup } from "../core/commands";
 import { SELECTION_TOOLBAR_LABEL } from "../core/copy";
+import { FLOATING_LAYER_Z_INDEX } from "../core/layers";
 import { runCommand } from "../editor/execute";
 import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
 import { useViewportReposition } from "../hooks/use-viewport-reposition/use-viewport-reposition";
@@ -41,9 +42,6 @@ const GAP = 8;
 
 /** The closest the row may come to the viewport's edge. */
 const EDGE = 8;
-
-/** Above the canvas, below the popovers the link control opens. */
-const Z_INDEX = 40;
 
 interface Box {
   readonly bottom: number;
@@ -120,7 +118,7 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
       className="flex items-center gap-2 rounded-lg border border-border bg-background p-1 shadow-sm"
       ref={barRef}
       role="toolbar"
-      style={{ left, position: "fixed", top, zIndex: Z_INDEX }}
+      style={{ left, position: "fixed", top, zIndex: FLOATING_LAYER_Z_INDEX }}
     >
       {commandsInGroup("mark").map((command) => (
         <CommandToggle

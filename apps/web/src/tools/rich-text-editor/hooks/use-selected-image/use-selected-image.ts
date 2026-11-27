@@ -3,7 +3,7 @@
 import { NodeSelection } from "@tiptap/pm/state";
 import { useEditorState, type Editor } from "@tiptap/react";
 
-import { DEFAULT_IMAGE_WIDTH } from "../../editor/image-extension";
+import { DEFAULT_IMAGE_WIDTH } from "../../core/image";
 
 /**
  * The image the visitor has selected, as the image panel needs it (#218).

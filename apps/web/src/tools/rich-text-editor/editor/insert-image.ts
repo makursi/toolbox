@@ -9,7 +9,7 @@ import {
   type ImageRefusal,
 } from "../core/admission";
 import { IMAGE_ALT_FALLBACK } from "../core/copy";
-import { DEFAULT_IMAGE_WIDTH } from "./image-extension";
+import { DEFAULT_IMAGE_WIDTH } from "../core/image";
 import { insertionPointAfterSelectedNode } from "./insertion-point";
 
 /**

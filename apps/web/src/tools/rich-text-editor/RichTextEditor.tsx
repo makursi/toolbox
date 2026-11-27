@@ -253,6 +253,36 @@ function EditorSurface({
 
   const requestImagePicker = useCallback(() => setImageRequest((count) => count + 1), []);
 
+  /*
+   * The one shape all three image paths share (#216): a drop on the editable, a
+   * paste, and a drop on the card around it each ask "did this event carry image
+   * files", stop the browser's own answer to it, and hand the files to the insert.
+   *
+   * Answers whether the event carried any, which is what the callers' guards mean:
+   * `false` leaves the event to ProseMirror's own handling of moved nodes and
+   * pasted markup. `preventDefault` runs only once a file is taken, so a drop of
+   * text or a moved node is not swallowed.
+   *
+   * The files are awaited one at a time, not fired together: admission counts the
+   * images and bytes the document already holds, and two files in one event are two
+   * candidates against one state. Inserting both before either landed would compute
+   * both admissions from the state before the first node exists, so a drop of two
+   * could put the document over the ten-image or 40 MB limit while each file alone
+   * passed it. Awaiting an insert is what makes the next admission see its node.
+   */
+  const takeImageFiles = (data: DataTransfer | null, preventDefault: () => void): boolean => {
+    const files = imageFiles(data);
+    if (files.length === 0) return false;
+
+    preventDefault();
+
+    void (async () => {
+      for (const file of files) await insertImageRef.current(file);
+    })();
+
+    return true;
+  };
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -381,47 +411,18 @@ function EditorSurface({
       /*
        * The image's other two ways in (#216): a drop and a paste carrying image
        * files. Both go through the same `insertImage` the toolbar's button uses,
-       * so the admission rules and the insert exist once. A drop or paste without
-       * files answers `false`, which leaves ProseMirror's own handling of moved
-       * nodes and pasted markup untouched.
-       *
-       * `preventDefault` before the asynchronous insert is what stops the browser
-       * from also doing its default with the file; the handlers return `true` so
-       * ProseMirror does not treat the same bytes as text as well.
-       *
-       * The files are awaited one at a time, not fired together: admission counts
-       * the images and bytes the document already holds, so two files dropped
-       * together are two candidates against one state. Inserting both before
-       * either landed would compute both admissions from the state before the
-       * first node exists, and two files could each pass the ten-image and 40 MB
-       * limits while together going over one. Awaiting the first insert is what
-       * makes the second file's admission see the first one's node. A paste that
-       * carries several files is the same path with the same problem.
+       * so the admission rules and the insert exist once, and both take the file
+       * list from `takeImageFiles` above — including its one-at-a-time admission,
+       * which is what keeps two files in one paste from being measured against the
+       * same stale document.
        */
       handleDrop: (_view, event, _slice, moved) => {
         if (moved) return false;
 
-        const files = imageFiles(event.dataTransfer);
-        if (files.length === 0) return false;
-
-        event.preventDefault();
-        void (async () => {
-          for (const file of files) await insertImageRef.current(file);
-        })();
-
-        return true;
+        return takeImageFiles(event.dataTransfer, () => event.preventDefault());
       },
-      handlePaste: (_view, event) => {
-        const files = imageFiles(event.clipboardData);
-        if (files.length === 0) return false;
-
-        event.preventDefault();
-        void (async () => {
-          for (const file of files) await insertImageRef.current(file);
-        })();
-
-        return true;
-      },
+      handlePaste: (_view, event) =>
+        takeImageFiles(event.clipboardData, () => event.preventDefault()),
     },
   });
 
@@ -495,20 +496,13 @@ function EditorSurface({
    * is part of the canvas a visitor aims at, and a browser's default for a file
    * dropped outside an editable is to navigate to it and leave the document.
    * `defaultPrevented` is how this half knows the editor already took the event, so
-   * a drop on the text is inserted once rather than twice. The files are awaited
-   * one at a time for the reason the editor's own handlers give.
+   * a drop on the text is inserted once rather than twice; the files themselves
+   * are `takeImageFiles`'s, the same call the editor's own handler makes.
    */
   const handleCanvasDrop = (event: DragEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) return;
 
-    const files = imageFiles(event.dataTransfer);
-    if (files.length === 0) return;
-
-    event.preventDefault();
-
-    void (async () => {
-      for (const file of files) await insertImageRef.current(file);
-    })();
+    takeImageFiles(event.dataTransfer, () => event.preventDefault());
   };
 
   return (

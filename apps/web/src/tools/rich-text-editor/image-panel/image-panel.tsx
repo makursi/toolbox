@@ -23,12 +23,10 @@ import {
   type PanelAnchor,
   type PanelPlacement,
 } from "../core/image-panel";
+import { FLOATING_LAYER_Z_INDEX } from "../core/layers";
 import type { ImageReplacement } from "../editor/insert-image";
 import { useSelectedImage } from "../hooks/use-selected-image/use-selected-image";
 import { useViewportReposition } from "../hooks/use-viewport-reposition/use-viewport-reposition";
-
-/** Above the canvas, below the popovers it opens: the selection toolbar's own layer. */
-const Z_INDEX = 40;
 
 /**
  * 图片操作: the panel an image gets while it is selected (#218).
@@ -184,7 +182,12 @@ export function ImagePanel({ editor, onReplaceImage }: ImagePanelProps) {
       aria-label={IMAGE_PANEL_LABEL}
       className="flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background p-1.5 shadow-sm"
       ref={panelRef}
-      style={{ left: placement.left, position: "fixed", top: placement.top, zIndex: Z_INDEX }}
+      style={{
+        left: placement.left,
+        position: "fixed",
+        top: placement.top,
+        zIndex: FLOATING_LAYER_Z_INDEX,
+      }}
     >
       {/*
        * 替换 is the file-menu shape (`apps/web/docs/design/components.md`): a real

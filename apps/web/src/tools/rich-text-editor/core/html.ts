@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 
 import { codeText, documentTitle, headingLevel } from "./document";
+import { DEFAULT_IMAGE_WIDTH, asImageWidth } from "./image";
 
 /**
  * The document as a complete, standalone HTML file (#210).
@@ -183,16 +184,13 @@ function renderList(node: JSONContent): string {
 /**
  * An image's width as a percentage of the reading measure.
  *
- * The node clamps the width it parses, but this writer is handed JSON rather than
- * a node, and a draft can be hand-edited. The bounds are the node's own (1–100):
- * past the measure the picture would be the one thing that overflows the column
- * the width exists to keep it inside.
+ * The rule is `core/image.ts`'s, shared with the node: this writer is handed JSON
+ * rather than a node, and a draft can be hand-edited, so the two entry points must
+ * clamp and default the same way. Past the measure the picture would be the one
+ * thing that overflows the column the width exists to keep it inside.
  */
 function imageWidth(node: JSONContent): number {
-  const raw = node.attrs?.width ?? 100;
-  const width = typeof raw === "number" ? raw : Number.parseFloat(String(raw));
-
-  return Number.isFinite(width) ? Math.min(100, Math.max(1, Math.round(width))) : 100;
+  return asImageWidth(node.attrs?.width) ?? DEFAULT_IMAGE_WIDTH;
 }
 
 /**
