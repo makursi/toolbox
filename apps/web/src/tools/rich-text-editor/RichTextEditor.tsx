@@ -6,6 +6,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 
 import { EMPTY_DOCUMENT } from "./core/document";
+import { sanitizeHtml } from "./core/html-import";
 import { EditorToolbar } from "./toolbar/toolbar";
 
 /** What an empty document says, in the words a visitor reads. */
@@ -161,8 +162,16 @@ export function RichTextEditor() {
      * `role="textbox"` is TipTap's own default on the contenteditable, so the only
      * thing this adds is the name a screen reader reads: an editable region with no
      * name is announced as an anonymous textbox.
+     *
+     * `transformPastedHTML` is the editor's own paste path (#211): pasted markup is
+     * sanitised by the same rule an imported file is, before ProseMirror parses it.
+     * A `<script>` in a copied page is therefore dropped before it can become part
+     * of the document, rather than relied on to be rejected by the schema.
      */
-    editorProps: { attributes: { "aria-label": EDITOR_LABEL, class: EDITOR_CLASS } },
+    editorProps: {
+      attributes: { "aria-label": EDITOR_LABEL, class: EDITOR_CLASS },
+      transformPastedHTML: (html) => sanitizeHtml(html),
+    },
   });
 
   return (

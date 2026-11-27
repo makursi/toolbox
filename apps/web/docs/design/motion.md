@@ -8,3 +8,4 @@
 - **悬停**：`apps/web/docs/design/components.md` 里那条 200ms 的阴影提升，只对 `box-shadow` 做过渡。
 - 它在**加载时**触发，不是滚动触发——因为首页只有两个区块且都在首屏内，装一个滚动观察器会是一套没有观察对象的机器。
 - 永远不要用 `window.addEventListener('scroll')`。只动画 `transform` 与 `opacity`。**没有安装任何动效库**。
+- **注册表 Primitive 自带的动画是关掉，不是加进去**：`PopoverContent` 与 `AlertDialogContent` / `AlertDialogOverlay` 自带 100ms 的淡入缩放，不是这里写的规则，所以在 `prefers-reduced-motion: reduce` 里按各自的 `data-slot` 把 `animation` 取掉（`globals.css`），而不是在 `no-preference` 里再加一遍。`#211` 的导入确认是第一个用到 `alert-dialog` 的地方。

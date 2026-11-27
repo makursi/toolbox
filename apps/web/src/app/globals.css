@@ -443,18 +443,22 @@ input[type="range"].touch-target::after {
 }
 
 /*
- * The registry's popover opens with 100ms of fade and zoom, and it is the first
- * generated Primitive on this site that moves on its own. The pattern above applies
- * to it unchanged — motion is opt-in, and `prefers-reduced-motion: reduce` leaves
- * the list simply there — but it cannot be written the same way round, because the
- * animation comes from the registry's own utility classes rather than from a rule
- * here: this takes it off instead of adding it.
+ * The registry's popover and alert dialog open with 100ms of fade and zoom, and
+ * they are the generated Primitives on this site that move on their own. The
+ * pattern above applies to them unchanged — motion is opt-in, and
+ * `prefers-reduced-motion: reduce` leaves the list simply there — but it cannot be
+ * written the same way round, because the animation comes from the registry's own
+ * utility classes rather than from a rule here: this takes it off instead of
+ * adding it.
  *
  * It is addressed by the Primitive's `data-slot`, which is the anchor convention
- * #126 settled on for site rules that have to outlive a library (#130).
+ * #126 settled on for site rules that have to outlive a library (#130). The alert
+ * dialog's slot was added with #211, the import confirmation.
  */
 @media (prefers-reduced-motion: reduce) {
-  [data-slot="popover-content"] {
+  [data-slot="popover-content"],
+  [data-slot="alert-dialog-content"],
+  [data-slot="alert-dialog-overlay"] {
     animation: none;
   }
 }

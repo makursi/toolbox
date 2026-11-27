@@ -28,6 +28,29 @@ function wordsOf(node: JSONContent): string {
 }
 
 /**
+ * Whether the document says nothing at all (#211).
+ *
+ * Import asks before replacing a document with content. The question is whether
+ * something would be lost, so it is about what the document *says* rather than
+ * about its node count: the starting document is already two empty blocks, and a
+ * title the visitor typed into is content even though the body is still empty.
+ *
+ * A non-text leaf counts: a rule is something a visitor placed, while a hard
+ * break alone (an empty line) is not. An empty code block or heading is not
+ * content either, because it paints nothing and exports as nothing.
+ */
+export function isEmptyDocument(document: JSONContent): boolean {
+  return !(document.content ?? []).some(hasContent);
+}
+
+function hasContent(node: JSONContent): boolean {
+  if (typeof node.text === "string" && node.text.trim() !== "") return true;
+  if (node.type === "horizontalRule") return true;
+
+  return (node.content ?? []).some(hasContent);
+}
+
+/**
  * The document's title: the first heading at the top level, or `""` when there
  * is none.
  *

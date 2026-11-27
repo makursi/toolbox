@@ -304,18 +304,20 @@ const PAGES = [
      * Every toolbar control carries the class on its own `<button>` and is named:
      * the icon-only ones by `aria-label`, the block menu by `块类型：<current block>`
      * (the declared name is the stable prefix), and the file menu by `文件`. The
-     * block menu's items, the link field, 导出 Markdown, 导出 HTML and 清空 live in
-     * popovers, so they only exist once a control is pressed; the gate opens the
-     * file menu, presses each export at its coordinates and reads the downloaded
-     * bytes back. This Instrument still declares only what is on the page without
-     * opening anything, which is #210's sanctioned fallback: a declared name that
-     * cannot be found in the state the page is measured in would be a failure
-     * rather than coverage. The two placeholders are painted `::before` sentences,
-     * so they are not controls and no name here can reach them.
+     * block menu's items, the link field, 导入, 导出 Markdown, 导出 HTML, 清空 and
+     * the import confirmation live in popovers and a dialog, so they only exist
+     * after a control is pressed; the gate opens the file menu, presses each item
+     * at its coordinates and reads the downloaded bytes or the imported document
+     * back. This Instrument still declares only what is on the page without
+     * opening anything, which is the fallback #210 recorded and #211 keeps: a
+     * declared name that cannot be found in the state the page is measured in
+     * would be a failure rather than coverage. The two placeholders are painted
+     * `::before` sentences, so they are not controls and no name here can reach
+     * them.
      *
-     * The save status and the rest of the file menu arrive with #209 and #211, and
-     * each declares its own controls in its own ticket; this page declares only
-     * what exists today. `outgoing` is the whole document: this page has one layer.
+     * The save status and the rest of the file menu arrive with #209, and each
+     * declares its own controls in its own ticket; this page declares only what
+     * exists today. `outgoing` is the whole document: this page has one layer.
      */
     controls: [
       "切换到",

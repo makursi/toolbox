@@ -8,7 +8,10 @@ import {
   transparentPng,
 } from "./image-to-pdf-page";
 import {
+  answerImportDialog,
   downloadFromFileMenu,
+  importDialog,
+  importFromFileMenu,
   open as openRichTextEditor,
   pressAt,
   selectBodyText,
@@ -143,15 +146,17 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
 });
 
 /**
- * The Rich Text Editor's page, held to the same rule (#206, extended by #210).
+ * The Rich Text Editor's page, held to the same rule (#206, extended by #210 and
+ * #211).
  *
  * Typing is the page's behaviour, and since #210 so is exporting: the editor is a
  * third-party tree mounted into this document, and the export builds a blob and
- * hands it to the browser's downloader. The run therefore types, selects and
- * formats, and downloads both formats before it asserts — a page that asked a
- * server for anything would have to do it on one of those paths, and the export
- * is the one that could plausibly want to. Import and autosave extend this same
- * test when their slices land.
+ * hands it to the browser's downloader. Since #211 importing is one too: the file
+ * is read as text, parsed and put back through the editor. The run therefore
+ * types, selects and formats, downloads both formats and imports a file before it
+ * asserts — a page that asked a server for anything would have to do it on one of
+ * those paths, and the export and import are the ones that could plausibly want
+ * to. Autosave extends this same test when its slice lands.
  */
 test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
   page,
@@ -171,6 +176,21 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   // finished would have exercised the click and not the bytes.
   expect(await (await downloadFromFileMenu(page, "导出 Markdown")).path()).not.toBeNull();
   expect(await (await downloadFromFileMenu(page, "导出 HTML")).path()).not.toBeNull();
+
+  /*
+   * Since #211 the import is on this page too, and it is the path most likely to
+   * want a server: a file is read as text, parsed and put through the editor's own
+   * `setContent`. It must stay local, and the non-empty draft means the
+   * confirmation is part of the path.
+   */
+  await importFromFileMenu(page, {
+    buffer: Buffer.from("# 本地导入\n\n导入一句，不应向外请求。", "utf8"),
+    mimeType: "text/markdown",
+    name: "导入.md",
+  });
+  await expect(importDialog(page)).toBeVisible();
+  await answerImportDialog(page, "替换");
+  await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("导入一句");
 
   expect(watched.offSite, "requests off this origin").toEqual([]);
   expect(watched.noise, "console errors and warnings").toEqual([]);

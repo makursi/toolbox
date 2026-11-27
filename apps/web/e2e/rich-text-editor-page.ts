@@ -197,6 +197,52 @@ export function linkField(page: Page): Locator {
   return page.getByRole("textbox", { name: "链接地址" });
 }
 
+/**
+ * The hidden file input behind the file menu's 导入 row.
+ *
+ * It is `sr-only` rather than `display: none`, so it stays a real input the gate
+ * can set and a browser can open; the row is the control a visitor presses and
+ * this is what receives the file (the pattern the cover generator uses).
+ */
+export function importInput(page: Page): Locator {
+  return page.locator('input[type="file"]');
+}
+
+/** A file to import, in Playwright's in-memory form. */
+export interface ImportFile {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly buffer: Buffer;
+}
+
+/**
+ * Import a file through the page's own file menu.
+ *
+ * The 导入 row is pressed at its coordinates like every other control, and the
+ * browser's file chooser is what Playwright answers; the input is never set
+ * directly, because the claim is that the menu's own action reaches it. The row
+ * and the input are two halves of one control, and this is the path a visitor
+ * takes.
+ */
+export async function importFromFileMenu(page: Page, file: ImportFile): Promise<void> {
+  await pressAt(page, fileTrigger(page));
+
+  const chooser = page.waitForEvent("filechooser");
+  await pressAt(page, page.getByRole("button", { name: "导入", exact: true }));
+
+  await (await chooser).setFiles(file);
+}
+
+/** The confirmation the import shows when the draft says something. */
+export function importDialog(page: Page): Locator {
+  return page.getByRole("alertdialog");
+}
+
+/** Answer the import confirmation with 取消 or 替换, at the button's coordinates. */
+export async function answerImportDialog(page: Page, answer: "取消" | "替换"): Promise<void> {
+  await pressAt(page, importDialog(page).getByRole("button", { name: answer, exact: true }));
+}
+
 /** The document as the browser is holding it, for claims about structure. */
 export function canvas(page: Page): Locator {
   return page.locator(CANVAS);

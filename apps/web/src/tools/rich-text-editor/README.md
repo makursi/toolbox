@@ -5,13 +5,23 @@ nothing requested from anywhere after the page has loaded. The canonical documen
 ProseMirror JSON, and its title is the document's own first line rather than a second
 input beside the canvas.
 
-This slice (#210) adds the two exports. The file menu now offers 导出 Markdown and
-导出 HTML, and each one writes the document's current bytes to a download: GitHub
-Flavored Markdown with underline as the one inline HTML construct, or a complete
-standalone HTML document with a doctype, a charset, the document's title and an
-embedded stylesheet. The file is named from the sanitised title and today's date,
-falling back to 文档-YYYY-MM-DD when the document has no title. There is no filename
-field: the document names itself.
+This slice (#211) adds the import. The file menu's 导入 row opens a hidden file
+input that accepts `.md` and `.html`; the file is read as text, parsed, and put
+back into the editor through TipTap's own `setContent`. Markdown is parsed to
+ProseMirror JSON by the Tool's pure reader (`core/markdown-import.ts`); HTML is
+sanitised by `core/html-import.ts` and then parsed by TipTap, so the final
+document is the editor's schema in both cases. When the draft already says
+something, an alert dialog asks before it is replaced, and cancelling leaves the
+draft untouched. The same HTML sanitiser runs on the editor's paste path, so
+pasted markup loses its scripts, styles and head material by the same rule.
+
+The previous slice (#210) added the two exports. The file menu offers 导出 Markdown
+and 导出 HTML, and each one writes the document's current bytes to a download:
+GitHub Flavored Markdown with underline as the one inline HTML construct, or a
+complete standalone HTML document with a doctype, a charset, the document's title
+and an embedded stylesheet. The file is named from the sanitised title and today's
+date, falling back to 文档-YYYY-MM-DD when the document has no title. There is no
+filename field: the document names itself.
 
 The toolbar (#207) is what the document is written with. A visitor can start
 writing, turn a paragraph into 标题 1–3 and back, mark a selection bold, italic,
@@ -28,29 +38,36 @@ and that map is typed `Record<CommandId, () => void>`, so a command in the table
 no handler is a `tsc` error rather than a dead button.
 
 What is deliberately **not here yet**, and lands in its own ticket: the slash menu,
-Markdown input rules, the selection toolbar (#208), autosave and restore (#209), and
-import (#211). The Tool's cover landed in #212 and is the homepage card's
-illustration; it does not change this page. Nothing is saved yet either: a reload
-gives a fresh empty document, which is the current state rather than a bug. The page
-is known to both instruments and to the browser gate, so none of this is unmeasured.
+Markdown input rules, the selection toolbar (#208), and autosave and restore (#209).
+The Tool's cover landed in #212 and is the homepage card's illustration; it does not
+change this page. Nothing is saved yet either: a reload gives a fresh empty document,
+which is the current state rather than a bug. The page is known to both instruments
+and to the browser gate, so none of this is unmeasured.
 
 The Tool's own design rules, the command table's contract, the toolbar's groups and
-hit areas, the export and filename rules, the two placeholders and why the canvas is
-not a `.touch-target`, are in [`rules.md`](./rules.md).
+hit areas, the import, export and filename rules, the two placeholders and why the
+canvas is not a `.touch-target`, are in [`rules.md`](./rules.md).
 
 ## Layout
 
 ```
-RichTextEditor.tsx              the writing surface: TipTap, the extensions, the canvas typography
-toolbar/toolbar.tsx             the toolbar, the block menu, the link popover, the file menu and the downloads
+RichTextEditor.tsx              the writing surface: TipTap, the extensions, the canvas typography, the paste sanitiser
+toolbar/toolbar.tsx             the toolbar, the block menu, the link popover, the file menu, the import and the downloads
 core/commands.ts                the one command table, and the filter the slash menu will use
-core/document.ts                what an empty document is, and where the document's title comes from
+core/document.ts                what an empty document is, whether it says anything, and where its title comes from
 core/markdown.ts                ProseMirror JSON to GFM
+core/markdown-import.ts         GFM to ProseMirror JSON
 core/html.ts                    ProseMirror JSON to a complete standalone HTML document
+core/html-import.ts             sanitised HTML for the import and paste paths
+core/import.ts                  which format a chosen file is, and the picker's accept value
 core/naming.ts                  the export filename rule: sanitised title, date, extension
 core/__tests__/commands.test.ts the table's contract in Vitest
+core/__tests__/document.test.ts the title, and the emptiness the import asks about
 core/__tests__/markdown.test.ts the Markdown writer, in GFM's terms
+core/__tests__/markdown-import.test.ts the Markdown reader, in the writer's terms
 core/__tests__/html.test.ts     the standalone document and its escaping
+core/__tests__/html-import.test.ts the sanitiser: kept blocks, dropped scripts, importable task lists
+core/__tests__/import.test.ts   the format rule, by name and then by content
 core/__tests__/naming.test.ts   the filename rule, including the empty-title fallback
 meta.ts                         the Tool Registry entry
 rules.md                        this Tool's own rules, linked from this file
@@ -103,11 +120,24 @@ fingerprint's baseline is a local file, not a repository one.
    characters, or 文档 with the date when the document has no title. An empty
    document exports as an empty Markdown file and an HTML file whose article is
    empty; both are still complete files.
+7. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
+   is read as text and its format is decided by `core/import.ts` from the extension
+   (falling back to the content when the name says nothing). Markdown goes through
+   `documentFromMarkdown` to JSON; HTML goes through `sanitizeHtml` and then through
+   TipTap's `setContent`, whose DOMParser is the final word on the document either
+   way. If the draft says anything (`isEmptyDocument`), an alert dialog asks first:
+   cancelling closes it and changes nothing, confirming replaces the document. The
+   input's value is cleared after every choice, so importing the same file twice
+   works. A file that sanitises to nothing leaves the empty document, and a paste of
+   HTML takes the same sanitiser through `transformPastedHTML` before ProseMirror
+   sees it.
 
 The extension set is the minimum the slices after this one need: `StarterKit` (with
 Link configured `openOnClick: false`), `TaskList` and `TaskItem` from
-`@tiptap/extension-list`, and `Placeholder` from `@tiptap/extensions`. No third-party
-asset and no new dependency came with it; the TipTap tree arrived in
+`@tiptap/extension-list`, and `Placeholder` from `@tiptap/extensions`. The import
+added no dependency: both parsers are the Tool's own code, and the confirmation's
+`alert-dialog.tsx` is generated from the `radix-ui` package the component layer
+already uses. No third-party asset came with it either; the TipTap tree arrived in
 `chore(web): the TipTap tree at V1's minimum` and is the dependency expansion the
 Tool's spec records.
 
@@ -144,9 +174,21 @@ browser and covers the items marked **▣**:
   format's extension.
 - ▣ A document with no title exports as `文档-YYYY-MM-DD.md` and
   `文档-YYYY-MM-DD.html`, and the HTML file's `<title>` is 无标题.
+- ▣ 导入 a Markdown file through the file menu produces the fixture's headings,
+  paragraph and its marks, nested bulleted and ordered lists, checked and unchecked
+  task items, quote, fenced code with its language, link and rule; the imported
+  document is editable, and exporting it again carries the added words.
+- ▣ 导入 an HTML file produces the same blocks, and its `<head>`, stylesheet and
+  script do not survive: the script's global is undefined, and the canvas holds no
+  `<script>`, `<style>` or `<title>`.
+- ▣ A non-empty draft asks 替换当前文档？ before the import; 取消 leaves the title and
+  the body exactly as typed, and 替换 replaces them.
+- ▣ Pasted HTML is sanitised by the editor's own paste path: a pasted `<script>`
+  does not run and does not reach the document, while the pasted words and their
+  marks do.
 - ▣ The Tool has a homepage card linking to its route and an entry in `/sitemap.xml`.
-- ▣ Typing, formatting and exporting both formats reaches nothing off this origin,
-  prints no console error or warning, and raises no uncaught error
+- ▣ Typing, formatting, exporting both formats and importing a file reaches nothing
+  off this origin, prints no console error or warning, and raises no uncaught error
   (`apps/web/e2e/no-outbound-requests.spec.ts`).
 
 `pnpm test` covers the command table (ids are unique, every command has a label and
@@ -156,11 +198,16 @@ the Markdown writer (headings, both kinds of list and their nesting, task items 
 their checked state, quotes, fenced code with its language and backtick growth,
 rules, every mark with underline as inline HTML, links, hard breaks, escaping, and
 the empty document's empty string), the standalone-HTML writer (doctype, charset,
-title, embedded stylesheet, every block and mark, escaping, and both fallbacks) and
-the filename rule (title, date padding, invalid characters, the 40-character cap and
-the empty-title fallback). The one structural claim a unit test cannot make, that
-every id has an executor, is the typed executor map in `toolbar/toolbar.tsx`: `tsc`
-is what holds it.
+title, embedded stylesheet, every block and mark, escaping, and both fallbacks), the
+filename rule (title, date padding, invalid characters, the 40-character cap and the
+empty-title fallback), the document's title and emptiness, the import format rule,
+the Markdown reader (the writer's constructs read back, nested lists and task items,
+hard and soft breaks, the export's `<u>` underline, escapes, unknown syntax kept as
+text, and no throw on malformed input), and the HTML sanitiser (kept blocks, head and
+scripts dropped, unsafe links unwrapped, the export's task list read back into the
+editor's markup, entity round-tripping, and no throw on malformed markup). The one
+structural claim a unit test cannot make, that every id has an executor, is the typed
+executor map in `toolbar/toolbar.tsx`: `tsc` is what holds it.
 
 Still by hand: opening the page in both colour schemes and reading the toolbar, the
 pressed state, the canvas and its placeholders against the palette; typing Chinese
@@ -206,19 +253,41 @@ here re-runs it.
       `<title>-YYYY-MM-DD.html`.
 - [ ] **▣** An untitled document's exports are named `文档-YYYY-MM-DD.<ext>`, and the
       HTML file's `<title>` is 无标题.
+- [ ] **▣** 导入 a Markdown file through the file menu produces the fixture's
+      headings, paragraph and its marks, nested lists, checked and unchecked task
+      items, quote, fenced code with its language, link and rule; the imported
+      document is editable, and exporting it again carries the added words.
+- [ ] **▣** 导入 an HTML file produces the same blocks, and its `<head>`, stylesheet
+      and script do not survive.
+- [ ] **▣** A non-empty draft asks 替换当前文档？ before the import; 取消 leaves the
+      title and the body untouched, and 替换 replaces them.
+- [ ] **▣** Pasted HTML is sanitised by the editor's own paste path: a pasted
+      `<script>` does not run or reach the document, while its words and marks do.
 - [ ] **▣** At 390px the middle groups scroll, the file menu does not move, and the
       page does not gain a horizontal scrollbar.
 - [ ] **▣** The homepage card links to `/tools/rich-text-editor`, and the sitemap
       lists the route.
-- [ ] **▣** The page makes no request off this origin while typing, formatting and
-      exporting both formats, writes no console error or warning, and raises no
-      uncaught error.
+- [ ] **▣** The page makes no request off this origin while typing, formatting,
+      exporting both formats and importing a file, writes no console error or
+      warning, and raises no uncaught error.
 
 ### A person must still check
 
 - [ ] Both colour schemes: the toolbar's hairlines, the pressed ink state, the
       canvas's type and the two placeholder sentences are readable, and the
       placeholder colour is the measured one.
+- [ ] The import confirmation in both schemes: the overlay dims the page rather than
+      washing it out, the title and the description read as one question, focus lands
+      on 取消, Escape cancels, Tab reaches both buttons, and both are 44px tall.
+- [ ] A real file from another Markdown tool: tables, images, reference-style links
+      and other syntax this reader does not know stay as their words rather than
+      refusing or crashing, and the blocks it does know keep their order.
+- [ ] A full page saved from a browser as HTML: its head, scripts, styles and layout
+      wrappers are gone, its lists, quotes, code and links survive, and a
+      `javascript:` link arrives as plain text.
+- [ ] Pasting rich content copied from another tab: the words and the marks are
+      kept, the scripts and styles are not, and the pasted link does not carry an
+      event handler.
 - [ ] Chinese input through a real IME composes into the paragraph and the first
       committed character takes the body placeholder away. The gate types
       characters, not composition events.
@@ -253,7 +322,7 @@ here re-runs it.
       inline HTML (and as `<u>` where it does not, which is the one construct GFM
       has no form for).
 - [ ] A long title is cut at 40 characters in the filename, an empty one falls back
-      to 文档, and the file menu at 390px still shows 导出 Markdown, 导出 HTML and
-      清空 inside the viewport.
+      to 文档, and the file menu at 390px still shows 导入, 导出 Markdown, 导出 HTML
+      and 清空 inside the viewport.
 - [ ] A long code line scrolls inside its block instead of widening the canvas, and
       a checked task item's line-through and dimmed text are legible in both schemes.

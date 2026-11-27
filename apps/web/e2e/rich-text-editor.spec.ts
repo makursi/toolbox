@@ -5,11 +5,14 @@ import { expect, test, type Download } from "@playwright/test";
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
+  answerImportDialog,
   blockTrigger,
   bodyParagraph,
   canvas,
   downloadFromFileMenu,
   fileTrigger,
+  importDialog,
+  importFromFileMenu,
   linkField,
   open,
   paintedPlaceholder,
@@ -24,19 +27,83 @@ import {
 
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
- * command table (#207), and the two exports (#210).
+ * command table (#207), the two exports (#210) and the import (#211).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
  * what each toolbar control does to the blocks and marks a screen reader can
- * see, and the bytes of the files the file menu downloads. It does not read
- * TipTap's state, React's state or any serialiser: the exported file is judged by
- * its own text, and the filename by the rule's arithmetic.
+ * see, the bytes of the files the file menu downloads, and the document an
+ * imported file produces. It does not read TipTap's state, React's state or any
+ * serialiser: the exported file is judged by its own text, and the imported
+ * document by the blocks the canvas renders.
  *
  * Every toolbar press goes through `pressAt`, which measures the control and
  * clicks its centre: a control that looks right and is dead to the mouse is the
  * failure this file exists to catch, and a keyboard path would never see it.
  */
+
+/** A file for the import, in Playwright's in-memory form. */
+function fileOf(name: string, mimeType: string, contents: string) {
+  return { buffer: Buffer.from(contents, "utf8"), mimeType, name };
+}
+
+/**
+ * The Markdown fixture: one of each construct the Tool exports.
+ *
+ * Written as lines rather than one template literal because the fixture contains
+ * backticks and fences, and a fixture is easier to read as the lines a reader
+ * sees than as an escape puzzle.
+ */
+const MARKDOWN_FIXTURE = [
+  "# 导入测试",
+  "",
+  "一段**加粗**、*斜体*、~~删除线~~、`代码`与[链接](https://example.com/docs)的段落。",
+  "",
+  "- 第一项",
+  "  - 嵌套项",
+  "- 第二项",
+  "",
+  "1. 编号一",
+  "2. 编号二",
+  "",
+  "- [x] 已完成",
+  "- [ ] 未完成",
+  "",
+  "> 引用一句。",
+  "",
+  "```ts",
+  "const answer = 42;",
+  "```",
+  "",
+  "---",
+  "",
+].join("\n");
+
+/**
+ * The HTML fixture: a complete document with the material an import must drop.
+ *
+ * The `<head>` carries a title, a stylesheet and a script; the body repeats the
+ * Markdown fixture's blocks in HTML, including the standalone export's task-list
+ * shape, so the two imports are judged by the same blocks.
+ */
+const HTML_FIXTURE = [
+  "<!doctype html>",
+  '<html lang="zh-CN"><head>',
+  "<title>忽略的标题</title>",
+  "<style>p { color: red }</style>",
+  "<script>window.__htmlImportPwned = true</script>",
+  "</head><body><article>",
+  "<h1>HTML 导入</h1>",
+  '<p>一段<strong>加粗</strong>、<em>斜体</em>、<s>删除线</s>、<code>代码</code>与<a href="https://example.com/html">链接</a>的段落。</p>',
+  "<ul><li>第一项<ul><li>嵌套项</li></ul></li><li>第二项</li></ul>",
+  "<ol><li>编号一</li><li>编号二</li></ol>",
+  '<ul class="task-list"><li class="task-list-item"><input type="checkbox" checked disabled>已完成</li>',
+  '<li class="task-list-item"><input type="checkbox" disabled>未完成</li></ul>',
+  "<blockquote>引用一句。</blockquote>",
+  '<pre><code class="language-js">const answer = 42;</code></pre>',
+  "<hr>",
+  "</article></body></html>",
+].join("");
 
 /**
  * The five inline marks, in the order the toolbar offers them, with the element
@@ -325,6 +392,162 @@ test("an untitled document exports under the dated fallback name", async ({ page
   const html = await downloadFromFileMenu(page, "导出 HTML");
   expect(html.suggestedFilename()).toBe(`文档-${todayStamp()}.html`);
   expect(await readDownload(html)).toContain("<title>无标题</title>");
+});
+
+/**
+ * The import, driven the way a visitor drives it (#211).
+ *
+ * The file goes in through the file menu's 导入 row, and the document is judged
+ * by the blocks the canvas renders rather than by JSON: the importer's own output
+ * is TipTap's `setContent`, so the canvas is where the claim is true. The fixture
+ * holds one of each construct this Tool exports, which is also what makes a
+ * missing block a failure rather than a shorter document.
+ */
+test("the file menu imports a Markdown file, and the imported document exports again", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(page, fileOf("导入.md", "text/markdown", MARKDOWN_FIXTURE));
+
+  // An empty draft is replaced without asking: there is nothing to lose.
+  expect(await importDialog(page).count()).toBe(0);
+
+  await expect(canvas(page).locator("h1")).toHaveText("导入测试");
+
+  const paragraph = canvas(page).locator("p").first();
+  await expect(paragraph.locator("strong")).toHaveText("加粗");
+  await expect(paragraph.locator("em")).toHaveText("斜体");
+  await expect(paragraph.locator("s")).toHaveText("删除线");
+  await expect(paragraph.locator("code")).toHaveText("代码");
+  await expect(paragraph.locator('a[href="https://example.com/docs"]')).toHaveText("链接");
+
+  const bullet = canvas(page).locator("ul").first();
+  await expect(bullet.locator(":scope > li")).toHaveCount(2);
+  await expect(bullet.locator(":scope > li").first().locator("ul > li")).toHaveText("嵌套项");
+  await expect(canvas(page).locator("ol > li")).toHaveCount(2);
+
+  const tasks = canvas(page).locator('ul[data-type="taskList"] > li');
+  await expect(tasks).toHaveCount(2);
+  await expect(tasks.first()).toHaveAttribute("data-checked", "true");
+  await expect(tasks.nth(1)).toHaveAttribute("data-checked", "false");
+
+  await expect(canvas(page).locator("blockquote")).toHaveText("引用一句。");
+  await expect(canvas(page).locator("pre code")).toHaveText("const answer = 42;");
+  await expect(canvas(page).locator("pre code")).toHaveClass(/language-ts/);
+  await expect(canvas(page).locator("hr")).toHaveCount(1);
+
+  // The imported document is editable and exports like any other: the caret goes
+  // into the imported paragraph and the words it adds come back in the file.
+  await paragraph.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type("补充。");
+  await expect(paragraph).toContainText("补充。");
+
+  const exported = await downloadFromFileMenu(page, "导出 Markdown");
+  expect(exported.suggestedFilename()).toBe(`导入测试-${todayStamp()}.md`);
+  expect(await readDownload(exported)).toContain("补充。");
+});
+
+test("the file menu imports an HTML file, and its head, script and style do not survive", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(page, fileOf("导入.html", "text/html", HTML_FIXTURE));
+
+  await expect(canvas(page).locator("h1")).toHaveText("HTML 导入");
+
+  const paragraph = canvas(page).locator("p").first();
+  await expect(paragraph.locator("strong")).toHaveText("加粗");
+  await expect(paragraph.locator("em")).toHaveText("斜体");
+  await expect(paragraph.locator("s")).toHaveText("删除线");
+  await expect(paragraph.locator("code")).toHaveText("代码");
+  await expect(paragraph.locator('a[href="https://example.com/html"]')).toHaveText("链接");
+
+  const bullet = canvas(page).locator("ul").first();
+  await expect(bullet.locator(":scope > li")).toHaveCount(2);
+  await expect(bullet.locator(":scope > li").first().locator("ul > li")).toHaveText("嵌套项");
+  await expect(canvas(page).locator("ol > li")).toHaveCount(2);
+
+  const tasks = canvas(page).locator('ul[data-type="taskList"] > li');
+  await expect(tasks).toHaveCount(2);
+  await expect(tasks.first()).toHaveAttribute("data-checked", "true");
+
+  await expect(canvas(page).locator("blockquote")).toHaveText("引用一句。");
+  await expect(canvas(page).locator("pre code")).toHaveText("const answer = 42;");
+  await expect(canvas(page).locator("pre code")).toHaveClass(/language-js/);
+  await expect(canvas(page).locator("hr")).toHaveCount(1);
+
+  // Nothing from the head or a script survives, in the document or in the page.
+  expect(await page.evaluate("window.__htmlImportPwned")).toBeUndefined();
+  await expect(canvas(page).locator("script")).toHaveCount(0);
+  await expect(canvas(page).locator("style")).toHaveCount(0);
+  await expect(canvas(page).locator("title")).toHaveCount(0);
+
+  const exported = await downloadFromFileMenu(page, "导出 HTML");
+  expect(exported.suggestedFilename()).toBe(`HTML 导入-${todayStamp()}.html`);
+  expect(await readDownload(exported)).toContain("<h1>HTML 导入</h1>");
+});
+
+/**
+ * The confirmation, both ways: cancelling leaves the draft exactly as it was, and
+ * confirming replaces it. The draft is written through the page's own controls, so
+ * "untouched" means the same blocks the visitor typed, not a JSON comparison.
+ */
+test("a non-empty draft asks before an import replaces it, and cancelling changes nothing", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInTitle(page, "原标题");
+  await writeInBody(page, "原稿。");
+
+  await importFromFileMenu(page, fileOf("导入.md", "text/markdown", MARKDOWN_FIXTURE));
+  await expect(importDialog(page)).toBeVisible();
+  await expect(importDialog(page)).toContainText("替换当前文档？");
+
+  await answerImportDialog(page, "取消");
+  await expect(importDialog(page)).toHaveCount(0);
+  expect(await textOf(titleBlock(page))).toBe("原标题");
+  expect(await textOf(bodyParagraph(page))).toBe("原稿。");
+
+  await importFromFileMenu(page, fileOf("导入.md", "text/markdown", MARKDOWN_FIXTURE));
+  await expect(importDialog(page)).toBeVisible();
+  await answerImportDialog(page, "替换");
+  await expect(importDialog(page)).toHaveCount(0);
+
+  await expect(canvas(page).locator("h1")).toHaveText("导入测试");
+  await expect(canvas(page).locator("p").first()).toContainText("加粗");
+});
+
+/**
+ * The paste path, with the sanitiser the import uses.
+ *
+ * The paste is a real `ClipboardEvent` carrying `text/html`, dispatched on the
+ * editable the same way the browser's paste handler receives one; ProseMirror's
+ * own listener is what reads it. The script in the pasted paragraph must not run
+ * and must not reach the document.
+ */
+test("pasted HTML is sanitised, so a script in it does not survive", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData(
+      "text/html",
+      "<p>粘贴的<strong>内容</strong><script>window.__pastePwned = true</script></p>",
+    );
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    });
+    document.querySelector('[contenteditable="true"]')?.dispatchEvent(event);
+  });
+
+  await expect(bodyParagraph(page)).toContainText("粘贴的内容");
+  await expect(bodyParagraph(page).locator("strong")).toHaveText("内容");
+  expect(await page.evaluate("window.__pastePwned")).toBeUndefined();
+  await expect(canvas(page).locator("script")).toHaveCount(0);
 });
 
 test.describe("at 390px", () => {

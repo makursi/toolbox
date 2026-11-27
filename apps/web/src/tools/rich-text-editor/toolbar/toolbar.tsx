@@ -1,8 +1,18 @@
 "use client";
 
 import { useEditorState, type Editor } from "@tiptap/react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,9 +20,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Toggle } from "@/components/ui/toggle";
 
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
-import { EMPTY_DOCUMENT } from "../core/document";
+import { EMPTY_DOCUMENT, isEmptyDocument } from "../core/document";
 import { htmlFromDocument } from "../core/html";
+import { sanitizeHtml } from "../core/html-import";
+import { IMPORT_ACCEPT, importFormatOf, type ImportFormat } from "../core/import";
 import { markdownFromDocument } from "../core/markdown";
+import { documentFromMarkdown } from "../core/markdown-import";
 import { exportFileName, type ExportFormat } from "../core/naming";
 
 /**
@@ -29,12 +42,22 @@ import { exportFileName, type ExportFormat } from "../core/naming";
  * what proves the chain applied: a toolbar that renders and does nothing is a
  * shape this component cannot check by itself.
  *
- * The file menu holds the export actions (#210) and 清空. Each export asks the
- * editor for its JSON, hands it to the pure writer in `core/`, and downloads the
- * bytes under the name `core/naming.ts` derives. There is no filename field: the
- * document names itself, which is the rule #205 settled. Import arrives in its
- * own slice (#211) and the save status in #209.
+ * The file menu holds 导入 (#211), the two export actions (#210) and 清空. Each
+ * export asks the editor for its JSON, hands it to the pure writer in `core/`,
+ * and downloads the bytes under the name `core/naming.ts` derives. 导入 is one
+ * action for both accepted formats: a hidden file input takes the file, the
+ * format rule in `core/import.ts` picks the parser, and the result goes back
+ * through TipTap's own `setContent`. When the draft says something, an alert
+ * dialog asks before it is replaced; cancelling changes nothing. There is no
+ * filename field: the document names itself, which is the rule #205 settled. The
+ * save status arrives in #209.
  */
+
+/** An import that is waiting on the visitor's confirmation. */
+interface PendingImport {
+  readonly format: ImportFormat;
+  readonly contents: string;
+}
 
 /** Commands that read as on/off at the cursor; the rest are one-shot actions. */
 const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
@@ -81,6 +104,9 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
   const [fileOpen, setFileOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [href, setHref] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   /*
    * The state at the cursor, read through TipTap's own selector rather than
@@ -197,6 +223,69 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
   };
 
   const blockLabel = commandById(state.block).label;
+
+  /**
+   * Apply an imported file to the document.
+   *
+   * A Markdown file becomes JSON in `core/markdown-import.ts` and goes straight
+   * into `setContent`; an HTML file is sanitised in `core/html-import.ts` and
+   * TipTap's own parser is what turns it into the document. The final JSON is
+   * therefore TipTap's in both cases, which is the point: the editor's schema is
+   * the one authority on what a document may hold. An import that sanitises to
+   * nothing is the empty document, so a file of only a `<script>` leaves the
+   * same two placeholders a fresh page shows.
+   */
+  const applyImport = (format: ImportFormat, contents: string) => {
+    if (format === "markdown") {
+      editor.commands.setContent(documentFromMarkdown(contents));
+    } else {
+      const sanitized = sanitizeHtml(contents);
+      editor.commands.setContent(sanitized === "" ? EMPTY_DOCUMENT : sanitized);
+    }
+
+    editor.commands.focus("start");
+  };
+
+  /**
+   * Read the chosen file, then either import it or ask.
+   *
+   * The question is whether the draft would lose something, which is what
+   * `isEmptyDocument` answers about what the document says rather than about how
+   * many empty blocks it starts with. The file is read before the dialog opens,
+   * so the dialog's confirm is synchronous and the file cannot go stale.
+   */
+  const chooseImportFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0] ?? null;
+    event.currentTarget.value = "";
+    if (file === null) return;
+
+    setFileOpen(false);
+    void file
+      .text()
+      .then((contents) => {
+        const format = importFormatOf(file.name, contents);
+
+        if (isEmptyDocument(editor.getJSON())) {
+          applyImport(format, contents);
+          return;
+        }
+
+        setPendingImport({ contents, format });
+        setConfirmOpen(true);
+      })
+      .catch(() => undefined);
+  };
+
+  const closeImportDialog = (open: boolean) => {
+    setConfirmOpen(open);
+    if (!open) setPendingImport(null);
+  };
+
+  const confirmImport = () => {
+    if (pendingImport === null) return;
+
+    applyImport(pendingImport.format, pendingImport.contents);
+  };
 
   /**
    * Download the document in one format.
@@ -403,6 +492,22 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-48 p-1">
+            {/*
+             * One 导入 action for both formats. The picker is the hidden input
+             * below, because an `input[type=file]` is a replaced element that
+             * cannot be drawn as the menu row; the button is the real control and
+             * opens it, the input is what receives the file (the pattern the cover
+             * generator recorded in `apps/web/docs/design/components.md`).
+             */}
+            <Button
+              className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
+              onClick={() => fileInputRef.current?.click()}
+              variant="ghost"
+            >
+              <span aria-hidden className="icon icon-[ph--upload-simple-bold]" />
+              导入
+            </Button>
+            <span aria-hidden className="my-1 block h-px bg-border" />
             {EXPORTS.map((item) => (
               <Button
                 className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
@@ -432,6 +537,43 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
           </PopoverContent>
         </Popover>
       </div>
+
+      {/*
+       * The picker itself. It is visually hidden but not `display: none`, so it
+       * stays a real input the browser (and the gate) can find and set; it holds
+       * no `.touch-target` because it is not the control a visitor presses, the
+       * 导入 row is.
+       */}
+      <input
+        accept={IMPORT_ACCEPT}
+        aria-label="导入 Markdown 或 HTML 文件"
+        className="sr-only"
+        onChange={chooseImportFile}
+        ref={fileInputRef}
+        type="file"
+      />
+
+      {/*
+       * The confirmation, and the one thing the file menu cannot do by itself:
+       * replacing a draft is destructive, so it asks. Cancelling closes the dialog
+       * without touching the document, and the pending bytes are dropped with it.
+       */}
+      <AlertDialog onOpenChange={closeImportDialog} open={confirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>替换当前文档？</AlertDialogTitle>
+            <AlertDialogDescription>
+              导入的文件会替换当前文档，取消则保持原样。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="touch-target h-11">取消</AlertDialogCancel>
+            <AlertDialogAction className="touch-target h-11" onClick={confirmImport}>
+              替换
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
