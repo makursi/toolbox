@@ -81,7 +81,7 @@ const MIN = 43;
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
- * The five pages, and the controls each one has to carry **by name**.
+ * The six pages, and the controls each one has to carry **by name**.
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; a later claim that needs the page list to scroll also
@@ -288,6 +288,30 @@ const PAGES = [
         tab: "导出",
       },
     ],
+  },
+  {
+    /*
+     * The fourth Tool's page (#206), and the first slice of it: the shell, the
+     * Tool's frame and one canvas. Its always-visible controls are the shell's own
+     * two — the scheme switch and the way home — because the canvas is not a
+     * `.touch-target`: it is the editing surface itself, its hit area is the whole
+     * 720px reading measure, and an overlay across it would sit on top of the
+     * platform's own caret placement. The 44px floor is about the small controls
+     * around a document, not about the document. #172 is the same lesson from the
+     * other side: an overlay is harmless only while nothing inside the control
+     * needs the pointer.
+     *
+     * The toolbar, the file menu and the save status arrive with #207-#212, and each
+     * declares its own controls in its own ticket; this page declares only what
+     * exists today. The two placeholders are painted `::before` sentences, so they
+     * are not controls and no name here can reach them.
+     *
+     * `outgoing` is the whole document: this page has one layer.
+     */
+    controls: ["切换到", "返回首页"],
+    name: "rich-text-editor",
+    outgoing: ["body"],
+    path: "/tools/rich-text-editor",
   },
 ];
 

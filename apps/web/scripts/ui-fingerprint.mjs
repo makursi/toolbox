@@ -183,6 +183,19 @@ const PAGES = [
   },
   {
     /*
+     * The fourth Tool's page (#206): the shared shell, the Tool's frame and the
+     * canvas an empty document is edited in. The canvas is one region rather than
+     * the whole page so that a later move of it is proved to be a move, and the
+     * blocks inside it are ProseMirror's own children — they cannot carry an anchor,
+     * so the card that holds them is the anchored thing. The toolbar, the save
+     * status and the file menu are later slices and add their own anchors there.
+     */
+    anchors: [...SHELL_ANCHORS, "tool-page", "rich-text-canvas"],
+    name: "rich-text-editor",
+    path: "/tools/rich-text-editor",
+  },
+  {
+    /*
      * The 404 page, which is part of the frame rather than a page of its own: it is
      * what a visitor gets for a URL this site does not serve, and it carries the
      * shell and one thing of its own (#161). It entered this Instrument before the

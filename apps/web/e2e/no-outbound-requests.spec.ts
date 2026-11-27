@@ -7,6 +7,7 @@ import {
   open as openImageToPdf,
   transparentPng,
 } from "./image-to-pdf-page";
+import { open as openRichTextEditor, writeInBody } from "./rich-text-editor-page";
 import { convertInEveryFormat } from "./tool-page";
 
 /**
@@ -127,6 +128,29 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
   // happened" is a fact about the bytes rather than about the page's own state.
   const pdf = await inspectDownloadedPdf(path);
   expect(pdf.pageCount, "a PDF was really built from the two picked images").toBe(2);
+
+  expect(watched.offSite, "requests off this origin").toEqual([]);
+  expect(watched.noise, "console errors and warnings").toEqual([]);
+  expect(watched.crashes, "uncaught errors and unhandled rejections").toEqual([]);
+});
+
+/**
+ * The Rich Text Editor's page, held to the same rule (#206).
+ *
+ * Typing is the whole of the page's behaviour in this slice, and it is what the
+ * listener watches: the editor is a third-party tree mounted into this document, so
+ * the question is whether it brings anything with it. Later slices drive their own
+ * behaviour through this same test when they land.
+ */
+test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
+  page,
+  baseURL,
+}) => {
+  const watched = watch(page, originOf(baseURL));
+
+  await openRichTextEditor(page);
+  await writeInBody(page, "写一句，看看这一页会不会向外请求。");
+  await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("写一句");
 
   expect(watched.offSite, "requests off this origin").toEqual([]);
   expect(watched.noise, "console errors and warnings").toEqual([]);
