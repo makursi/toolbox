@@ -62,7 +62,8 @@ import {
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
  * command table (#207), the three ways to write without leaving the keyboard (#208),
  * the two exports (#210), the local draft with its save status (#209), the import
- * (#211), and the images and tables that travel with the document (#216, #217).
+ * (#211), the images and tables that travel with the document (#216, #217), and
+ * the two formats that now carry them (#219).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -816,6 +817,71 @@ test("an untitled document exports under the dated fallback name", async ({ page
   const html = await downloadFromFileMenu(page, "导出 HTML");
   expect(html.suggestedFilename()).toBe(`文档-${todayStamp()}.html`);
   expect(await readDownload(html)).toContain("<title>无标题</title>");
+});
+
+/**
+ * The export of a document that is not text (#219).
+ *
+ * An image and a table are inserted through the page's own controls, and the two
+ * files are downloaded through the file menu and read back as bytes. The image's
+ * width is the one difference between the formats: the HTML file carries it as the
+ * node's inline style, while GFM has no syntax for it, so it is dropped in the
+ * Markdown file and only there.
+ */
+test("an image and a table export in both formats, with the width only in the HTML", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInTitle(page, "图文导出");
+  await writeInBody(page, "一段正文。");
+
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  await insertTableOfSize(page, 2, 2);
+  const table = canvas(page).locator("table");
+  await expect(table).toHaveCount(1);
+
+  // The table is written through its own cells, so the exported rows carry words
+  // rather than an empty grid that would satisfy a shape-only assertion.
+  const header = table.locator("th");
+  await header.nth(0).click();
+  await page.keyboard.type("项目");
+  await header.nth(1).click();
+  await page.keyboard.type("数量");
+
+  const body = table.locator("td");
+  await body.nth(0).click();
+  await page.keyboard.type("甲");
+  await body.nth(1).click();
+  await page.keyboard.type("1");
+
+  const markdown = await downloadFromFileMenu(page, "导出 Markdown");
+  expect(markdown.suggestedFilename()).toBe(`图文导出-${todayStamp()}.md`);
+
+  const markdownBytes = await readDownload(markdown);
+  expect(markdownBytes).toContain("![照片](data:image/png;base64,");
+  expect(markdownBytes).toContain("| 项目 | 数量 |");
+  expect(markdownBytes).toContain("| --- | --- |");
+  expect(markdownBytes).toContain("| 甲 | 1 |");
+  // The documented degradation: GFM has no width, so the Markdown file cannot be
+  // mistaken for one that kept it.
+  expect(markdownBytes).not.toContain("width");
+  expect(markdownBytes).not.toContain("<img");
+
+  const html = await downloadFromFileMenu(page, "导出 HTML");
+  expect(html.suggestedFilename()).toBe(`图文导出-${todayStamp()}.html`);
+
+  const standalone = await readDownload(html);
+  expect(standalone).toContain('<img src="data:image/png;base64,');
+  expect(standalone).toContain('alt="照片"');
+  expect(standalone).toContain('style="width: 100%"');
+  expect(standalone).toContain("<thead>");
+  expect(standalone).toContain("<tbody>");
+  expect(standalone).toContain("<th>项目</th>");
+  expect(standalone).toContain("<th>数量</th>");
+  expect(standalone).toContain("<td>甲</td>");
+  expect(standalone).toContain("<td>1</td>");
 });
 
 /**
