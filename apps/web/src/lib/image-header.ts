@@ -26,9 +26,10 @@ export type ImageSize = { width: number; height: number };
 const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /**
- * Every `SOFn` marker: they all carry the same first seven payload bytes, and
- * the ones whose frame type this module does not care about are still a frame,
- * so the walk stops there rather than treating the segment as unknown data.
+ * Every `SOFn` marker: they all carry precision, height, width and component
+ * count in the same first six payload bytes, and the ones whose frame type this
+ * module does not care about are still a frame, so the walk stops there rather
+ * than treating the segment as unknown data.
  */
 const frameMarkers = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,

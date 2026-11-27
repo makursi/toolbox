@@ -17,7 +17,7 @@ import type { ImageSize } from "@/lib/image-header";
 /** The card's frame: the 4:3 shape the card reserves for a cover. */
 const cardRatio: ImageSize = { width: 4, height: 3 };
 
-/** The smallest frame the card can show at its width without upscaling. */
+/** The smallest 4:3 frame a cover may leave: below it the card would upscale and blur. */
 const cardFloor: ImageSize = { width: 1320, height: 990 };
 
 /**
@@ -25,8 +25,8 @@ const cardFloor: ImageSize = { width: 1320, height: 990 };
  *
  * The derived side is floored, never rounded: this number is the frame the card
  * can actually fill, so a fraction of a pixel is pixels the file does not have.
- * Rounding up would let a 1319-pixel source claim 990 and pass a check written
- * for a 989-pixel frame.
+ * Rounding would claim 751 from 1001×3/4 = 750.75, a pixel the crop cannot
+ * supply.
  */
 export function centredFrame(size: ImageSize): ImageSize {
   if (size.width === 0 || size.height === 0) return { width: 0, height: 0 };
