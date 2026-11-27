@@ -158,6 +158,14 @@ export function runTableOperation(editor: Editor, id: TableOperationId): void {
  * ticket says deleting the table leaves a paragraph, and a caret with nowhere to go
  * is exactly the state that sentence exists to prevent. A document that already has
  * a paragraph keeps it, because then there *is* somewhere to type.
+ *
+ * That check is written for a document that arrives without a paragraph from
+ * somewhere else (an import, a hand-edited draft). The page's own editing does not
+ * reach that shape: ProseMirror puts a table beside an empty body paragraph rather
+ * than over it, and StarterKit's trailing-node plugin appends an empty paragraph
+ * whenever the last block is not one. So by the time this function reads the state
+ * there is a paragraph to keep, and the gate asserts the outcome (exactly one empty
+ * paragraph, and a caret that types into it) rather than which of the two wrote it.
  */
 function deleteTableLeavingParagraph(editor: Editor): void {
   if (!editor.isActive("table")) return;

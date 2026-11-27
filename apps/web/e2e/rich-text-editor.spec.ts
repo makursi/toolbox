@@ -568,8 +568,17 @@ test("inside a table the trigger becomes 表格 and each row and column action d
 /**
  * The slash menu's half of the table insert: it has no second step, so 表格 applies
  * the documented 3 × 3 (`TABLE_DEFAULT_SIZE`) rather than opening the picker.
+ *
+ * It also deletes the table it just made, so the contract is read after the action
+ * rather than only as an insert assertion: after 删除表格 exactly one empty paragraph
+ * is left and the caret types into it. The table lands beside the empty body paragraph
+ * rather than over it, so this is not `deleteTableLeavingParagraph`'s no-paragraph
+ * branch (the note below says why that shape cannot rest in this editor); it is the
+ * outcome the ticket promises, asserted on the document the insert produced.
  */
-test("the slash menu lists 表格 and inserts a 3 × 3 table", async ({ page }) => {
+test("the slash menu lists 表格, inserts a 3 × 3 table, and 删除表格 leaves one paragraph", async ({
+  page,
+}) => {
   await open(page);
   await bodyParagraph(page).click();
   await page.keyboard.type("/");
@@ -588,6 +597,33 @@ test("the slash menu lists 表格 and inserts a 3 × 3 table", async ({ page }) 
   await expect(table.locator("tr")).toHaveCount(3);
   await expect(table.locator("tr").first().locator("th")).toHaveCount(3);
   await expect(table.locator("td")).toHaveCount(6);
+
+  /*
+   * The caret is put into the table before the menu opens, the way the delete case
+   * above does it: 表格 is one button in two states, and which state it opens is the
+   * selection's (`useEditorCommandState`'s `inTable`), not a second flag.
+   *
+   * What is asserted after 删除表格 is the outcome, not which code produced it. The
+   * empty body paragraph the slash menu typed into is still in the document — the
+   * table goes in beside it, not over it — so this case does not reach
+   * `deleteTableLeavingParagraph`'s "no paragraph at all" branch either. A document
+   * cannot rest in that shape: StarterKit's trailing-node plugin keeps an empty
+   * paragraph at the end, and ProseMirror puts the block beside an empty text block
+   * rather than replacing it. The outcome is what the ticket promises, though: exactly
+   * one empty paragraph, and the caret types into it. A repair that mistook this for a
+   * document without a paragraph would leave a second one behind, and a caret left in
+   * the title would lose the first keystroke.
+   */
+  const paragraphs = editor(page).locator(":scope > p");
+
+  await table.locator("th").first().click();
+  await pressTableMenuItem(page, "删除表格");
+
+  await expect(table).toHaveCount(0);
+  await expect(paragraphs).toHaveCount(1);
+  await expect(bodyParagraph(page)).toHaveText("");
+  await page.keyboard.type("删除表格后继续写。");
+  await expect(bodyParagraph(page)).toHaveText("删除表格后继续写。");
 });
 
 test("each Markdown block rule makes its block", async ({ page }) => {
