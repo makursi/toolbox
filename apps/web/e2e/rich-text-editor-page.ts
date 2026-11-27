@@ -518,9 +518,17 @@ export async function insertImageFromToolbar(page: Page, file: ImageFile): Promi
   await (await chooser).setFiles(file);
 }
 
-/** The sentence a refused file is shown. */
+/**
+ * The sentence a refused file is shown.
+ *
+ * Scoped to the `Alert` Primitive's own anchor, not to `getByRole("alert")`: Next's
+ * route announcer (`#__next-route-announcer__`) carries `role="alert"` too, so a
+ * role-only locator finds two elements and Playwright's strict mode fails before
+ * the sentence is read. `data-slot="alert"` is the element the page itself renders
+ * for a refusal, and the announcer is not one of the page's notices.
+ */
 export function refusalNotice(page: Page): Locator {
-  return page.getByRole("alert");
+  return page.locator('[data-slot="alert"]');
 }
 
 /** The images the canvas is drawing, in document order. */
