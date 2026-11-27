@@ -8,6 +8,7 @@ import {
   type AdmissionState,
   type ImageRefusal,
 } from "../core/admission";
+import { IMAGE_ALT_FALLBACK } from "../core/copy";
 import { DEFAULT_IMAGE_WIDTH } from "./image-extension";
 import { insertionPointAfterSelectedNode } from "./insertion-point";
 
@@ -90,12 +91,13 @@ function readDataUrl(file: File): Promise<string> {
  *
  * An `<img>` with no alt is announced by its file name at best and skipped at worst;
  * the visitor's name for the picture is the only description available before the
- * image panel (#218) offers a field for it.
+ * image panel (#218) offers a field for it. A name that leaves no words falls back
+ * to the copy layer's word, because that fallback is a sentence a visitor reads.
  */
 function altFromName(name: string): string {
   const base = name.replace(/\.[^.]+$/, "").trim();
 
-  return base === "" ? "图片" : base;
+  return base === "" ? IMAGE_ALT_FALLBACK : base;
 }
 
 /**

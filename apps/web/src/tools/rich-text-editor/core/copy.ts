@@ -114,3 +114,15 @@ export const IMAGE_REFUSAL_TEXT = {
  * says what pressing it does, which is the name the hit-area instrument declares.
  */
 export const IMAGE_INSERT_LABEL = "插入图片";
+
+/**
+ * The alt text an image gets when its file's name says nothing (#216).
+ *
+ * A file's name without its extension is the only description the Tool has at
+ * insert time (`editor/insert-image.ts`), and the name can be empty of meaning: a
+ * screenshot arrives as `image.png`, a download as `.png`. An `<img>` with no alt
+ * is announced by its file name at best and skipped at worst, so the fallback is a
+ * word a screen reader can read, and it is a word the visitor sees in the panel's
+ * field — which is why it lives here rather than in the module that inserts.
+ */
+export const IMAGE_ALT_FALLBACK = "图片";

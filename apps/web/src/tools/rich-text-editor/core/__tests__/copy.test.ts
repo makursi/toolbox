@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   HISTORY_DISABLED_REASON,
+  IMAGE_ALT_FALLBACK,
   IMAGE_INSERT_LABEL,
   IMAGE_REFUSAL_TEXT,
   IMPORT_CANCEL_LABEL,
@@ -192,5 +193,13 @@ describe("the image refusal copy", () => {
 
   it("names the toolbar control the visitor opens", () => {
     expect(IMAGE_INSERT_LABEL).toBe("插入图片");
+  });
+
+  it("has a word for the alt text when the file's name says nothing", () => {
+    // A file called `image.png` or `.png` leaves no words, and an `<img>` with no
+    // alt is skipped or read out as its file name: the fallback is the only
+    // description a screen reader gets, so its wording is held here.
+    expect(IMAGE_ALT_FALLBACK).toBe("图片");
+    expect(IMAGE_ALT_FALLBACK).not.toMatch(/[—–,.;:!?]/);
   });
 });
