@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { coverFrameRefusal } from "@/lib/cover-frame";
+import { readImageSize } from "@/lib/image-header";
 import { tools } from "@/tools/registry";
 
 /**
- * Two ways an image can rot silently. Neither shows up in a type check, in
+ * Three ways an image can rot silently. None shows up in a type check, in
  * lint, or in the build's exit code, which is why this test reads the tree.
  *
  * **A file under `public/` that nothing names.** Next serves it forever: it
@@ -21,6 +23,13 @@ import { tools } from "@/tools/registry";
  * that the string *looks* like a same-origin image path; it would pass on
  * `cover.jpg` with one letter wrong, and the card would render an empty frame
  * rather than a missing image. This is the other end of that assertion.
+ *
+ * **A `cover` that exists but is too small for the card's frame.** The card
+ * reserves a 4:3 frame and crops the cover into it, so a 100×100 thumbnail
+ * passes every path check and renders as a blur. The third case reads each
+ * declared cover's pixels from the file's own header and asks whether the
+ * centred 4:3 frame it leaves is at least 1320×990 — the file, not a script's
+ * report of what it wrote.
  *
  * "Named" means named anywhere in this repository, documentation included:
  * `apps/web/docs/design/assets.md` is the register these files are meant to be
@@ -106,5 +115,25 @@ describe("public assets", () => {
         `${tool.title}: cover ${tool.cover} is not a file under public/`,
       ).toBe(true);
     }
+  });
+
+  it("asserts every declared cover covers the card's 4:3 frame", () => {
+    let declared = 0;
+
+    for (const tool of tools) {
+      if (tool.cover === undefined) continue;
+
+      declared += 1;
+      const cover = tool.cover;
+      const size = readImageSize(readFileSync(join(publicRoot, cover)));
+      const refusal = coverFrameRefusal(cover, size);
+
+      // The refusal is the failure message: it names the file, its size, the
+      // 4:3 frame the crop leaves and the 1320×990 the card needs.
+      expect(refusal, `${tool.title}: ${cover} does not fill the card's 4:3 frame`).toBeNull();
+    }
+
+    // Without this, a registry with no covers would pass by having nothing to check.
+    expect(declared).toBeGreaterThan(0);
   });
 });
