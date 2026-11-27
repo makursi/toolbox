@@ -9,6 +9,8 @@ import { useCallback } from "react";
 import { EMPTY_DOCUMENT } from "./core/document";
 import type { SaveStatus } from "./core/save";
 import { useDraft } from "./hooks/use-draft/use-draft";
+import { SelectionToolbar } from "./selection-toolbar/selection-toolbar";
+import { SlashMenuExtension } from "./slash-menu/slash-menu-extension";
 import { EditorToolbar } from "./toolbar/toolbar";
 
 /** What an empty document says, in the words a visitor reads. */
@@ -212,6 +214,21 @@ function EditorSurface({
         },
         showOnlyCurrent: false,
       }),
+      /*
+       * The slash menu. It reads the command table, so it is not a second list of
+       * blocks (#208).
+       */
+      SlashMenuExtension,
+      /*
+       * No input-rule extension is added here, and that is a finding rather than an
+       * omission. Every rule #208 names is StarterKit's own: the heading rule
+       * (`# `, `## `, `### `) comes with Heading, the list rules (`- `, `1. `) with
+       * the list nodes, `> ` with Blockquote, ` ``` ` with CodeBlock, `---` with
+       * HorizontalRule, and the inline pairs (`**`, `*`, `~~`, a backtick pair) with
+       * the four mark extensions. The browser gate proves each one and proves that a
+       * paragraph beginning with the same characters but making no rule stays text,
+       * because a rule nobody exercised is a rule nobody has.
+       */
     ],
     content: initialContent,
     /*
@@ -258,12 +275,20 @@ function EditorSurface({
       {editor === null ? (
         <div aria-hidden className="h-[60px] rounded-lg border border-border bg-background" />
       ) : (
-        <EditorToolbar
-          editor={editor}
-          onClear={handleClear}
-          onRetry={onRetry}
-          saveStatus={saveStatus}
-        />
+        <>
+          <EditorToolbar
+            editor={editor}
+            onClear={handleClear}
+            onRetry={onRetry}
+            saveStatus={saveStatus}
+          />
+          {/*
+           * The selection toolbar is a portal into an element the floating-menu
+           * plugin owns, so its place in this tree is only where it gets mounted:
+           * nothing about it is drawn between the toolbar and the canvas.
+           */}
+          <SelectionToolbar editor={editor} />
+        </>
       )}
 
       <div

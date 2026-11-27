@@ -142,9 +142,60 @@ export async function pressAt(page: Page, control: Locator): Promise<void> {
   await page.mouse.click(point.x, point.y);
 }
 
-/** A toolbar control by the name a screen reader reads on it. */
+/**
+ * A toolbar control by the name a screen reader reads on it.
+ *
+ * It is scoped to the pinned toolbar's region because there are two toolbars on this
+ * page: the one above the canvas and the one that follows a selection, which offers
+ * the same five marks and the link. A document-wide query would find both names and
+ * fail on the ambiguity rather than on the control.
+ */
 export function toolbarControl(page: Page, name: string): Locator {
-  return page.getByRole("button", { name, exact: true });
+  return page
+    .getByRole("toolbar", { name: "格式工具栏" })
+    .getByRole("button", { name, exact: true });
+}
+
+/** The toolbar that follows a selection, by the name its region carries. */
+export function selectionToolbar(page: Page): Locator {
+  return page.getByRole("toolbar", { name: "选中文本的格式" });
+}
+
+/** One control of the selection toolbar, by the name a screen reader reads. */
+export function selectionControl(page: Page, name: string): Locator {
+  return selectionToolbar(page).getByRole("button", { name, exact: true });
+}
+
+/** The slash menu, by the name its region carries. */
+export function slashMenu(page: Page): Locator {
+  return page.getByRole("menu", { name: "插入内容" });
+}
+
+/** The slash menu's rows, in the order the command table gives them. */
+export function slashMenuItems(page: Page): Locator {
+  return slashMenu(page).getByRole("menuitem");
+}
+
+/** One row of the slash menu, by the label the command table gives it. */
+export function slashItem(page: Page, label: string): Locator {
+  return slashMenu(page).getByRole("menuitem", { name: label, exact: true });
+}
+
+/**
+ * The selected words' own rectangle, in viewport coordinates.
+ *
+ * The selection toolbar's claim is that it does not cover what is selected, and the
+ * thing to compare its box against is the selection's rectangle rather than the
+ * block's: a paragraph is taller than its line of text.
+ */
+export async function selectedTextBox(page: Page): Promise<{ bottom: number; top: number } | null> {
+  return page.evaluate(() => {
+    const selection = window.getSelection();
+    if (selection === null || selection.rangeCount === 0) return null;
+
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    return { bottom: rect.bottom, top: rect.top };
+  });
 }
 
 /** The block menu's trigger, whose name carries the block at the cursor. */
@@ -172,6 +223,17 @@ export async function selectBodyText(page: Page): Promise<void> {
  */
 export function fileTrigger(page: Page): Locator {
   return page.getByRole("button", { name: "文件", exact: true });
+}
+
+/**
+ * Empty the document from the file menu.
+ *
+ * It is how a claim starts from a clean title, an empty paragraph and nothing else:
+ * the alternative is a reload per case, and the draft is not persisted yet.
+ */
+export async function clearDocument(page: Page): Promise<void> {
+  await pressAt(page, fileTrigger(page));
+  await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
 }
 
 /**

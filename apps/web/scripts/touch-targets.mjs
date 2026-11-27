@@ -291,8 +291,9 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206) with its toolbar (#207), its exports (#210)
-     * and its draft (#209).
+     * The fourth Tool's page (#206) with its toolbar (#207), the two surfaces that
+     * only exist while something is being done to the document (#208), its exports
+     * (#210) and its draft (#209).
      *
      * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
      * area is the whole 720px reading measure, and an overlay across it would sit on
@@ -318,9 +319,19 @@ const PAGES = [
      * exist on the page this Instrument opens, and declaring a name that is not
      * there would make the page fail for being in its normal state. The retry is
      * still a real 44px `<button>`, and the gate presses it at its coordinates
-     * after refusing a write. The rest of the file menu arrives with #211 and
-     * #212, and each declares its own controls in its own ticket. `outgoing` is
-     * the whole document: this page has one layer.
+     * after refusing a write.
+     *
+     * #208's two surfaces are transient in the same way and are declared the same
+     * way: the slash menu exists only between typing `/` and applying a row, and the
+     * selection toolbar only while a selection is not empty (it is not in the
+     * document at all otherwise, which is why it cannot be measured in this
+     * Instrument's default state). Both carry the class on every one of their own
+     * buttons, and the gate presses them at their coordinates; nothing here names
+     * them, because a name in this list is a control that must be there on load.
+     *
+     * The rest of the file menu arrives with #211 and #212, and each declares its
+     * own controls in its own ticket. `outgoing` is the whole document: this page
+     * has one layer.
      */
     controls: [
       "切换到",

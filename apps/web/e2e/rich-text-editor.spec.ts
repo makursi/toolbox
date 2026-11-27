@@ -8,6 +8,7 @@ import {
   blockTrigger,
   bodyParagraph,
   canvas,
+  clearDocument,
   downloadFromFileMenu,
   editor,
   fileTrigger,
@@ -19,6 +20,12 @@ import {
   retrySave,
   saveStatus,
   selectBodyText,
+  selectedTextBox,
+  selectionControl,
+  selectionToolbar,
+  slashItem,
+  slashMenu,
+  slashMenuItems,
   storedDraft,
   textOf,
   titleBlock,
@@ -29,20 +36,22 @@ import {
 
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
- * command table (#207), the two exports (#210), and the local draft with its save
- * status (#209).
+ * command table (#207), the three ways to write without leaving the keyboard (#208),
+ * the two exports (#210), and the local draft with its save status (#209).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
- * what each toolbar control does to the blocks and marks a screen reader can
- * see, the bytes of the files the file menu downloads, and the record the browser
- * keeps. It does not read TipTap's state, React's state or any serialiser: the
- * exported file is judged by its own text, the filename by the rule's arithmetic,
- * and the draft through the page's own IndexedDB.
+ * what each control does to the blocks and marks a screen reader can see, the
+ * bytes of the files the file menu downloads, and the record the browser keeps.
+ * It does not read TipTap's state, React's state or any serialiser: the exported
+ * file is judged by its own text, the filename by the rule's arithmetic, and the
+ * draft through the page's own IndexedDB.
  *
  * Every toolbar press goes through `pressAt`, which measures the control and
  * clicks its centre: a control that looks right and is dead to the mouse is the
- * failure this file exists to catch, and a keyboard path would never see it.
+ * failure this file exists to catch, and a keyboard path would never see it. The
+ * slash menu is the exception that proves the rule — it is a keyboard surface, so it
+ * is driven by keys and only its rows are pressed when a row has to be checked.
  */
 
 /**
@@ -283,6 +292,207 @@ test("undo and redo work from the keyboard and from the toolbar", async ({ page 
 
   await pressAt(page, toolbarControl(page, "重做"));
   await expect(bodyParagraph(page)).toHaveText("撤销测试。");
+});
+
+/**
+ * The slash menu: `/` at the start of a paragraph, filtered by typing, moved with
+ * the arrow keys, applied with Enter and closed with Escape.
+ *
+ * The rows are the command table's block commands, so the count and the first row
+ * are asserted against what a visitor sees rather than against the table: a table
+ * that grew an extra row without the menu drawing it would be invisible here, which
+ * is why the count is spelled out (ten: 正文, three headings, three lists, 引用,
+ * 代码块 and 分隔线).
+ */
+test("the slash menu filters by typing, moves with the arrow keys and applies with Enter", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/");
+
+  await expect(slashMenu(page)).toBeVisible();
+  await expect(slashMenuItems(page)).toHaveCount(10);
+  await expect(slashMenuItems(page).first()).toHaveText("正文");
+
+  await page.keyboard.type("标题");
+  await expect(slashMenuItems(page)).toHaveCount(3);
+  await expect(slashItem(page, "标题 1")).toHaveAttribute("aria-current", "true");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(slashItem(page, "标题 2")).toHaveAttribute("aria-current", "true");
+  await expect(slashItem(page, "标题 1")).not.toHaveAttribute("aria-current", "true");
+
+  await page.keyboard.press("Enter");
+
+  await expect(slashMenu(page)).toBeHidden();
+  await expect(canvas(page).locator("h2")).toHaveCount(1);
+  // The typed `/标题` was the filter and not content: it is not in the document.
+  await expect(canvas(page)).not.toContainText("/");
+});
+
+test("Escape closes the slash menu, and the slash it opened on stays text", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/");
+
+  await expect(slashMenu(page)).toBeVisible();
+
+  await page.keyboard.press("Escape");
+
+  await expect(slashMenu(page)).toBeHidden();
+  await expect(bodyParagraph(page)).toHaveText("/");
+  await expect(canvas(page).locator("h1")).toHaveCount(1);
+});
+
+test("each Markdown block rule makes its block", async ({ page }) => {
+  await open(page);
+
+  const headings = [
+    { typed: "# 一级标题", level: 1 },
+    { typed: "## 二级标题", level: 2 },
+    { typed: "### 三级标题", level: 3 },
+  ] as const;
+
+  for (const heading of headings) {
+    await clearDocument(page);
+    await bodyParagraph(page).click();
+    await page.keyboard.type(heading.typed);
+
+    await expect(
+      canvas(page).locator(`h${heading.level}`).filter({ hasText: "级标题" }),
+    ).toHaveCount(1);
+  }
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("- 第一项");
+  await expect(canvas(page).locator("ul li").first()).toHaveText("第一项");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("1. 第一条");
+  await expect(canvas(page).locator("ol li").first()).toHaveText("第一条");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("> 引用一句");
+  await expect(canvas(page).locator("blockquote")).toContainText("引用一句");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("```");
+  await page.keyboard.type(" ");
+  await page.keyboard.type("const answer = 42;");
+  await expect(canvas(page).locator("pre")).toContainText("const answer = 42;");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("---");
+  await expect(canvas(page).locator("hr")).toHaveCount(1);
+});
+
+test("each Markdown mark rule marks its words", async ({ page }) => {
+  await open(page);
+
+  const marks = [
+    { typed: "**加粗**", element: "strong", text: "加粗" },
+    { typed: "*斜体*", element: "em", text: "斜体" },
+    { typed: "~~删除~~", element: "s", text: "删除" },
+    { typed: "`代码`", element: "code", text: "代码" },
+  ] as const;
+
+  for (const mark of marks) {
+    await clearDocument(page);
+    await bodyParagraph(page).click();
+    await page.keyboard.type(mark.typed);
+
+    await expect(canvas(page).locator(`p ${mark.element}`)).toHaveText(mark.text);
+    // The delimiters were the rule rather than the content.
+    await expect(bodyParagraph(page)).toHaveText(mark.text);
+  }
+});
+
+/**
+ * The other half of an input rule: the characters that *begin* one but make no rule
+ * are ordinary text.
+ *
+ * A rule that ate a paragraph beginning with `-` or `#` would be a bug a person
+ * would find with their first sentence, and the regular expressions only fire on a
+ * complete construct (a space after `#`, a closing delimiter). This holds the whole
+ * list of near-misses, because "it did not eat mine" is not a check.
+ */
+test("a paragraph that begins with the same characters but makes no rule stays text", async ({
+  page,
+}) => {
+  await open(page);
+
+  const nearMisses = [
+    "#没有空格",
+    ">没有空格",
+    "-没有空格",
+    "1.没有空格",
+    "`未闭合",
+    "**未闭合",
+  ] as const;
+
+  for (const typed of nearMisses) {
+    await clearDocument(page);
+    await bodyParagraph(page).click();
+    await page.keyboard.type(typed);
+
+    await expect(bodyParagraph(page)).toHaveText(typed);
+    await expect(slashMenu(page)).toBeHidden();
+  }
+
+  // A slash inside a sentence is a slash: the menu is a start-of-paragraph gesture.
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("一段话/后面");
+  await expect(bodyParagraph(page)).toHaveText("一段话/后面");
+  await expect(slashMenu(page)).toBeHidden();
+});
+
+/**
+ * The toolbar that follows a selection: the five marks and the link, from the same
+ * command table, placed near the words and never on them.
+ */
+test("the selection toolbar offers the marks and the link, and covers no selected word", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInBody(page, "选中这一段话。");
+  await selectBodyText(page);
+
+  const bar = selectionToolbar(page);
+  await expect(bar).toBeVisible();
+
+  for (const label of ["加粗", "斜体", "下划线", "删除线", "行内代码", "链接"]) {
+    await expect(selectionControl(page, label)).toBeVisible();
+  }
+
+  const words = await selectedTextBox(page);
+  const box = await bar.boundingBox();
+  if (words === null || box === null) {
+    throw new Error("the selection or the selection toolbar has no geometry to compare");
+  }
+
+  // Above the words when there is room for the whole row, below them otherwise,
+  // never across them.
+  const above = box.y + box.height <= words.top;
+  const below = box.y >= words.bottom;
+  expect(
+    above || below,
+    `the row at ${box.y}..${box.y + box.height} covers ${words.top}..${words.bottom}`,
+  ).toBe(true);
+
+  // And the marks it offers are the editor's own, applied at the row's coordinates.
+  await pressAt(page, selectionControl(page, "加粗"));
+  await expect(bodyParagraph(page).locator("strong")).toHaveCount(1);
+
+  // A caret is the pinned toolbar's state: this row is for a selection only.
+  await bodyParagraph(page).click();
+  await expect(bar).toBeHidden();
 });
 
 /**
