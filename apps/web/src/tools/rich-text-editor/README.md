@@ -21,7 +21,8 @@ no handler is a `tsc` error rather than a dead button.
 
 What is deliberately **not here yet**, and lands in its own ticket: the slash menu,
 Markdown input rules, the selection toolbar (#208), autosave and restore (#209),
-export (#210), import (#211), and the cover (#212). Nothing is saved yet either: a
+export (#210) and import (#211). The Tool's cover landed in #212 and is the homepage
+card's illustration; it does not change this page. Nothing is saved yet either: a
 reload gives a fresh empty document, which is the current state rather than a bug.
 The page is known to both instruments and to the browser gate, so none of this is
 unmeasured.
