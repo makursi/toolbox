@@ -194,3 +194,36 @@ V1 landed (#205, slices #206–#212, merged to main), and #214 lists what the pr
 - **Accepting remote images on import.** They cannot render, and keeping them is keeping a broken image.
 - **Merged cells, formulas, column widths.** The product document's own "basic tables only".
 - **A second store, a second record type, or a documents list.** One draft remains the model.
+
+---
+
+# Asset processing — should cover work be scripted, and how is the frame proven (2026-11-28)
+
+## The question
+
+The Rich Text Editor's cover was cropped with a one-off PowerShell + GDI+ command whose crop box was computed by hand, on one platform, and then lost; the rules that make a cover a cover were prose, and no check could tell a correct cover from a 100×100 thumbnail. The owner asked for the processing to become a reusable script and for the workflow to absorb it. One round of five questions settled the shape. The spec is #222; the slices are #223 and #224.
+
+## Settled branches
+
+1. **A repository-level Python + Pillow script, invoked bare** (`python scripts/assets.py`); no package-manifest entry, no `pnpm` wrapper, no CI job.
+2. **The `cover` contract**: slug, input, ratio (default 4:3), width (default 1440, never upscaling), quality (default 88), a dry run, and a move flag.
+3. **Geometry**: EXIF orientation applied, alpha flattened onto white, the largest centred box, refused if that box is under 1320×990.
+4. **Two files**: the source of record at the mirror path, the served cover in `public/`; copy by default, `--move` consumes the drop box so the inbox has an executor.
+5. **The rule lives in the assets register; the Tool contract's cover row names the command**; the agent instructions get no third copy, because the routing table already points at the register.
+6. **The frame is a test**: every declared cover, cropped to a centred 4:3 box, is at least 1320×990, read from the file's own header by a hand-written JPEG/PNG/WebP reader. The claim is "covers the box", not "is 4:3", so the 16:9 Cover Generator cover — a recorded choice the card crops — passes.
+7. **Icons are not scripted yet.** The rule is "asset transformations are scripted, one subcommand per operation"; `icons` waits for a brand change.
+
+## Open branches
+
+- Whether the 16:9 Cover Generator cover should eventually be recropped to 4:3 rather than cropped by the card.
+- The `icons` subcommand's shape, once a brand change makes it real.
+- Whether the script should ever gain a "rebuild every cover and compare" mode.
+
+## Rejected branches, and why
+
+- **A `pnpm` wrapper.** A second invocation surface for a local command that never runs in CI.
+- **A Python test runner.** A second test seam for one command; the Node assertion reads what the command produced.
+- **Hand-computed crop boxes.** The arithmetic error class the script deletes.
+- **GDI+ (the previous method).** Windows-only, and no EXIF handling.
+- **`sharp` or `image-size` as a dependency.** The script already has Pillow, and the reader is 80 lines of header parsing.
+- **An `icons` subcommand now.** An API for a brand change that has not happened.

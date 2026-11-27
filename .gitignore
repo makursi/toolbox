@@ -32,6 +32,9 @@ blob-report/
 apps/web/assets/inbox/*
 !apps/web/assets/inbox/README.md
 
+# python: `scripts/assets.py` is imported by ad-hoc runs, which cache bytecode
+__pycache__/
+
 # logs
 *.log
 npm-debug.log*

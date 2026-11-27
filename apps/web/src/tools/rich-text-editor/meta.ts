@@ -5,7 +5,9 @@ import type { ToolMeta } from "@/tools/types";
  *
  * The description states the capability only. The cover is the owner's supplied
  * illustration, cropped to the card's 4:3 frame from a 1920×1080 frame on
- * 2026-11-27; its provenance and the exception it joins are recorded in
+ * 2026-11-27; the served cover was re-encoded by `python scripts/assets.py cover`
+ * on 2026-11-28, so the committed bytes are what the command writes. Its
+ * provenance and the exception it joins are recorded in
  * `apps/web/docs/design/assets.md`.
  */
 export const meta: ToolMeta = {
