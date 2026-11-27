@@ -1,7 +1,7 @@
 "use client";
 
 import type { Editor } from "@tiptap/react";
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,12 +29,41 @@ import { commandById } from "../core/commands";
  * `openOnClick: false` on the Link extension is the other half: inside a
  * contenteditable a click is how a visitor puts the caret into a link, and a link
  * that navigates away from an unsaved document is a trap rather than a feature.
+ *
+ * `openRequest` is the keyboard path (#207): the editor sees `Mod-K` before TipTap's
+ * keymap does, and the caller bumps a counter because the address field is React's.
+ * A counter rather than a boolean so opening it twice is two opens; `0` is the
+ * first render and means no request yet, which is why the effect ignores it.
  */
-export function LinkControl({ editor, pressed }: { editor: Editor; pressed: boolean }) {
+export function LinkControl({
+  editor,
+  openRequest = 0,
+  pressed,
+}: {
+  editor: Editor;
+  openRequest?: number;
+  pressed: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [href, setHref] = useState("");
   const fieldId = useId();
   const command = commandById("link");
+
+  /*
+   * The request is a ProseMirror keydown handler's, which is an external system:
+   * there is no React event at render time to derive "the field was asked for" from,
+   * so opening the popover here is the synchronisation the effect exists for. The
+   * counter makes two `Mod-K`s two opens.
+   */
+  useEffect(() => {
+    if (openRequest === 0) return;
+
+    // The same prefill the trigger's `onOpenChange` does, for the same reason: the
+    // field is drawn now, and the mark under the selection is what it should hold.
+    // oxlint-disable-next-line react/set-state-in-effect -- see the comment above the effect
+    setHref(editor.getAttributes("link").href ?? "");
+    setOpen(true);
+  }, [editor, openRequest]);
 
   const apply = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

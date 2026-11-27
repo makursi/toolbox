@@ -1,6 +1,6 @@
 # rich-text-editor · 设计规则（工具级）
 
-> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、本地草稿、命令表、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、导入、导出、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）、#209（本地草稿）、#210（导出与文件名）、#211（导入）。
+> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、本地草稿、命令表、键盘、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、导入、导出、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）、#209（本地草稿）、#210（导出与文件名）、#211（导入）。
 
 ## 词汇
 
@@ -31,8 +31,8 @@
 - 工具栏是**一条常驻的行，不吸顶、不浮动**：它「钉」在画布上方，和 #208 那个跟着选区浮动的工具栏是两件东西。站点页头本身也不吸顶（`apps/web/docs/design/components.md`），一条随页面滚走的命令条不会盖住正在写的字。
 - 工具栏的外框与画布同一套：发丝边框、8px 圆角、画布色底。画布在工具栏下方 `mt-6`，工具栏本身在页面标题下方 `mt-10 sm:mt-12`。
 - 编辑器还没水合时，工具栏的位置由一个同高的占位块占着（44px 控件加两层 4px 内距 = 60px），所以编辑器到达时画布不会跳一下。
-- **窄屏上中间的组横向滚动，右端的保存状态与文件菜单不动**：滚动区是一个 `min-w-0 flex-1 overflow-x-auto` 的兄弟，保存状态与文件菜单在它外面、`shrink-0`。这是 #207 的验收项，门禁在 390px 读滚动容器的 `scrollLeft` 与文件菜单的 `x`；#209 把保存状态放在文件菜单左边，仍属于这个不动的右端。
-- `data-slot="rich-text-toolbar"` 是工具栏的指纹锚点，`data-slot="rich-text-canvas"` 是画布的，`data-slot="rich-text-save-status"` 是保存状态的；工具栏里的滚动区另有 `data-slot="rich-text-toolbar-scroll"`，供门禁读滚动行为，不进指纹声明。保存状态单独成锚点：它的句子在四个状态之间改变宽度，把它引起的变化读成状态自己的移动，而不是整个工具栏变形。
+- **窄屏上中间的组横向滚动，右端的保存状态与文件菜单不动**：滚动区是一个 `min-w-0 flex-1 overflow-x-auto` 的兄弟，保存状态与文件菜单在它外面、`shrink-0`。这是 #207 的验收项，但读它的是**命中区量具**的 `toolbar-scroll-end`（它把滚动区滚到底再读两边），不是门禁：位置是几何，几何归 `scripts/`（`apps/web/docs/design/instruments.md`、`docs/adr/0012-playwright-for-the-browser-gate.md`）。门禁在 390px 只做行为的那一半——按「文件」还能打开菜单、四项都在。页面横向溢出由量具的 `horizontal-overflow` 读，同样不是门禁的事。
+- `data-slot="rich-text-toolbar"` 是工具栏的指纹锚点，`data-slot="rich-text-canvas"` 是画布的，`data-slot="rich-text-save-status"` 是保存状态的；工具栏里的滚动区另有 `data-slot="rich-text-toolbar-scroll"`，供命中区量具的 `toolbar-scroll-end` 读滚动行为，不进指纹声明。保存状态单独成锚点：它的句子在四个状态之间改变宽度，把它引起的变化读成状态自己的移动，而不是整个工具栏变形。
 
 ## 文档模型
 
@@ -41,6 +41,7 @@
 - **持久化的是同一份 JSON**：草稿记录里不存 Markdown、不存 HTML，也不存编辑器的 DOM。细节见下面的「草稿与保存」。
 - 编辑器**只在客户端创建**（`immediatelyRender: false`），而且**要等草稿读出来之后才创建**：服务端只发出一个空的画布，编辑器的内容与工具栏都不进服务端 HTML；如果先给编辑器一份空文档、再把草稿 `setContent` 进去，晚到的恢复就会盖在访客已经敲下的字和光标上。外层因此先渲染占位，读到记录（或确认没有）后才挂载编辑器。
 - 编辑器自己收着文档，没有从 props 重新灌入内容的路径；`initialContent` 只在挂载时读一次。所以页面重渲染不会重置文档，门禁读的就是这一条。
+- **组件的表面是「文档的两端 + 本工具自己的草稿控制」，不是一个宿主配置对象**。页面里那个 `RichTextEditor` 不接任何 prop；它挂载的编辑面接 `initialContent` 与 `onChange`（文档的两端），再向工具栏交出 `saveStatus`、`onRetry`、`onClear` 三枚草稿控制，三者都从 `useDraft` 来、只在这个 Tool 里存在。`#205` 的「surface is `initialContent` and `onChange` only」说的是**给宿主的**面：save/upload/readOnly 回调与配置对象仍然等到有真宿主时再说，这三枚草稿控制不是它们——它们不描述宿主要什么，而是这一页没有宿主时草稿自己的三个动作（状态、重试、清空）。把两者混成一句话，会让下一个人以为这里已经有一个宿主 API。
 
 ## 草稿与保存
 
@@ -58,11 +59,19 @@
 
 ## 命令表
 
-- `core/commands.ts` 是**唯一的命令清单**，字段是 `id`、`label`、`group`、`keywords`、`block`、`icon`。`group` 就是工具栏的分组（`history` / `block` / `mark` / `list` / `insert` / `file`）；`block` 是命令作用的文档构造（块命令是节点名，行内命令是 mark 名，撤销重做与清空是 `document`）；`keywords` 同时收中文与英文，供斜杠菜单过滤。
+- `core/commands.ts` 是**编辑器命令的唯一清单**，字段是 `id`、`label`、`group`、`keywords`、`block`、`icon`。`group` 就是工具栏的分组（`history` / `block` / `mark` / `list` / `insert`）；`block` 是命令作用的文档构造（块命令是节点名，行内命令是 mark 名，撤销重做是 `document`）；`keywords` 同时收中文与英文，供斜杠菜单过滤。
+- **文件菜单的四项不在这张表里，这是有意的窄口**：导入与两次导出是围着文档做文件 I/O，不改变文档；清空是草稿仓库的删除，不是 `setContent(EMPTY_DOCUMENT)`，所以它没有一条编辑器链可写。把它们塞进表就得给执行表开第四个例外，而声明「表里的每一行都有执行器」比声明「菜单也渲染表」更值钱——所以在 `file-menu/file-menu.tsx` 里就这一次，`CommandGroup` 里也没有 `file` 这一档，表里更没有一行没人渲染的 `clear`。表曾经有过那一行，它指向第二个 `setContent(EMPTY_DOCUMENT)` 的定义，且用的是默认 update（会把清空当成一次改动写回一条空记录）；那条死定义已经删掉，清空只有「草稿与保存」一节里那一条活的路径。
 - **纯的部分是数据加过滤函数**：`filterCommands(query)` 按 label 与 keywords 做大小写不敏感的子串匹配，空查询返回整张表，命中结果保持表的顺序。`commandsInGroup(group)` 给工具栏按组取命令，同样保持顺序。
 - **执行不是这张表的事**。`editor/execute.ts` 的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<Exclude<CommandId, "link">, ...>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
+- **表的单测只到数据，应用是门禁的**（#207 复审，spec 的那条「each command applied to a document produces the expected document」）：`core/__tests__/commands.test.ts` 盯 id 唯一、label 与 keywords 非空、组内顺序、过滤与斜杠菜单的谓词；**没有一条单测真的把命令作用到文档上**。原因是这一层没有无 DOM 的路：执行器是 TipTap 的链，TipTap 建编辑器要 `document`、`window` 与可编辑元素，而本仓的单测是 Node、无 DOM（`docs/adr/0003-vitest-for-unit-tests.md`）；要在这里跑它就得引 jsdom（新依赖）或在纯层重写一遍 TipTap 的行为（那是第二份实现，不是测试）。所以「命令生效」由门禁按坐标与键盘逐条按出来，纯层只保证表本身没有缺口。
 - **链接是唯一有界面没有链的命令**：`runCommand` 对它返回 `false`，调用方知道这个动作要开一个输入框；`link-control/link-control.tsx` 是那唯一的输入框，工具栏与浮动工具栏都用它。
-- **三个命令面从同一张表渲染**：钉住的工具栏、斜杠菜单、浮动工具栏。加一条命令是一处编辑：表里加一行，执行表里加一个 handler；三处不需要各改一次。
+- **三个命令面从同一张表渲染**：钉住的工具栏、斜杠菜单、浮动工具栏。加一条命令是一处编辑：表里加一行，执行表里加一个 handler；三处不需要各改一次。文件菜单是第四个面**而不**从表渲染，理由在上面那一条。
+
+## 键盘
+
+- **user story 9 的整套快捷键**：撤销/重做 `Mod-Z` / `Mod-Shift-Z`，五个标记 `Mod-B` / `Mod-I` / `Mod-U` / `Mod-Shift-X` / `Mod-E`，标题 `Mod-Alt-1/2/3`，三个列表 `Mod-Shift-7/8/9`。除了链接之外**全部是 StarterKit 自带的 keymap**（History、Heading、BulletList、OrderedList、TaskList、Underline、Strike、Code），所以这里一条扩展都不加：再加一份就是同一条规则的第二份定义，而版本与默认配置在 `RichTextEditor.tsx` 的注释里。
+- **`Mod-K` 是这一片自己接的那一个**：链接是唯一「有界面没有链」的命令，地址框是 React 的，TipTap 的 keymap 打不开它。`editorProps.handleKeyDown` 先接住 `Mod-K`（`preventDefault`，所以那个 `k` 不会落进文档），把一次请求计数交给工具栏的 `LinkControl`（`openRequest`），由它打开地址框并预填现有的链接；计数而不是布尔值，是为了第二次按还是第二次打开。
+- 门禁真的按了这些键：`Control+B`、`Control+K`（链接的字段出现、应用后文档里有那个 `a`）、`Control+Alt+1`（标题）与 `Control+Shift+8`（项目符号列表），外加 `Control+Z` / `Control+Shift+Z`。只在工具栏上证明过的快捷键不算证明。
 
 ## 工具栏
 
@@ -73,13 +82,14 @@
 - **按下的状态是墨色实心，并且只有一个组件**：`command-toggle/command-toggle.tsx` 是那枚按钮（墨色开态、44px 自己的框、`shrink-0`），工具栏与浮动工具栏都用它，所以同一状态在两处的画法与命中区只有一份。注册表 `Toggle` 自己的开态是 hover 表面（1.1:1），「开着」会看起来像「鼠标停着」；本站只有一个实心控件语言（`Button` 的默认变体：纸在墨上），所以开态复用它，hover 时也保持墨色。
 - **块类型菜单显示当前块**：触发器上写「正文」或「标题 1–3」，无障碍名是 `块类型：<当前块>`。菜单里当前块那一项带一个勾，其余项留出同样的位置。选中一项后菜单关闭，状态随光标走。
 - **链接是一个小弹出层**：一个「链接地址」输入框、一个「应用」、以及链接存在时出现的「移除」。它设置、编辑、移除选区上的链接；输入框在打开时预填当前链接的地址，所以第二次打开是编辑而不是重设。字段的 id 来自 `useId`，因为工具栏与浮动工具栏的两个实例可以同时存在。`StarterKit` 的 Link 扩展以 `openOnClick: false` 配置：在 contenteditable 里点链接是把光标放进去，不是离开一份还没保存的文档。
-- **文件菜单是「导入 / 导出 Markdown / 导出 HTML / 清空」**：导入在最上面，两次导出在中间，清空在最后一条分隔线之下；四项都是带文字的菜单按钮，各占 44px 高的一行。导入打开一个 `sr-only` 的 `input[type=file]`（`accept` 收 `.md` / `.markdown` / `.html` / `.htm` 与两种 MIME），输入框选完清空 `value`，所以同一个文件选第二次照样触发。导出把规范文档交给对应写手生成下载文件（见「导出」）；清空用 `setContent(EMPTY_DOCUMENT, { emitUpdate: false })` 换回画布并删掉 IndexedDB 里的记录，占位符随之回来。没有文件名输入框：文件名由导出规则派生。导入见「导入」。
+- **文件菜单是「导入 / 导出 Markdown / 导出 HTML / 清空」，并且是它自己的一块**（`file-menu/file-menu.tsx`）：四项都是带文字的菜单按钮，各占 44px 高的一行；导入在最上面，两次导出在中间，清空在最后一条分隔线之下。它从 451 行的 `toolbar.tsx` 里被切出来，因为它和工具栏的其余部分没有共享状态——它带着自己的文件输入、待处理导入与确认框，工具栏只传一个 `onClear`。导入打开一个 `sr-only` 的 `input[type=file]`（`accept` 收 `.md` / `.markdown` / `.html` / `.htm` 与两种 MIME），输入框选完清空 `value`，所以同一个文件选第二次照样触发。导出把规范文档交给对应写手生成下载文件（见「导出」）；清空调用的就是「草稿与保存」里那一条活路径（`setContent(EMPTY_DOCUMENT, { emitUpdate: false })` 换回画布并删掉 IndexedDB 里的记录），占位符随之回来。没有文件名输入框：文件名由导出规则派生。导入见「导入」。
+- **撤销与重做灰掉时说明原因**：这两枚是这条工具栏里唯一天生就会禁用的控件（空文档没有可撤销的步骤），而 `apps/web/docs/design/components.md` 要每一枚禁用的控件都说清缺的是哪一步。两句句子在 `core/copy.ts` 的 `HISTORY_DISABLED_REASON`（「没有可撤销的步骤。」/「没有可重做的步骤。」），由单测盯住措辞与标点；**它们挂在控件自己身上**：`title` 给指针，`aria-describedby` 指向一段 `sr-only` 的说明给读屏。挂在控件上而不是在行下面加一行，是因为这是一条 44px 的常驻行，一行动态出现的说明会在第一次击键时把画布往下推——而这条规矩要防的是「灰了不说」，不是「必须换行」。
 - **任务列表的复选框名是中文**：`TaskItem` 的 `a11y.checkboxLabel` 写成「未完成：… / 已完成：…」，因为扩展的默认名是英文，而这一页的界面是中文。任务项嵌套由 `nested: true` 打开。
 
 ## 斜杠菜单
 
 - **触发是「段落开头」而不是「句子里」**：`@tiptap/suggestion` 以 `char: "/"`、`startOfLine: true` 配置，`allow` 再收一道口子，只认文档第一层的 `paragraph`。标题块里的 `/` 和嵌套块（列表项、引用里）里的 `/` 都是普通字符。
-- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`，共十条）。标记需要选区，链接需要选区加输入框，撤销/重做/清空作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。
+- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`，共十条）。标记需要选区，链接需要选区加输入框，撤销/重做作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。清空根本不在表里，见「命令表」。
 - **键位**：上下键在行间循环，回车应用（`/query` 先被删掉，命令再作用在那个空块上），Esc 关闭。Esc 是建议插件自己消费的：它先调用组件的 `onKeyDown`，再关闭菜单，所以组件对 Esc 返回 `false`，不重复处理。
 - **空格结束匹配**：`/标题 ` 里的空格让匹配结束、菜单关闭，`/标题` 留在文档里；只有真按了回车，`/query` 才会被当作过滤词删掉。这条是「输入不被吃掉」的实现，门禁里有对应断言。
 - **位置由插件的 `mount` 负责**：它把菜单元素挂到 body，用插件自己的 `clientRect`（光标处的矩形）在下方 4px 处定位，滚动与缩放由 Floating UI 跟随。菜单组件由 `ReactRenderer` 画进那个元素，所以它不在页面自己的 React 树里；键位通过 ref 句柄转进去，光标始终留在文档里。
@@ -96,9 +106,9 @@
 - **只在选区非空时存在**：组件在选区为空时直接不渲染，所以文档里没有一排隐藏的按钮。这是命中区量具的要求：`.touch-target` 是它的标记，一排 `visibility: hidden` 的按钮会被量成「哪里都点不到」的控件。
 - **内容是同一张表的行内标记加链接**：五个标记来自 `commandsInGroup("mark")`，链接来自 `commandById("link")`，没有第二份清单；标记按钮与工具栏共用 `CommandToggle`，链接输入框与工具栏共用 `LinkControl`。
 - **位置来自选区自己的矩形**：`coordsAtPos(from)` 与 `coordsAtPos(to)` 取两个角，行底放在「选区顶 − 8px」；上方放不下时翻到「选区底 + 8px」；左右夹在视口边缘内 8px。两个方向都只碰选区的边，不盖住字。用编辑器的位置而不是 `window.getSelection`，是因为按下其中一个按钮之后浏览器选区已经不在，而文档里的选区还在，命令作用的正是后者。
-- **两遍：先画、再量、再定位**。第一遍用已知的宽高（首帧是 0）放置，`useLayoutEffect` 在浏览器绘制前量到真实高度并落位，所以没有「先盖住再跳开」的一帧。
-- **滚动与缩放重算位置**：行是 `position: fixed`，页面一滚它就会离开选区，所以 `scroll`（捕获阶段）与 `resize` 触发重算。
-- **为什么不用 `@tiptap/extension-floating-menu`**：这一页确实依赖它，但它的插件在 `show()` 之前先算位置、再把元素挂回文档，React 画的这一行会在「还没有内容的盒子」上定位，行会落在选区上（也就是这条规则要防的那件事）。它的 React 绑定 `@tiptap/react/menus` 同样用不了：那个入口为了同文件的 `BubbleMenu` 静态 import 了本工具没有声明的 `@tiptap/extension-bubble-menu`。理由写在 `selection-toolbar/selection-toolbar.tsx` 顶部。
+- **两遍：先画、再量、再定位**。第一遍用已知的宽高（首帧是 0）放置，`useLayoutEffect` 在浏览器绘制前量到真实高度并落位，所以没有「先盖住再跳开」的一帧。**「不盖住选中的字、也不跑出视口」由命中区量具的 `selection-toolbar-clearance` 读**（它自己造一段选区，再读两边的盒子）；门禁只按行里的加粗按钮，不再比较 `boundingBox`。
+- **滚动与缩放只重算、不动画**：行是 `position: fixed`，页面一滚它就会离开选区，所以要重算位置。重算**不监听 `window` 的 `scroll`**（`apps/web/docs/design/motion.md` 明令禁止那个写法，它是滚动驱动动画溜进来的入口），而是 `document` 上一个 `passive` 的 `scroll` 监听（捕获阶段，所以页面自己的滚动与页内滚动区都看得见）加一个 `resize`，两者都只把 `requestAnimationFrame` 排一次——一帧最多重画一次，滚动本身永远不被阻塞。这里没有动画，只有「行跟着走」。
+- **为什么不用 `@tiptap/extension-floating-menu`**：它的插件在 `show()` 之前先算位置、再把元素挂回文档，React 画的这一行会在「还没有内容的盒子」上定位，行会落在选区上（也就是这条规则要防的那件事）。它的 React 绑定 `@tiptap/react/menus` 同样用不了：那个入口为了同文件的 `BubbleMenu` 静态 import 了本工具没有声明的 `@tiptap/extension-bubble-menu`。**这个依赖已经删掉**（#207 复审）：声明了却没有 import 是一个没人用的依赖，而行是页面里一个 `position: fixed` 的普通 `div`，不是任何插件的 portal。理由写在 `selection-toolbar/selection-toolbar.tsx` 顶部。
 - **无障碍名是「选中文本的格式」**，每个按钮的名字来自命令表；读屏读到的是第二个工具栏区域，而不是一排和上面重名的按钮。
 
 ## 导出
@@ -109,7 +119,7 @@
 - 文本**按 GFM 的要求转义**：行内语法字符（`\`、反引号、`*`、`_`、`[`、`]`、`<`、`>`、`~`、`&`）在任何位置转义，块起始字符（`#`、`>`、`-`、`+`、`=`、`1.`）在行首转义；行首守卫只发生在段落第一段文本与硬换行之后，标题、列表项与引用都有各自的标记挡在前面。代码内容不转义，围栏长度超过代码里最长的反引号串。
 - **空文档导出空字符串**，而不是一个孤零零的换行：两者都是合法 GFM，`""` 才是「文档里什么都没有」的那个。非空文档以恰好一个换行结尾。
 - **HTML 是完整独立文档**：doctype、`lang="zh-CN"`、`<meta charset="utf-8">`、viewport、文档标题进 `<title>`、`<style>` 内嵌样式，正文是 `<article>` 里的语义元素。样式只用系统字体栈，不引任何外部资源：一个被发出去的文件不能因为打开而向外请求。标题为空时 `<title>` 写「无标题」（编辑器里的占位符也是这句）。空文本块不产出空标签。
-- **文件名规则在 `core/naming.ts`**：清洗标题（去控制字符与 `<>:"/\|?*`、压缩空白、去尾部点与空格）、截到 40 个字符、拼上本地日期 `YYYY-MM-DD` 与格式扩展名（`.md` / `.html`）；标题为空或清洗后为空时用 `文档`。40 是**标题**的上限，不是整个文件名的上限，日期与扩展名永远不会被截掉。
+- **文件名规则在 `core/naming.ts`**：清洗标题（去控制字符与 `<>:"/\|?*`、压缩空白、去尾部点与空格）、截到 40 个字符、拼上本地日期 `YYYY-MM-DD` 与格式扩展名（`.md` / `.html`）；标题为空或清洗后为空时用 `文档`。40 是**标题**的上限，不是整个文件名的上限，日期与扩展名永远不会被截掉。**40 这个数是设计会话里定下的决定，不是实现里随手挑的一个数**，所以它同时写在这里与 `docs/agents/design-notes.md` 的分支 10；`#205` 与那份笔记原先都漏了它，于是「标题最多 40 字」变成一个没人问过的问题（#207 复审把它补上）。门禁与单测都按这个数断言（长标题被截、日期与扩展名完整）。
 - 工具栏只做三件事：取 `editor.getJSON()`、调对应写手、把字符串变成 blob 并触发下载。blob URL 在下一轮任务里 revoke，避免字节还没被浏览器取走就失效。
 - 导出的文件名与字节由门禁读回来断言；写手的 GFM/HTML 语义由 Vitest 用 JSON 字面量断言。两处都**不调用序列化器自己的 helper 来造期望值**，否则期望值和实现会一起对。
 - 不用新依赖，不用 `document.execCommand`，不请求任何 origin。
@@ -118,7 +128,7 @@
 
 - **入口是文件菜单里的「导入」一行**：它是一个真 `<button>`，只做一件事，点开旁边 `sr-only` 的 `input[type=file]`（`apps/web/docs/design/components.md` 记的「文件按钮加隐藏输入框」形状）。输入框是真正收文件的东西，门禁按坐标先按「导入」这一行、再由文件选择器交出文件；`accept` 是 `core/import.ts` 的 `IMPORT_ACCEPT`。选完清空 `value`，同一个文件第二次也能导入。
 - **格式先看扩展名，再看内容**：`.md` / `.markdown` 是 Markdown，`.html` / `.htm` 是 HTML；名字没有可用扩展名时才嗅内容（doctype、`<html>`、`<body>` 或一个块级开头元素），再认不出就按 Markdown。理由写在 `core/import.ts`：Markdown 是本工具写的格式，而且它的解析器最宽容，所以它是「猜错也安全」的那一边。
-- **Markdown 读成 JSON，HTML 读成消毒过的片段**。`core/markdown-import.ts` 不碰 DOM，直接产出 ProseMirror JSON，所以它能在 Vitest 的 Node 里用 fixture 测；HTML 没有这条纯路径（最后的 DOM 解析是 TipTap 的），所以 `core/html-import.ts` 只负责消毒并返回 HTML 字符串，交给 `setContent`。两条路的**最终 JSON 都是 TipTap 的**，编辑器 schema 是唯一权威；如果以后出现一条不依赖 DOM 的纯 JSON 路径，优先它。
+- **Markdown 读成 JSON，HTML 读成消毒过的片段，而这是一处记录在案的偏差**。`#205` 的 Implementation Decisions 说这个工具有一个「import parser for Markdown and HTML」，且「nothing in it touches the DOM」。Markdown 那一半是真的：`core/markdown-import.ts` 不碰 DOM，直接产出 ProseMirror JSON，在 Vitest 的 Node 里用 fixture 测。HTML 那一半**不是**一个纯 JSON 解析器：`core/html-import.ts` 只负责**消毒**并返回 HTML 字符串，最后一步 DOM 解析是 `editor.commands.setContent` 里 TipTap 自己的解析器。**理由**：把 HTML 变成文档要回答的是「这个元素在**当前 schema** 里是什么节点、这个属性是不是这个 mark 的合法 attrs」，而 schema 的唯一权威是 TipTap 的；在纯层再写一份映射就是第二个 schema 知识来源，schema 一改它就悄悄漂移，而这正是本工具一直在防的东西（`EMPTY_DOCUMENT` 与命令表都是同一条道理）。**消毒器负责什么**：它有自己的 tokenizer 与片段解析器（`parseFragment`，不依赖 DOM）、元素与属性的白名单、两种任务列表写法归一、实体解码与再转义，以及「丢掉 `<script>`、样式、`<head>`、图片与 `javascript:` 链接」；这些都有单测（`html-import.test.ts`），所以「HTML 进不来脚本」与「导出的 HTML 能再导入」是纯层的断言。**它不负责什么**：任何 HTML 到 ProseMirror JSON 的映射。**未来若有一条不依赖 DOM 的纯 JSON 路径**：它要自带一份与 TipTap schema 同步的节点/标记表，并且最好由 TipTap 的 schema 生成而不是手抄；在那之前，把消毒器说成解析器只会让这条偏差消失而不是被修好。
 - **Markdown 解析器只认本工具导出的那套 GFM**：标题、段落、嵌套的项目符号/编号/任务列表、引用、带语言的围栏代码块、分隔线、链接、强调、删除线、行内代码，以及导出里唯一的内联 HTML 构造 `<u>`（下划线）。**不认识的语法保持文字**：表格、引用式链接、图片语法、未闭合的强调或链接都不报错、不吞段落；任何输入都不抛异常。
 - 列表按**标记的内容列**嵌套（`- ` 是 2，`1. ` 是 3，`- [ ] ` 是 6），所以导出写出的六格缩进读回来仍是嵌套任务列表；一个列表里只要有一项带 `[ ]` / `[x]`，整张表就是任务列表，其余项读成未勾选（schema 不允许两种 item 混在一张表里）。
 - **HTML 消毒器丢掉的东西**：`<script>`、`<style>`、`<title>`、`<head>` 子树、注释、doctype、事件处理属性、`style` 属性、图片（编辑器没有图片节点）、`javascript:` / `data:` 链接（链接退成文字），以及所有编辑器没有节点或标记的包裹元素（`div`、`section`、`span`、表格……只保留里面的字）。**保留的东西**：标题 1–6、段落、引用、围栏代码块（`pre > code` 的语言类）、分隔线、三种列表、`strong` / `em` / `u` / `s` / `code` / `a href` / `br`。
@@ -154,9 +164,10 @@
 ## 量具
 
 - **指纹（`ui-fingerprint.mjs`）按页声明**外壳的四个锚点、`tool-page`、`rich-text-toolbar`、`rich-text-canvas` 与 `rich-text-save-status`。工具栏、画布与保存状态是三个区域：工具栏移动时读数应该显示工具栏移动，而不是画布变形；保存状态的句子换宽度时，读数也应该显示状态自己的移动。
-- **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十六个（`撤销`、`重做`、`块类型`、五个标记、三个列表、四个插入动作、`文件`）。保存状态是句子而不是控件，不进点名清单；失败态才出现的「重试」也不进，因为量具打开的是页面的正常态，声明一个不存在的名字会让正常页面变红。弹出层与弹窗里的项只在被打开后才存在，包括 #211 的「导入」、#210 的两个导出项与「清空」、以及确认框的「取消」/「替换」；量具不替页面打开它们，这一点是 #210 明确接受、#211 沿用的退路，由门禁按坐标按、再读回下载的字节或导入后的块。它们照样带 `.touch-target`，所以打开时任何一次扫描都能量到 44px；`重试` 由门禁在注入一次失败后按坐标按。
-- **#208 的两个面是瞬态的，因此不进 `controls` 清单**：斜杠菜单由建议插件挂到 body，浮动工具栏只在选区非空时存在，而这份清单是「加载时就该在」的清单。它们每个按钮都带 `.touch-target`，但量法在这里不适用：要量得先给量具一个「制造选区 / 输入斜杠」的钩子（先例是 `convert`），本片没有加，因为门禁已经按坐标按过它们。这也是浮动工具栏在选区为空时**不渲染内容**的原因：一排隐藏的按钮会被量成量不到的靶子。
-- 两个占位符是画出来的句子，不是控件，没有名字可以声明；它们由门禁读 `::before` 的内容来盯住。
+- **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十六个（`撤销`、`重做`、`块类型`、五个标记、三个列表、四个插入动作、`文件`）。保存状态是句子而不是控件，不进点名清单；失败态才出现的「重试」也不进，因为量具打开的是页面的正常态，声明一个不存在的名字会让正常页面变红。弹出层与弹窗里的项只在被打开后才存在，包括 #211 的「导入」、#210 的两个导出项与「清空」、以及确认框的「取消」/「替换」；量具不替页面打开它们，这一点是 #210 明确接受、#211 沿用的退路，由门禁按坐标按、再读回下载的字节或导入后的块。它们照样带 `.touch-target`，所以打开时任何一次扫描都能量到 44px；`重试` 由门禁在注入一次失败后按坐标按。**这条量具还读两个状态**：`selection`（探针字进标题块、再套选区）让 `selection-toolbar-clearance` 读浮动行的位置，`scrolling` 让 `toolbar-scroll-end` 在窄屏把中间滚到底再读右端——它读之前会把滚动区的 `scrollLeft` 放回 0，因为同一趟扫描里 `hit-areas` 的 `scrollIntoView` 会把它拨走。
+- **#208 的斜杠菜单仍不进 `controls` 清单**：它只在输入 `/` 到应用之间存在，而这份清单是「加载时就该在」的清单。它每个按钮都带 `.touch-target`，要量得先给量具一个「输入斜杠」的钩子，本片没有加，因为门禁已经按坐标按过它（先例是 `convert`）。**浮动工具栏现在进了量具**：`selection` 钩子把一行探针字送进标题块、再把选区套上去，`selection-toolbar-clearance` 读它的盒子与选区自己的盒子；`selection-toolbar` 的按钮仍然不在 `controls` 清单里（它们不在加载状态中存在），但那个面的位置这句话已经由量具回答，不再由门禁回答。
+- **两个占位符是画的句子，门禁读它们，而这是站点级例外**：它们是 `::before` 的 `content: attr(data-placeholder)`，`ui-fingerprint` 刻意不读伪元素、`touch-targets` 只读盒子与命中区域，所以这一条由门禁读 `getComputedStyle(el, "::before").content`。理由与「未来钩子需要什么」写在 `apps/web/docs/design/instruments.md` 的「量具够不到的那一条」里，不是这里的第二份规则。
+- **门禁只管行为**：按下一个控件之后文档变成什么、导出的字节、存下的记录、导入后的块、快捷键真的落下什么。位置、命中区域、滚动与「有没有东西动过」全在 `scripts/` 的两个量具里（`docs/adr/0012-playwright-for-the-browser-gate.md`）。
 
 ## 推迟（不在本片范围内）
 

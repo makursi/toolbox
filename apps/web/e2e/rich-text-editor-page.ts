@@ -181,23 +181,6 @@ export function slashItem(page: Page, label: string): Locator {
   return slashMenu(page).getByRole("menuitem", { name: label, exact: true });
 }
 
-/**
- * The selected words' own rectangle, in viewport coordinates.
- *
- * The selection toolbar's claim is that it does not cover what is selected, and the
- * thing to compare its box against is the selection's rectangle rather than the
- * block's: a paragraph is taller than its line of text.
- */
-export async function selectedTextBox(page: Page): Promise<{ bottom: number; top: number } | null> {
-  return page.evaluate(() => {
-    const selection = window.getSelection();
-    if (selection === null || selection.rangeCount === 0) return null;
-
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    return { bottom: rect.bottom, top: rect.top };
-  });
-}
-
 /** The block menu's trigger, whose name carries the block at the cursor. */
 export function blockTrigger(page: Page): Locator {
   return page.getByRole("button", { name: /^块类型：/ });

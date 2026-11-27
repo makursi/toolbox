@@ -23,7 +23,6 @@ import {
   retrySave,
   saveStatus,
   selectBodyText,
-  selectedTextBox,
   selectionControl,
   selectionToolbar,
   slashItem,
@@ -363,6 +362,50 @@ test("undo and redo work from the keyboard and from the toolbar", async ({ page 
 });
 
 /**
+ * Story 9's shortcuts, the ones the Tool did not get from TipTap for free.
+ *
+ * The marks, undo/redo, the headings (`Mod-Alt-1`–`3`) and the lists
+ * (`Mod-Shift-7`/`8`/`9`) are StarterKit's own keyboard shortcuts, so the gate
+ * presses one of each where the claim is that the editor wires them; the link action
+ * is the one command with no chain, and `Mod-K` is the Tool's own key for it. Every
+ * press here is a real key on the focused canvas: a shortcut that only worked from
+ * the toolbar would be the bug this test exists for.
+ */
+test("the keyboard shortcuts reach a mark, a heading, a list and the link action", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInBody(page, "快捷测试。");
+  await selectBodyText(page);
+
+  await page.keyboard.press("Control+b");
+  await expect(bodyParagraph(page).locator("strong")).toHaveText("快捷测试。");
+
+  // The link is the command whose behaviour is a field, so its shortcut has to
+  // open that field rather than run a chain. The address is then applied through
+  // the page's own 应用 button, at its coordinates.
+  await page.keyboard.press("Control+k");
+  await expect(linkField(page)).toBeVisible();
+  await linkField(page).fill("https://example.com/keyboard");
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+  await expect(canvas(page).locator('a[href="https://example.com/keyboard"]')).toHaveText(
+    "快捷测试。",
+  );
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("标题快捷键");
+  await page.keyboard.press("Control+Alt+1");
+  await expect(canvas(page).locator("h1").filter({ hasText: "标题快捷键" })).toBeVisible();
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("列表快捷键");
+  await page.keyboard.press("Control+Shift+8");
+  await expect(canvas(page).locator("ul li").first()).toHaveText("列表快捷键");
+});
+
+/**
  * The slash menu: `/` at the start of a paragraph, filtered by typing, moved with
  * the arrow keys, applied with Enter and closed with Escape.
  *
@@ -523,11 +566,15 @@ test("a paragraph that begins with the same characters but makes no rule stays t
 
 /**
  * The toolbar that follows a selection: the five marks and the link, from the same
- * command table, placed near the words and never on them.
+ * command table, applied at the row's own coordinates.
+ *
+ * Where the row sits — above the words when there is room, below them otherwise,
+ * never across them — is the hit-area Instrument's claim
+ * (`selection-toolbar-clearance` in `apps/web/scripts/touch-targets.mjs`): that is a
+ * geometry reading, and the site's tier rule puts those in `scripts/`. This file
+ * holds what the surface does.
  */
-test("the selection toolbar offers the marks and the link, and covers no selected word", async ({
-  page,
-}) => {
+test("the selection toolbar offers the marks and the link, and applies them", async ({ page }) => {
   await open(page);
   await writeInBody(page, "选中这一段话。");
   await selectBodyText(page);
@@ -539,27 +586,16 @@ test("the selection toolbar offers the marks and the link, and covers no selecte
     await expect(selectionControl(page, label)).toBeVisible();
   }
 
-  const words = await selectedTextBox(page);
-  const box = await bar.boundingBox();
-  if (words === null || box === null) {
-    throw new Error("the selection or the selection toolbar has no geometry to compare");
-  }
-
-  // Above the words when there is room for the whole row, below them otherwise,
-  // never across them.
-  const above = box.y + box.height <= words.top;
-  const below = box.y >= words.bottom;
-  expect(
-    above || below,
-    `the row at ${box.y}..${box.y + box.height} covers ${words.top}..${words.bottom}`,
-  ).toBe(true);
-
-  // And the marks it offers are the editor's own, applied at the row's coordinates.
+  // The marks it offers are the editor's own, applied at the row's coordinates.
   await pressAt(page, selectionControl(page, "加粗"));
   await expect(bodyParagraph(page).locator("strong")).toHaveCount(1);
 
-  // A caret is the pinned toolbar's state: this row is for a selection only.
-  await bodyParagraph(page).click();
+  // A caret is the pinned toolbar's state: this row is for a selection only. The
+  // click goes to the title block rather than to the paragraph that is selected: a
+  // mousedown *inside* a selection is where ProseMirror starts a drag, and whether
+  // it also collapses the caret there is not what this line is about — clicking a
+  // different block is.
+  await titleBlock(page).click();
   await expect(bar).toBeHidden();
 });
 
@@ -910,46 +946,20 @@ test.describe("the local draft", () => {
 test.describe("at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("the middle groups scroll while the file menu stays put", async ({ page }) => {
+  /*
+   * The toolbar's middle groups scrolling while its right end stays put is a
+   * geometry claim, and it moved to the hit-area Instrument
+   * (`toolbar-scroll-end`). What is left for the gate is the behaviour a visitor
+   * needs on a phone: the pinned end still opens, and every row in it is there.
+   */
+  test("the pinned file menu still opens", async ({ page }) => {
     await open(page);
 
-    const scroller = page.locator('[data-slot="rich-text-toolbar-scroll"]');
-    const file = fileTrigger(page);
+    await pressAt(page, fileTrigger(page));
 
-    const before = await file.boundingBox();
-    if (before === null) throw new Error("the file menu has no geometry at 390px");
-    expect(before.x + before.width).toBeLessThanOrEqual(390);
-
-    const metrics = await scroller.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollLeft: element.scrollLeft,
-      scrollWidth: element.scrollWidth,
-    }));
-
-    // The row does not fit a phone, and that is the state this claim needs: a
-    // toolbar that fitted would scroll nowhere and prove nothing.
-    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
-    expect(metrics.scrollLeft).toBe(0);
-
-    await scroller.evaluate((element) => {
-      element.scrollLeft = element.scrollWidth;
-    });
-    expect(await scroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
-
-    const after = await file.boundingBox();
-    if (after === null) throw new Error("the file menu has no geometry after scrolling");
-    expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
-
-    // The scrolling stays inside the row: the page itself does not gain a
-    // horizontal scrollbar, which is the other half of "the toolbar scrolls".
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      ),
-    ).toBe(0);
-
-    // And the pinned end still works after the middle has moved.
-    await pressAt(page, file);
+    await expect(page.getByRole("button", { name: "导入", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "导出 Markdown", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "导出 HTML", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "清空", exact: true })).toBeVisible();
   });
 });

@@ -22,6 +22,26 @@ export const SAVE_STATUS_TEXT = {
 export const SAVE_RETRY_LABEL = "重试";
 
 /**
+ * Why a history control is greyed out (#207).
+ *
+ * A disabled control that says nothing is a dead end
+ * (`apps/web/docs/design/components.md`), and these two are the only controls in
+ * the toolbar that are disabled at rest: a fresh document can neither be undone
+ * nor redone. The sentences come from this layer rather than the component for the
+ * same reason the save status does — the wording is a rule a unit test can hold,
+ * and it has to follow the state rather than be one generic "nothing to do".
+ *
+ * The Tool carries them on the control (its `title` and an associated
+ * description) rather than in a line beside it: the history group is two icon-only
+ * buttons in a single pinned row, and a second line would move the canvas under the
+ * visitor's caret the first time a step became available.
+ */
+export const HISTORY_DISABLED_REASON = {
+  redo: "没有可重做的步骤。",
+  undo: "没有可撤销的步骤。",
+} as const;
+
+/**
  * The words the two keyboard-first surfaces carry, in one place.
  *
  * They live in the pure core for the reason every sentence in this Tool does: the

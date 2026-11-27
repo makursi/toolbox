@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  HISTORY_DISABLED_REASON,
   IMPORT_CANCEL_LABEL,
   IMPORT_CONFIRM_LABEL,
   IMPORT_DIALOG_DESCRIPTION,
@@ -22,6 +23,31 @@ import {
  * uses full-width punctuation, and neither an em dash nor its Chinese double form
  * appears in user-visible text.
  */
+/**
+ * The history controls' reasons (#207).
+ *
+ * A disabled undo or redo that says nothing is the dead end
+ * `apps/web/docs/design/components.md` forbids. The two sentences are held here so
+ * the reason is a wording rule rather than a string in the component, and so the
+ * "nothing to undo" and "nothing to redo" cases cannot quietly become the same
+ * generic sentence.
+ */
+describe("the history reasons", () => {
+  it("says which history step is missing, per control", () => {
+    expect(HISTORY_DISABLED_REASON.undo).toContain("撤销");
+    expect(HISTORY_DISABLED_REASON.redo).toContain("重做");
+    expect(HISTORY_DISABLED_REASON.undo).not.toBe(HISTORY_DISABLED_REASON.redo);
+  });
+
+  it("ends with a full-width stop and carries no dash", () => {
+    for (const sentence of Object.values(HISTORY_DISABLED_REASON)) {
+      expect(sentence.endsWith("。")).toBe(true);
+      expect(sentence).not.toMatch(/[—–]/);
+      expect(sentence).not.toContain("——");
+    }
+  });
+});
+
 describe("the save status copy", () => {
   it("names every state in the words the ticket uses", () => {
     expect(SAVE_STATUS_TEXT).toEqual({

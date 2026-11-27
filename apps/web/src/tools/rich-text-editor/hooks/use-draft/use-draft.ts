@@ -29,8 +29,14 @@ export interface DraftController {
   /** `null` until the store has answered; the editor waits for it. */
   readonly initialDocument: JSONContent | null;
   readonly status: SaveStatus;
-  /** The editor's content changed; start the debounce window. */
-  readonly change: (document: JSONContent) => void;
+  /**
+   * The editor's content changed; start the debounce window.
+   *
+   * The parameter is named `next` rather than `document`: this module also reads
+   * the DOM's `document` for the visibility flush, and one name for two things is
+   * how a callback ends up asking the wrong one for `visibilityState`.
+   */
+  readonly change: (next: JSONContent) => void;
   /** 重试 after a failure: re-attempt the operation that was refused. */
   readonly retry: () => void;
   /** 清空: the canvas is replaced and the stored record removed. */
@@ -111,8 +117,8 @@ export function useDraft(): DraftController {
    * toolbar's sentence follows from the same event.
    */
   const change = useCallback(
-    (document: JSONContent) => {
-      pendingOperation.current = { document, kind: "save" };
+    (next: JSONContent) => {
+      pendingOperation.current = { document: next, kind: "save" };
       dispatch({ type: "change" });
       stopTimer();
       timer.current = setTimeout(() => {

@@ -66,3 +66,32 @@ export function documentTitle(document: JSONContent): string {
 
   return heading === undefined ? "" : wordsOf(heading).trim();
 }
+
+/**
+ * The literal text inside a code block, hard breaks included.
+ *
+ * The two writers derive it the same way because a code block holds its content as
+ * text nodes and hard breaks, and neither Markdown's fence nor HTML's `<pre>` may
+ * gain or lose a newline on the way out. It lives here rather than beside one of
+ * them so the two exports cannot disagree about what a code block says.
+ */
+export function codeText(node: JSONContent): string {
+  return (node.content ?? [])
+    .map((child) => (typeof child.text === "string" ? child.text : codeText(child)))
+    .join("")
+    .replace(/\r\n?/gu, "\n");
+}
+
+/**
+ * The heading level a document may carry, clamped to the six levels both formats
+ * have.
+ *
+ * A level outside 1–6 is not something the editor's schema can produce, so this is
+ * a guard at the boundary rather than a policy: a document that arrived by some
+ * other route writes as an H1 instead of as `h0` or seven hashes.
+ */
+export function headingLevel(node: JSONContent): number {
+  const level = Number(node.attrs?.level ?? 1);
+
+  return Number.isInteger(level) && level >= 1 && level <= 6 ? level : 1;
+}

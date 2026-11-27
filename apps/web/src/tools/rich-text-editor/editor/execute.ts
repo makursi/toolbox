@@ -1,7 +1,6 @@
 import type { Editor } from "@tiptap/react";
 
 import type { CommandId } from "../core/commands";
-import { EMPTY_DOCUMENT } from "../core/document";
 
 /**
  * What each command of the table does, as one TipTap chain.
@@ -72,9 +71,6 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   },
   "horizontal-rule": (editor) => {
     editor.chain().focus().setHorizontalRule().run();
-  },
-  clear: (editor) => {
-    editor.chain().focus().setContent(EMPTY_DOCUMENT).run();
   },
 };
 

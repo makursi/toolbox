@@ -4,7 +4,7 @@ import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Placeholder } from "@tiptap/extensions";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { EMPTY_DOCUMENT } from "./core/document";
 import { sanitizeHtml } from "./core/html-import";
@@ -158,6 +158,17 @@ function EditorSurface({
   onRetry,
   onClear,
 }: EditorSurfaceProps) {
+  /*
+   * The link action's keyboard request (#207).
+   *
+   * The address field is React's (`link-control/link-control.tsx`), so TipTap's
+   * keymap cannot open it: a shortcut that only ran a chain would have nowhere to put
+   * the address. `handleKeyDown` is the seam that sees the key before the keymap and
+   * can hand the request to React; the counter is what makes a second `Mod-K` a
+   * second open rather than a no-op.
+   */
+  const [linkRequest, setLinkRequest] = useState(0);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -250,6 +261,22 @@ function EditorSurface({
      */
     editorProps: {
       attributes: { "aria-label": EDITOR_LABEL, class: EDITOR_CLASS },
+      /*
+       * The story 9 shortcut list is TipTap's own for undo/redo, the marks, the
+       * headings (`Mod-Alt-1`–`3`) and the lists (`Mod-Shift-7`/`8`/`9`); the link
+       * action is the one that had no key, because its interface is the popover
+       * above. This is that key. It runs before the keymap so the `k` never reaches
+       * the document.
+       */
+      handleKeyDown: (_view, event) => {
+        if (!(event.metaKey || event.ctrlKey) || event.altKey) return false;
+        if (event.key.toLowerCase() !== "k") return false;
+
+        event.preventDefault();
+        setLinkRequest((count) => count + 1);
+
+        return true;
+      },
       transformPastedHTML: (html) => sanitizeHtml(html),
     },
   });
@@ -287,14 +314,16 @@ function EditorSurface({
         <>
           <EditorToolbar
             editor={editor}
+            linkRequest={linkRequest}
             onClear={handleClear}
             onRetry={onRetry}
             saveStatus={saveStatus}
           />
           {/*
-           * The selection toolbar is a portal into an element the floating-menu
-           * plugin owns, so its place in this tree is only where it gets mounted:
-           * nothing about it is drawn between the toolbar and the canvas.
+           * The selection toolbar is a fixed-position row placed from the
+           * selection's own rectangle, so its place in this tree is only where it
+           * is rendered: nothing about it is drawn between the toolbar and the
+           * canvas.
            */}
           <SelectionToolbar editor={editor} />
         </>

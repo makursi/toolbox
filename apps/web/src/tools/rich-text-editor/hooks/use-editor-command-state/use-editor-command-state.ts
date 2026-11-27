@@ -61,7 +61,6 @@ export function useEditorCommandState(editor: Editor): EditorCommandState {
           "code-block": current.isActive("codeBlock"),
           "horizontal-rule": false,
           link: current.isActive("link"),
-          clear: false,
         },
       };
     },

@@ -38,7 +38,7 @@ describe("the command table", () => {
   });
 
   it("keeps every group's commands in the table's order", () => {
-    const groups: readonly CommandGroup[] = ["history", "block", "mark", "list", "insert", "file"];
+    const groups: readonly CommandGroup[] = ["history", "block", "mark", "list", "insert"];
     let previous = -1;
 
     for (const group of groups) {
@@ -115,10 +115,10 @@ describe("the slash menu's commands", () => {
   });
 
   it("cannot reach a mark, a link or a whole-document command", () => {
-    for (const query of ["加粗", "链接", "撤销", "清空", ""]) {
+    for (const query of ["加粗", "链接", "撤销", ""]) {
       const ids = slashCommands(query).map((command) => command.id);
 
-      for (const excluded of ["bold", "italic", "link", "undo", "redo", "clear"]) {
+      for (const excluded of ["bold", "italic", "link", "undo", "redo"]) {
         expect(ids, `${query} reached ${excluded}`).not.toContain(excluded);
       }
     }

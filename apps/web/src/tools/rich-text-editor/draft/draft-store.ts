@@ -81,76 +81,76 @@ function openDatabase(): Promise<IDBDatabase> {
   return opening;
 }
 
+/** What each operation is called when the browser refuses it. */
+const FAILURE = {
+  read: "the draft could not be read",
+  remove: "the stored draft could not be removed",
+  write: "the draft could not be written",
+} as const;
+
+type Operation = keyof typeof FAILURE;
+
+/**
+ * Run one request in one transaction against the store, and settle with its value.
+ *
+ * The three operations are the same eight lines around one `get`, `put` or
+ * `delete`: open a transaction, make the request, and turn whichever of the four
+ * events fires first into a settlement. Written once, so the failure from a
+ * refusal reaches the hook by the same path for all three — a refused write (a
+ * quota, a clone error) rejects on the request's own `error`, and the abort that
+ * follows it is ignored because the promise has already settled.
+ *
+ * A read settles on the request's `success` (its value is in hand); a write
+ * settles on the transaction's `complete`, because resolving before the
+ * transaction commits would report 已保存到本机 for a write the browser has not
+ * accepted yet. Calling `resolve` twice is harmless: the second call is ignored.
+ */
+function inStore<T>(
+  database: IDBDatabase,
+  operation: Operation,
+  mode: "readonly" | "readwrite",
+  request: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, mode);
+    const made = request(transaction.objectStore(STORE_NAME));
+
+    made.addEventListener("success", () => {
+      if (mode === "readonly") resolve(made.result);
+    });
+    made.addEventListener("error", () => reject(made.error ?? new Error(FAILURE[operation])));
+    transaction.addEventListener("complete", () => resolve(made.result));
+    transaction.addEventListener("error", () =>
+      reject(transaction.error ?? new Error(`${FAILURE[operation]} (the transaction failed)`)),
+    );
+    transaction.addEventListener("abort", () =>
+      reject(transaction.error ?? new Error(`${FAILURE[operation]} (the transaction was aborted)`)),
+    );
+  });
+}
+
 /** Read the one draft, or `null` when the store has none this build can use. */
 export async function loadDraft(): Promise<StoredDraft | null> {
   const database = await openDatabase();
+  const value: unknown = await inStore(database, "read", "readonly", (store) =>
+    store.get(DRAFT_KEY),
+  );
 
-  return new Promise<StoredDraft | null>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readonly");
-    const request = transaction.objectStore(STORE_NAME).get(DRAFT_KEY);
-
-    request.addEventListener("success", () => {
-      const value: unknown = request.result;
-
-      if (value === undefined) {
-        resolve(null);
-        return;
-      }
-
-      // The record is validated in the core, not here: a value that is not a draft
-      // is treated as no draft, which is the silent mount the page promises.
-      resolve(isStoredDraft(value) ? value : null);
-    });
-
-    request.addEventListener("error", () =>
-      reject(request.error ?? new Error("the draft could not be read")),
-    );
-    transaction.addEventListener("abort", () =>
-      reject(transaction.error ?? new Error("the draft read was aborted")),
-    );
-  });
+  // The record is validated in the core, not here: a value that is not a draft is
+  // treated as no draft, which is the silent mount the page promises.
+  return isStoredDraft(value) ? value : null;
 }
 
 /** Write the one draft, resolving only when the transaction has committed. */
 export async function writeDraft(draft: StoredDraft): Promise<void> {
   const database = await openDatabase();
 
-  return new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    const request = transaction.objectStore(STORE_NAME).put(draft, DRAFT_KEY);
-
-    request.addEventListener("error", () => {
-      // A refused write (a quota, a clone error) must reach the hook as a
-      // rejection; the transaction's own abort follows and is ignored here.
-      reject(request.error ?? new Error("the draft could not be written"));
-    });
-    transaction.addEventListener("complete", () => resolve());
-    transaction.addEventListener("error", () =>
-      reject(transaction.error ?? new Error("the draft write failed")),
-    );
-    transaction.addEventListener("abort", () =>
-      reject(transaction.error ?? new Error("the draft write was aborted")),
-    );
-  });
+  await inStore(database, "write", "readwrite", (store) => store.put(draft, DRAFT_KEY));
 }
 
 /** Remove the one draft; a reload then finds no draft to restore. */
 export async function removeDraft(): Promise<void> {
   const database = await openDatabase();
 
-  return new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    const request = transaction.objectStore(STORE_NAME).delete(DRAFT_KEY);
-
-    request.addEventListener("error", () =>
-      reject(request.error ?? new Error("the stored draft could not be removed")),
-    );
-    transaction.addEventListener("complete", () => resolve());
-    transaction.addEventListener("error", () =>
-      reject(transaction.error ?? new Error("the stored draft removal failed")),
-    );
-    transaction.addEventListener("abort", () =>
-      reject(transaction.error ?? new Error("the stored draft removal was aborted")),
-    );
-  });
+  await inStore(database, "remove", "readwrite", (store) => store.delete(DRAFT_KEY));
 }

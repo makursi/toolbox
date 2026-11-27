@@ -1,40 +1,17 @@
 "use client";
 
 import type { Editor } from "@tiptap/react";
-import { useRef, useState, type ChangeEvent } from "react";
+import { Fragment, useId, useState } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import { CommandToggle } from "../command-toggle/command-toggle";
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
-import {
-  IMPORT_CANCEL_LABEL,
-  IMPORT_CONFIRM_LABEL,
-  IMPORT_DIALOG_DESCRIPTION,
-  IMPORT_DIALOG_TITLE,
-  SAVE_RETRY_LABEL,
-  SAVE_STATUS_TEXT,
-} from "../core/copy";
-import { EMPTY_DOCUMENT, isEmptyDocument } from "../core/document";
-import { htmlFromDocument } from "../core/html";
-import { sanitizeHtml } from "../core/html-import";
-import { IMPORT_ACCEPT, importFormatOf, type ImportFormat } from "../core/import";
-import { markdownFromDocument } from "../core/markdown";
-import { documentFromMarkdown } from "../core/markdown-import";
-import { exportFileName, type ExportFormat } from "../core/naming";
+import { HISTORY_DISABLED_REASON, SAVE_RETRY_LABEL, SAVE_STATUS_TEXT } from "../core/copy";
 import type { SaveStatus } from "../core/save";
 import { runCommand } from "../editor/execute";
+import { FileMenu } from "../file-menu/file-menu";
 import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
 import { LinkControl } from "../link-control/link-control";
 
@@ -47,20 +24,13 @@ import { LinkControl } from "../link-control/link-control";
  * `commandsInGroup` in table order, so a command added to the core appears here
  * without an edit. What each command does is `runCommand` (`editor/execute.ts`),
  * which the slash menu and the selection toolbar run too: one table, one executor,
- * three surfaces.
+ * three surfaces. The file menu's four actions are the exception, and they say why
+ * in `file-menu/file-menu.tsx`: they are file I/O around the document rather than
+ * editor commands, so they have no row in the table and no executor.
  *
  * The state at the cursor comes from `useEditorCommandState`, so a mark that is on
  * says so and the block menu names the block the caret is in, without this component
  * keeping a copy of the document.
- *
- * The file menu holds 导入 (#211), the two export actions (#210) and 清空. Each
- * export asks the editor for its JSON, hands it to the pure writer in `core/`, and
- * downloads the bytes under the name `core/naming.ts` derives. 导入 is one action
- * for both accepted formats: a hidden file input takes the file, the format rule
- * in `core/import.ts` picks the parser, and the result goes back through TipTap's
- * own `setContent`. When the draft says something, an alert dialog asks before it
- * is replaced; cancelling changes nothing. There is no filename field: the
- * document names itself, which is the rule #205 settled.
  *
  * The save status beside the file menu is the draft's own state (#209); its
  * sentences come from the Tool's pure copy layer, and the retry control exists
@@ -69,14 +39,10 @@ import { LinkControl } from "../link-control/link-control";
  * cleared document is not saved back as an empty one.
  */
 
-/** An import that is waiting on the visitor's confirmation. */
-interface PendingImport {
-  readonly format: ImportFormat;
-  readonly contents: string;
-}
-
 export interface EditorToolbarProps {
   readonly editor: Editor;
+  /** Bumped when `Mod-K` asks for the link action (#207). */
+  readonly linkRequest: number;
   readonly saveStatus: SaveStatus;
   /** 重试, shown only in the failure state. */
   readonly onRetry: () => void;
@@ -98,122 +64,27 @@ const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
   "code-block",
 ]);
 
-/** What each export is called in the menu, and the bytes it writes. */
-const EXPORTS: readonly { format: ExportFormat; label: string; icon: string }[] = [
-  { format: "markdown", icon: "icon-[ph--markdown-logo-bold]", label: "导出 Markdown" },
-  { format: "html", icon: "icon-[ph--file-html-bold]", label: "导出 HTML" },
-];
-
 /** A hairline between two groups of controls. */
 function Separator() {
   return <span aria-hidden className="h-6 w-px shrink-0 bg-border" />;
 }
 
-export function EditorToolbar({ editor, saveStatus, onRetry, onClear }: EditorToolbarProps) {
+export function EditorToolbar({
+  editor,
+  linkRequest,
+  saveStatus,
+  onRetry,
+  onClear,
+}: EditorToolbarProps) {
   const [blockOpen, setBlockOpen] = useState(false);
-  const [fileOpen, setFileOpen] = useState(false);
-  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const state = useEditorCommandState(editor);
+  const historyReasonId = useId();
 
   const run = (command: CommandSpec) => {
     runCommand(editor, command.id);
   };
 
   const blockLabel = commandById(state.block).label;
-
-  /**
-   * Apply an imported file to the document.
-   *
-   * A Markdown file becomes JSON in `core/markdown-import.ts` and goes straight
-   * into `setContent`; an HTML file is sanitised in `core/html-import.ts` and
-   * TipTap's own parser is what turns it into the document. The final JSON is
-   * therefore TipTap's in both cases, which is the point: the editor's schema is
-   * the one authority on what a document may hold. An import that sanitises to
-   * nothing is the empty document, so a file of only a `<script>` leaves the
-   * same two placeholders a fresh page shows.
-   *
-   * `setContent` emits an update (its default), so the import is written to the
-   * local draft by the same path every other change takes (#209).
-   */
-  const applyImport = (format: ImportFormat, contents: string) => {
-    if (format === "markdown") {
-      editor.commands.setContent(documentFromMarkdown(contents));
-    } else {
-      const sanitized = sanitizeHtml(contents);
-      editor.commands.setContent(sanitized === "" ? EMPTY_DOCUMENT : sanitized);
-    }
-
-    editor.commands.focus("start");
-  };
-
-  /**
-   * Read the chosen file, then either import it or ask.
-   *
-   * The question is whether the draft would lose something, which is what
-   * `isEmptyDocument` answers about what the document says rather than about how
-   * many empty blocks it starts with. The file is read before the dialog opens,
-   * so the dialog's confirm is synchronous and the file cannot go stale.
-   */
-  const chooseImportFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0] ?? null;
-    event.currentTarget.value = "";
-    if (file === null) return;
-
-    setFileOpen(false);
-    void file
-      .text()
-      .then((contents) => {
-        const format = importFormatOf(file.name, contents);
-
-        if (isEmptyDocument(editor.getJSON())) {
-          applyImport(format, contents);
-          return;
-        }
-
-        setPendingImport({ contents, format });
-        setConfirmOpen(true);
-      })
-      .catch(() => undefined);
-  };
-
-  const closeImportDialog = (open: boolean) => {
-    setConfirmOpen(open);
-    if (!open) setPendingImport(null);
-  };
-
-  const confirmImport = () => {
-    if (pendingImport === null) return;
-
-    applyImport(pendingImport.format, pendingImport.contents);
-  };
-
-  /**
-   * Download the document in one format.
-   *
-   * The bytes are the pure writer's and the name is the naming rule's; this
-   * function only turns them into a download. The blob URL is revoked on the
-   * next task rather than immediately, because the browser has to have taken the
-   * bytes before the URL goes away, and an empty file is the one failure a
-   * download cannot retry.
-   */
-  const download = (format: ExportFormat) => {
-    const json = editor.getJSON();
-    const contents = format === "markdown" ? markdownFromDocument(json) : htmlFromDocument(json);
-    const type = format === "markdown" ? "text/markdown;charset=utf-8" : "text/html;charset=utf-8";
-    const url = URL.createObjectURL(new Blob([contents], { type }));
-    const link = document.createElement("a");
-
-    link.download = exportFileName(json, format, new Date());
-    link.href = url;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 0);
-  };
 
   const toggle = (command: CommandSpec) => (
     <CommandToggle
@@ -255,19 +126,46 @@ export function EditorToolbar({ editor, saveStatus, onRetry, onClear }: EditorTo
         className="flex min-w-0 flex-1 [scrollbar-width:thin] items-center gap-2.5 overflow-x-auto px-1 py-1 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
         data-slot="rich-text-toolbar-scroll"
       >
-        {commandsInGroup("history").map((command) => (
-          <Button
-            aria-label={command.label}
-            className="touch-target size-11"
-            disabled={command.id === "undo" ? !state.canUndo : !state.canRedo}
-            key={command.id}
-            onClick={() => run(command)}
-            size="icon"
-            variant="ghost"
-          >
-            <span aria-hidden className={`icon ${command.icon}`} />
-          </Button>
-        ))}
+        {commandsInGroup("history").map((command) => {
+          /*
+           * 撤销 and 重做 are the only controls in this toolbar that are disabled
+           * at rest, and a greyed control with no reason is a dead end
+           * (`apps/web/docs/design/components.md`). The sentence follows the
+           * state, comes from the pure copy layer, and reaches both channels a
+           * disabled button has: `title` for the pointer, an associated
+           * description for a screen reader. It is carried on the control rather
+           * than in a line beside it because this is one pinned row of icon
+           * buttons, and a second line appearing on the first keystroke would move
+           * the canvas under the caret.
+           */
+          const disabled = command.id === "undo" ? !state.canUndo : !state.canRedo;
+          const reason = disabled
+            ? HISTORY_DISABLED_REASON[command.id === "undo" ? "undo" : "redo"]
+            : null;
+          const describedBy = reason === null ? undefined : `${historyReasonId}-${command.id}`;
+
+          return (
+            <Fragment key={command.id}>
+              <Button
+                aria-describedby={describedBy}
+                aria-label={command.label}
+                className="touch-target size-11"
+                disabled={disabled}
+                onClick={() => run(command)}
+                size="icon"
+                title={reason ?? undefined}
+                variant="ghost"
+              >
+                <span aria-hidden className={`icon ${command.icon}`} />
+              </Button>
+              {reason === null ? null : (
+                <span className="sr-only" id={describedBy}>
+                  {reason}
+                </span>
+              )}
+            </Fragment>
+          );
+        })}
 
         <Separator />
 
@@ -320,7 +218,12 @@ export function EditorToolbar({ editor, saveStatus, onRetry, onClear }: EditorTo
 
         {commandsInGroup("insert").map((command) =>
           command.id === "link" ? (
-            <LinkControl editor={editor} key={command.id} pressed={state.pressed.link} />
+            <LinkControl
+              editor={editor}
+              key={command.id}
+              openRequest={linkRequest}
+              pressed={state.pressed.link}
+            />
           ) : TOGGLE_COMMANDS.has(command.id) ? (
             toggle(command)
           ) : (
@@ -357,95 +260,9 @@ export function EditorToolbar({ editor, saveStatus, onRetry, onClear }: EditorTo
             </Button>
           ) : null}
         </div>
-        <Popover onOpenChange={setFileOpen} open={fileOpen}>
-          <PopoverTrigger asChild>
-            <Button aria-label="文件" className="touch-target size-11" size="icon" variant="ghost">
-              <span aria-hidden className="icon icon-[ph--folder-simple-bold]" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-48 p-1">
-            {/*
-             * One 导入 action for both formats. The picker is the hidden input
-             * below, because an `input[type=file]` is a replaced element that
-             * cannot be drawn as the menu row; the button is the real control and
-             * opens it, the input is what receives the file (the pattern the cover
-             * generator recorded in `apps/web/docs/design/components.md`).
-             */}
-            <Button
-              className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
-              onClick={() => fileInputRef.current?.click()}
-              variant="ghost"
-            >
-              <span aria-hidden className="icon icon-[ph--upload-simple-bold]" />
-              导入
-            </Button>
-            <span aria-hidden className="my-1 block h-px bg-border" />
-            {EXPORTS.map((item) => (
-              <Button
-                className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
-                key={item.format}
-                onClick={() => {
-                  download(item.format);
-                  setFileOpen(false);
-                }}
-                variant="ghost"
-              >
-                <span aria-hidden className={`icon ${item.icon}`} />
-                {item.label}
-              </Button>
-            ))}
-            <span aria-hidden className="my-1 block h-px bg-border" />
-            <Button
-              className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
-              onClick={() => {
-                onClear();
-                setFileOpen(false);
-              }}
-              variant="ghost"
-            >
-              <span aria-hidden className="icon icon-[ph--trash-bold]" />
-              清空
-            </Button>
-          </PopoverContent>
-        </Popover>
+
+        <FileMenu editor={editor} onClear={onClear} />
       </div>
-
-      {/*
-       * The picker itself. It is visually hidden but not `display: none`, so it
-       * stays a real input the browser (and the gate) can find and set; it holds
-       * no `.touch-target` because it is not the control a visitor presses, the
-       * 导入 row is.
-       */}
-      <input
-        accept={IMPORT_ACCEPT}
-        aria-label="导入 Markdown 或 HTML 文件"
-        className="sr-only"
-        onChange={chooseImportFile}
-        ref={fileInputRef}
-        type="file"
-      />
-
-      {/*
-       * The confirmation, and the one thing the file menu cannot do by itself:
-       * replacing a draft is destructive, so it asks. Cancelling closes the dialog
-       * without touching the document, and the pending bytes are dropped with it.
-       */}
-      <AlertDialog onOpenChange={closeImportDialog} open={confirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{IMPORT_DIALOG_TITLE}</AlertDialogTitle>
-            <AlertDialogDescription>{IMPORT_DIALOG_DESCRIPTION}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="touch-target h-11">
-              {IMPORT_CANCEL_LABEL}
-            </AlertDialogCancel>
-            <AlertDialogAction className="touch-target h-11" onClick={confirmImport}>
-              {IMPORT_CONFIRM_LABEL}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

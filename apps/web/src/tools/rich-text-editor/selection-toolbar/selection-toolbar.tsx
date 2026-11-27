@@ -21,14 +21,15 @@ import { LinkControl } from "../link-control/link-control";
  * buttons the caret is no longer the browser's selection, while the document's is
  * still what the command acts on.
  *
- * Why not `@tiptap/extension-floating-menu`'s plugin, which this page depends on:
- * the plugin removes its element from the document when it hides and positions it
- * *before* re-adding it, so a React row would be placed against a detached box with
- * no height — the row would cover the words it is meant to sit above. Its React
- * binding (`@tiptap/react/menus`) is not usable either: that entry statically
- * imports `@tiptap/extension-bubble-menu` for its sibling `BubbleMenu`, a package
- * this Tool does not declare. Two passes are all this needs — draw, measure, place —
- * and the browser gate holds the "does not cover the selection" claim.
+ * Why not `@tiptap/extension-floating-menu`'s plugin, which the spec listed as a
+ * dependency and this Tool does not use: the plugin removes its element from the
+ * document when it hides and positions it *before* re-adding it, so a React row
+ * would be placed against a detached box with no height — the row would cover the
+ * words it is meant to sit above. Its React binding (`@tiptap/react/menus`) is not
+ * usable either: that entry statically imports `@tiptap/extension-bubble-menu` for
+ * its sibling `BubbleMenu`, a package this Tool does not declare. Two passes are
+ * all this needs — draw, measure, place — and the hit-area Instrument holds the
+ * "does not cover the selection" claim (`selection-toolbar-clearance`).
  *
  * The row is only in the document while a selection is not empty. That is not a
  * detail: `.touch-target` is the hit-area Instrument's marker, and a row of buttons
@@ -77,24 +78,43 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ height: 0, width: 0 });
 
-  // A scroll or a resize moves the selection under a `position: fixed` row, so the
-  // placement is recomputed rather than left behind; the reducer's value is nothing,
-  // the re-render is the point.
+  /*
+   * A forced re-render, and the value is never read: the row's position is derived
+   * from the editor's viewport coordinates on every render, so a scroll or a resize
+   * has to render again. `redraw` is the only half of the tuple this file uses,
+   * which is why it is named here rather than left as an anonymous discard.
+   */
   const [, redraw] = useReducer((count: number) => count + 1, 0);
 
   useEffect(() => {
     if (!visible) return undefined;
 
-    const bump = () => {
-      redraw();
+    let frame = 0;
+    const schedule = () => {
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        redraw();
+      });
     };
 
-    window.addEventListener("resize", bump);
-    window.addEventListener("scroll", bump, true);
+    /*
+     * The row is `position: fixed`, so the page scrolling moves the words out from
+     * under it and the placement has to follow. `apps/web/docs/design/motion.md`
+     * forbids `window.addEventListener("scroll")` because that is how a
+     * scroll-driven animation sneaks in; this listener drives no animation — it is
+     * `passive`, it coalesces every scroll in a frame into one render, and it
+     * listens on the document, which is this page's scroll container (the canvas
+     * has no scroller of its own), with capture so a scrolling region inside the
+     * page is seen too. `resize` is the same recomputation for the other input.
+     */
+    document.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
 
     return () => {
-      window.removeEventListener("resize", bump);
-      window.removeEventListener("scroll", bump, true);
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
     };
   }, [visible]);
 

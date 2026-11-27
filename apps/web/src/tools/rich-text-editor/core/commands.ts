@@ -14,7 +14,7 @@
  * has to say what a command will produce, not a description of the executor.
  */
 
-export type CommandGroup = "history" | "block" | "mark" | "list" | "insert" | "file";
+export type CommandGroup = "history" | "block" | "mark" | "list" | "insert";
 
 export type CommandId =
   | "undo"
@@ -34,8 +34,7 @@ export type CommandId =
   | "blockquote"
   | "code-block"
   | "horizontal-rule"
-  | "link"
-  | "clear";
+  | "link";
 
 export type CommandBlock =
   | "paragraph"
@@ -72,9 +71,15 @@ export interface CommandSpec {
 /**
  * The table, in the toolbar's order.
  *
- * `history` is first and `file` last because that is where the toolbar puts
- * them: undo/redo at the left, the file menu pinned at the right. The middle
- * groups are the block menu, the inline marks, the lists and the inserts.
+ * `history` is first and `insert` last because that is where the toolbar puts
+ * them: undo/redo at the left, the insert actions before the file menu at the
+ * right. The middle groups are the block menu, the inline marks and the lists.
+ *
+ * The file menu's 导入, 导出 and 清空 are not rows here. They are not editor
+ * commands: two of them surround the document instead of changing it, and 清空 is
+ * the draft store's removal rather than a `setContent` (the two `setContent`
+ * definitions this table once carried disagreed). They live in
+ * `file-menu/file-menu.tsx`, which is the one surface that draws them.
  *
  * Keywords are both the Chinese word and the English one a writer may type
  * after a slash: `#208` filters this list as the visitor types, and a command
@@ -225,14 +230,6 @@ export const COMMANDS: readonly CommandSpec[] = [
     keywords: ["链接", "link", "url"],
     label: "链接",
   },
-  {
-    block: "document",
-    group: "file",
-    icon: "icon-[ph--trash-bold]",
-    id: "clear",
-    keywords: ["清空", "clear", "reset"],
-    label: "清空",
-  },
 ];
 
 /** The commands in one group, in the table's order. */
@@ -270,7 +267,7 @@ export function filterCommands(query: string): readonly CommandSpec[] {
  *
  * The slash menu inserts a block at the caret, so what it offers is exactly the
  * rows whose `block` names a node: a mark needs a selection the slash menu never
- * has, and 撤销, 重做 and 清空 act on the whole document rather than on a line.
+ * has, and 撤销 and 重做 act on the whole document rather than on a line.
  * 链接 is a node-shaped row by name only: its behaviour is the field the toolbar
  * and the selection toolbar open, so it is not a slash command either.
  */

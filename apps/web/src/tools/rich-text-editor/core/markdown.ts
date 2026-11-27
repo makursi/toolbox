@@ -1,5 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 
+import { codeText, headingLevel } from "./document";
+
 /**
  * The document as GitHub Flavored Markdown (#210).
  *
@@ -155,14 +157,6 @@ function renderInline(nodes: readonly JSONContent[] | undefined, atLineStart = f
   return output;
 }
 
-/** The literal text inside a code block, hard breaks included. */
-function codeText(node: JSONContent): string {
-  return (node.content ?? [])
-    .map((child) => (typeof child.text === "string" ? child.text : codeText(child)))
-    .join("")
-    .replace(/\r\n?/gu, "\n");
-}
-
 /**
  * A fenced code block, with its language when the document carries one.
  *
@@ -177,13 +171,6 @@ function fencedCode(node: JSONContent): string {
   const fence = "`".repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
 
   return `${fence}${language}\n${text === "" || text.endsWith("\n") ? text : `${text}\n`}${fence}`;
-}
-
-/** The heading level a document may carry, clamped to the six GFM has. */
-function headingLevel(node: JSONContent): number {
-  const level = Number(node.attrs?.level ?? 1);
-
-  return Number.isInteger(level) && level >= 1 && level <= 6 ? level : 1;
 }
 
 /**

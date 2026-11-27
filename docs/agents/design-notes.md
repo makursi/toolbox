@@ -126,7 +126,7 @@ The owner wants a new Tool whose product document (`nuxt-editor-product-spec-sim
 7. **The draft lives in IndexedDB**, one record under one key. Save is debounced 800ms and flushed when the page becomes hidden; the states are 未保存, 保存中, 已保存到本机 and 保存失败 with a retry, and the product document's 正在编辑 is a resting state rather than a status.
 8. **Restore is silent**; 清空 sits in the file menu.
 9. **Markdown export is GFM**, with underline written as inline HTML (the one construct GFM has no form for), task lists as `- [ ]`, and fenced code carrying its language. HTML export is a complete document with an embedded stylesheet.
-10. **The filename is derived, never asked for**: the sanitised title plus today's date, falling back to `文档-YYYY-MM-DD`.
+10. **The filename is derived, never asked for**: the sanitised title plus today's date, falling back to `文档-YYYY-MM-DD`. The title part is capped at **40 characters** — a settled number from the session, not a value the implementation was left to choose: long enough for a real title, short enough that the name stays one a filesystem accepts. The cap is on the title, so the date and the extension are never the part that gets cut.
 11. **Import replaces the draft after a confirmation** when the draft is not empty; pasted HTML goes through the editor's own sanitising paste.
 12. **One command table feeds both the toolbar and the slash menu**, so the two cannot disagree.
 13. **The component's surface is `initialContent` and `onChange` only.** The product document's ten host configuration items wait for a real host; the repo's rule against fields for later applies.

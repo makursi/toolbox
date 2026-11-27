@@ -819,8 +819,15 @@ function inlineAngle(source: string, index: number, marks: readonly Mark[]): Inl
   return null;
 }
 
-/** The index of the `]` that closes the label opened at `from - 1`, or `-1`. */
-function findLabelEnd(source: string, from: number): number {
+/**
+ * The index of the bracket that closes the one opened at `from - 1`, or `-1`.
+ *
+ * A link label and a link destination are the same scan with a different pair of
+ * brackets: nested pairs count, and a backslash escapes the character after it so
+ * an escaped bracket cannot close. One helper rather than two identical walks, so a
+ * fix to the escaping rule reaches both halves of a link.
+ */
+function findPairEnd(source: string, from: number, open: string, close: string): number {
   let depth = 1;
   let index = from;
 
@@ -831,32 +838,8 @@ function findLabelEnd(source: string, from: number): number {
       index += 2;
       continue;
     }
-    if (character === "[") depth += 1;
-    else if (character === "]") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-
-    index += 1;
-  }
-
-  return -1;
-}
-
-/** The index of the `)` that closes a link destination opened at `from - 1`. */
-function findDestinationEnd(source: string, from: number): number {
-  let depth = 1;
-  let index = from;
-
-  while (index < source.length) {
-    const character = source[index];
-
-    if (character === "\\") {
-      index += 2;
-      continue;
-    }
-    if (character === "(") depth += 1;
-    else if (character === ")") {
+    if (character === open) depth += 1;
+    else if (character === close) {
       depth -= 1;
       if (depth === 0) return index;
     }
@@ -888,19 +871,19 @@ function parseDestination(raw: string): string | null {
 
 /** A link, when the label is followed by a destination; literal `[` otherwise. */
 function inlineLink(source: string, index: number, marks: readonly Mark[]): InlineResult | null {
-  const close = findLabelEnd(source, index + 1);
+  const labelEnd = findPairEnd(source, index + 1, "[", "]");
 
-  if (close === -1 || source[close + 1] !== "(") return null;
+  if (labelEnd === -1 || source[labelEnd + 1] !== "(") return null;
 
-  const end = findDestinationEnd(source, close + 2);
+  const end = findPairEnd(source, labelEnd + 2, "(", ")");
 
   if (end === -1) return null;
 
-  const destination = parseDestination(source.slice(close + 2, end));
+  const destination = parseDestination(source.slice(labelEnd + 2, end));
 
   if (destination === null) return null;
 
-  const label = parseInline(source.slice(index + 1, close), marks);
+  const label = parseInline(source.slice(index + 1, labelEnd), marks);
   const text = label.length === 0 ? [textNode(destination, marks)] : label;
 
   return {

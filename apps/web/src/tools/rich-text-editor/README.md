@@ -58,7 +58,10 @@ one executor in `editor/execute.ts`, and that map is typed
 `Record<Exclude<CommandId, "link">, …>`, so a command in the table with no handler is
 a `tsc` error rather than a dead button. 链接 is the one command that is an interface
 rather than a chain: the pinned toolbar and the floating toolbar both open the same
-`link-control/link-control.tsx`.
+`link-control/link-control.tsx`. The file menu is the one surface **not** rendered from
+that table and has no rows in it: 导入, the two exports and 清空 are file I/O around
+the document rather than editor commands, and `file-menu/file-menu.tsx` is their one
+home.
 
 The Markdown input rules add no extension at all, and that is a checked conclusion
 rather than an omission: every rule #208 names ships with StarterKit, which the Tool
@@ -70,17 +73,18 @@ slice. The Tool's cover landed in #212 and is the homepage card's illustration; 
 does not change this page. The page is known to both instruments and to the browser
 gate, so none of this is unmeasured.
 
-The Tool's own design rules, the command table's contract, the toolbar's groups and
-hit areas, the save-state machine and its sentences, the two menus' placement and
-keys, the input rules StarterKit supplies, the import and paste rules, the export and
-filename rules, the two placeholders and why the canvas is not a `.touch-target`, are
-in [`rules.md`](./rules.md).
+The Tool's own design rules, the command table's contract, the keyboard shortcuts,
+the toolbar's groups and hit areas, the save-state machine and its sentences, the two
+menus' placement and keys, the input rules StarterKit supplies, the import and paste
+rules, the export and filename rules, the two placeholders and why the canvas is not a
+`.touch-target`, are in [`rules.md`](./rules.md).
 
 ## Layout
 
 ```
 RichTextEditor.tsx                       the writing surface: the draft gate, TipTap, the extensions, the canvas typography, the paste sanitiser
-toolbar/toolbar.tsx                      the pinned toolbar: the block menu, the save status, the file menu, the import and the downloads
+toolbar/toolbar.tsx                      the pinned toolbar: the groups from the table, the disabled history reasons, the save status
+file-menu/file-menu.tsx                  the file menu: 导入, the two exports and 清空, with its hidden input and its confirmation
 slash-menu/slash-menu-extension.ts       `/` at the start of a paragraph, and the plugin that follows the caret
 slash-menu/slash-menu.tsx                the menu itself: rows, arrow keys, Enter
 selection-toolbar/selection-toolbar.tsx  the row that follows a selection: the marks and the link, placed clear of the words
@@ -89,10 +93,10 @@ link-control/link-control.tsx            the link action's trigger, field, 应�
 editor/execute.ts                        what each command does: one executor for all three surfaces
 hooks/use-editor-command-state/…         the state at the cursor, read through TipTap's selector
 core/commands.ts                         the one command table, its filters, and the slash menu's subset
-core/document.ts                         what an empty document is, whether it says anything, and where its title comes from
+core/document.ts                         what an empty document is, whether it says anything, where its title comes from, and the two readers both writers share (code text and heading level)
 core/draft.ts                            the stored record's shape, its schema version and the guard that reads it back
 core/save.ts                             the save-state machine: the 800ms debounce, the flush, the retry and old-revision rejection
-core/copy.ts                             the save-state sentences, the retry label, the two menus' sentences and the import confirmation's
+core/copy.ts                             the save-state sentences, the retry label, the disabled history reasons, the two menus' sentences and the import confirmation's
 core/markdown.ts                         ProseMirror JSON to GFM
 core/markdown-import.ts                  GFM to ProseMirror JSON
 core/html.ts                             ProseMirror JSON to a complete standalone HTML document
@@ -163,7 +167,8 @@ one.
    item's checkbox is the item's own state; quote and code block toggle their block,
    the rule inserts one; the link action opens one field and sets, edits or removes
    the link on the selection. Undo and redo work from the toolbar and from the
-   keyboard, because they are the editor's own history.
+   keyboard, because they are the editor's own history; while one of them is disabled
+   it says why, on the control itself (没有可撤销的步骤。 / 没有可重做的步骤。).
 7. **Write without the mouse.** Typing `/` where a paragraph starts opens the slash
    menu at the caret; what follows filters it (`标题` leaves the three headings), the
    arrow keys move the highlight, Enter deletes the typed `/query` and applies the
@@ -221,9 +226,9 @@ expansion the Tool's spec records. The draft store is hand-written against Index
 so #209 added no dependency at all. #211 added none either: both import parsers are
 the Tool's own code, and the confirmation's `alert-dialog.tsx` is generated from the
 `radix-ui` package the component layer already uses. `@tiptap/extension-floating-menu`
-is installed and is _not_ used: its React binding imports a package this Tool does not
-declare, and its bare plugin positions its element before re-adding it, so a React row
-would be placed against a box with no height. `selection-toolbar.tsx` says so in place.
+was declared by the spec and imported nowhere; it was **removed** in the review pass
+(#207), and `selection-toolbar.tsx` says why the row is a plain fixed-position `div`
+rather than that plugin's element.
 
 ## What CI covers, and what is still yours
 
@@ -258,13 +263,20 @@ browser and covers the items marked **▣**:
 - ▣ A paragraph that begins with the same characters but makes no rule stays text
   (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick, an
   unclosed `**`), and a slash inside a sentence is a slash.
-- ▣ The selection toolbar shows the five marks and the link on a selection, sits
-  clear of the selected words, applies 加粗 at its own coordinates, and is gone when
-  the selection becomes a caret.
+- ▣ The selection toolbar shows the five marks and the link on a selection, applies
+  加粗 at its own coordinates, and is gone when the selection becomes a caret. Its
+  placement (outside the selected words, inside the viewport) is the hit-area
+  instrument's `selection-toolbar-clearance`, not this file's: it is geometry, and
+  the site's tier rule puts that in `apps/web/scripts/`.
 - ▣ Undo and redo work from the keyboard (`Control+z`, `Control+Shift+z`) and from
   the toolbar's own buttons.
-- ▣ At 390px the middle groups scroll horizontally while the file menu's position
-  does not move, the page itself does not overflow, and the file menu still opens.
+- ▣ The keyboard shortcuts reach a mark (`Control+B`), the link (`Control+K` opens
+  the field and 应用 writes the `a`), a heading (`Control+Alt+1`) and a list
+  (`Control+Shift+8`).
+- ▣ At 390px the file menu still opens and every row in it is there. The middle
+  groups scrolling while the right end stays put, and the page not gaining a
+  horizontal scrollbar, are the hit-area instrument's `toolbar-scroll-end` and
+  `horizontal-overflow` claims.
 - ▣ Typing and pausing writes the one record and reports 已保存到本机; the record
   carries schema version 1, a numeric timestamp and the typed document.
 - ▣ A reload in the same browser context restores the title, the body and the bold
@@ -302,11 +314,14 @@ browser and covers the items marked **▣**:
 has a label and keywords, `commandsInGroup` keeps the table's order, `filterCommands`
 matches by keyword and returns the table's order, an empty query returns the whole
 table, and `slashCommands` offers exactly the ten block commands — filtering by the
-same keywords and never reaching a mark, the link or a whole-document command. The
-save machine: dirty → saving → saved, failure and retry, the hidden-page flush, a
-change during a write, a completion for an older revision, a debounce with no window
-to close, 清空 as a newer operation, and the 800ms constant. The copy: the four save
-sentences, the retry label, the two menus' sentences and the banned punctuation. The
+same keywords and never reaching a mark, the link or a whole-document command. **The
+table's data is all a unit test can hold**: applying a command is a TipTap chain, and
+TipTap needs a DOM the Node tier does not have, so "the command in force produces this
+document" is the gate's claim (see `rules.md`). The save machine: dirty → saving →
+saved, failure and retry, the hidden-page flush, a change during a write, a completion
+for an older revision, a debounce with no window to close, 清空 as a newer operation,
+and the 800ms constant. The copy: the four save sentences, the retry label, the two
+disabled history reasons, the two menus' sentences and the banned punctuation. The
 record: the schema version, the timestamp and the ProseMirror document, with malformed
 values refused. The Markdown writer: headings, both kinds of list and their nesting,
 task items and their checked state, quotes, fenced code with its language and backtick
@@ -340,9 +355,10 @@ of the first; focus order through the toolbar, the popovers and the confirmation
 canvas's line becoming ink while the editing surface holds the focus; the draft
 surviving a real tab close rather than a Playwright reload; a browser that refuses the
 write for quota rather than the gate's injected refusal; and the whole page at 360,
-375, 390, 768 and 1024 px looking for horizontal overflow, a toolbar that scrolls
-where it should and keeps its right end (status and file menu) still, a floating row
-that stays inside the viewport, and a canvas that still reads as a page.
+375, 390, 768 and 1024 px still reading as a page whose canvas keeps its measure (the
+overflow, the toolbar's scrolling and pinned end, the hit areas and the selection row's
+clearance are printed by the hit-area instrument, which a person reads rather than
+re-measures).
 
 ## Manual QA checklist
 
@@ -381,7 +397,9 @@ here re-runs it.
 - [ ] **▣** A refused write shows 保存失败，草稿还在页面上。 with a visible 重试, and
       pressing 重试 writes the document that failed.
 - [ ] **▣** 链接 sets, edits and removes a link on selected text.
-- [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard.
+- [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard; a mark
+      (`Control+B`), the link (`Control+K`), a heading (`Control+Alt+1`) and a list
+      (`Control+Shift+8`) also work from the keyboard.
 - [ ] **▣** `/` opens the slash menu with the ten block commands in the table's
       order; `标题` filters it to three; the arrow keys move the highlighted row and
       Enter applies 标题 2, closes the menu and leaves no `/标题` in the document.
@@ -394,8 +412,8 @@ here re-runs it.
       text (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick,
       an unclosed `**`), and a slash inside a sentence is a slash.
 - [ ] **▣** The selection toolbar shows the five marks and the link on a selection,
-      sits clear of the selected words, applies 加粗 at its own coordinates, and is
-      gone once the selection is a caret.
+      applies 加粗 at its own coordinates, and is gone once the selection is a caret.
+      Its placement is the hit-area instrument's `selection-toolbar-clearance`.
 - [ ] **▣** 导出 Markdown downloads a GFM file whose bytes are the document, and the
       filename is `<title>-YYYY-MM-DD.md`.
 - [ ] **▣** 导出 HTML downloads a complete document with a doctype, a charset, the
@@ -413,8 +431,9 @@ here re-runs it.
       title and the body untouched, and 替换 replaces them.
 - [ ] **▣** Pasted HTML is sanitised by the editor's own paste path: a pasted
       `<script>` does not run or reach the document, while its words and marks do.
-- [ ] **▣** At 390px the middle groups scroll, the file menu does not move, and the
-      page does not gain a horizontal scrollbar.
+- [ ] **▣** At 390px the file menu still opens and every row in it is there. The
+      toolbar's scrolling and pinned end, and the page's horizontal overflow, are the
+      hit-area instrument's claims.
 - [ ] **▣** The homepage card links to `/tools/rich-text-editor`, and the sitemap
       lists the route.
 - [ ] **▣** The page makes no request off this origin while typing, formatting,
@@ -466,18 +485,18 @@ here re-runs it.
 - [ ] Tab reaches the editing surface, the canvas's hairline becomes ink while it
       holds the focus (not the browser's blue ring), the caret is visible, and the
       line is back to the hairline after the focus leaves.
-- [ ] At 360, 375, 390, 768 and 1024 px the canvas keeps its reading measure, the
-      toolbar scrolls sideways where it must and keeps its right end in place, the
-      page does not scroll sideways, and every toolbar control keeps its 44px hit
-      area (the instrument prints the numbers; a person reads the page).
+- [ ] At 360, 375, 390, 768 and 1024 px the canvas keeps its reading measure; the
+      instrument prints the toolbar's scrolling, its pinned right end, the page's
+      overflow and every control's hit area, and a person reads those numbers.
 - [ ] At 390px the failure sentence and 重试 together still leave the file menu on
       screen and the page without horizontal overflow: that is the widest the right
       end ever gets.
 - [ ] The slash menu opens where the caret is, does not open for a `/` typed in the
       middle of a sentence, in the title heading, or in a list item's paragraph, and
-      the selection toolbar sits above a one-line selection, flips below one near the
-      top of the viewport, stays inside the viewport at either margin, and follows a
-      scroll while it is open.
+      the selection toolbar follows a page scroll while it is open. Where it sits at
+      rest — above a one-line selection, below one near the top of the viewport,
+      inside the viewport at either margin — is the instrument's
+      `selection-toolbar-clearance`; a person checks the follow.
 - [ ] Pressing Enter at the end of the paragraph creates a second paragraph that
       paints no placeholder of its own: the starting sentence belongs to the
       document's first body block, not to every empty line.
@@ -494,8 +513,8 @@ here re-runs it.
       the document, and underline shows as underlined text in a viewer that renders
       inline HTML (and as `<u>` where it does not, which is the one construct GFM
       has no form for).
-- [ ] A long title is cut at 40 characters in the filename, an empty one falls back
-      to 文档, and the file menu at 390px still shows 导入, 导出 Markdown, 导出 HTML
-      and 清空 inside the viewport.
+- [ ] A long title is cut at 40 characters in the filename, and an empty one falls back
+      to 文档. At 390px the file menu's own rows are still all there; that its right
+      edge stays inside the viewport is the instrument's `toolbar-scroll-end`.
 - [ ] A long code line scrolls inside its block instead of widening the canvas, and
       a checked task item's line-through and dimmed text are legible in both schemes.

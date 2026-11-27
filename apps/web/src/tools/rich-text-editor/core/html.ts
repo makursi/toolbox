@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 
-import { documentTitle } from "./document";
+import { codeText, documentTitle, headingLevel } from "./document";
 
 /**
  * The document as a complete, standalone HTML file (#210).
@@ -75,14 +75,6 @@ function languageClass(node: JSONContent): string {
   return safe === "" ? "" : ` class="language-${escapeHtml(safe)}"`;
 }
 
-/** The literal text inside a code block, hard breaks included. */
-function codeText(node: JSONContent): string {
-  return (node.content ?? [])
-    .map((child) => (typeof child.text === "string" ? child.text : codeText(child)))
-    .join("")
-    .replace(/\r\n?/gu, "\n");
-}
-
 /**
  * Wrap a run in the marks it carries, link outermost so the whole emphasised
  * phrase is the link's text.
@@ -135,13 +127,6 @@ function renderInline(nodes: readonly JSONContent[] | undefined): string {
   }
 
   return output;
-}
-
-/** The heading level a document may carry, clamped to the six HTML has. */
-function headingLevel(node: JSONContent): number {
-  const level = Number(node.attrs?.level ?? 1);
-
-  return Number.isInteger(level) && level >= 1 && level <= 6 ? level : 1;
 }
 
 /** One list item, with its marker as the element the list asked for. */
