@@ -197,6 +197,109 @@ export function linkField(page: Page): Locator {
   return page.getByRole("textbox", { name: "链接地址" });
 }
 
+/** The save status's own region: the sentence the toolbar reports. */
+export function saveStatus(page: Page): Locator {
+  return page.locator('[data-slot="rich-text-save-status"]');
+}
+
+/** The retry control the failure state adds beside the sentence. */
+export function retrySave(page: Page): Locator {
+  return page.getByRole("button", { name: "重试", exact: true });
+}
+
+/**
+ * Hide the page the way a tab switch does, and answer the status that was showing
+ * immediately before it.
+ *
+ * `document.visibilityState` is a read-only accessor, so the page defines it on the
+ * document object and dispatches the event the browser would: that is the only way
+ * a headless page can reach the hidden state the save flush is written for. The
+ * returned sentence is the state *before* the dispatch; a caller that needs the
+ * flush to be the writer, rather than the debounce that was still pending, checks
+ * that it read 未保存.
+ */
+export async function hidePage(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const before =
+      document.querySelector('[data-slot="rich-text-save-status"]')?.textContent?.trim() ?? "";
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    return before;
+  });
+}
+
+/** The record the store keeps; spelled out here rather than imported from the Tool. */
+export interface StoredDraftRecord {
+  readonly version: number;
+  readonly document: unknown;
+  readonly savedAt: number;
+}
+
+/**
+ * Read the one record out of IndexedDB, or `null` when there is none.
+ *
+ * The names are the store's contract, but they are written here rather than imported
+ * from the Tool: an expectation derived from the code under test would agree with a
+ * renamed database. `indexedDB.databases()` is asked first so a read on a page that
+ * has never saved does not create an empty database as a side effect.
+ */
+export async function storedDraft(page: Page): Promise<StoredDraftRecord | null> {
+  return page.evaluate(async () => {
+    const databases = await indexedDB.databases();
+
+    if (!databases.some((database) => database.name === "rich-text-editor")) return null;
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("rich-text-editor");
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () =>
+        reject(request.error ?? new Error("the draft database could not open")),
+      );
+    });
+
+    if (!database.objectStoreNames.contains("drafts")) {
+      database.close();
+      return null;
+    }
+
+    return await new Promise<StoredDraftRecord | null>((resolve, reject) => {
+      const transaction = database.transaction("drafts", "readonly");
+      const request = transaction.objectStore("drafts").get("draft");
+
+      request.addEventListener("success", () => {
+        const value: unknown = request.result;
+        database.close();
+
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          "version" in value &&
+          "document" in value &&
+          "savedAt" in value
+        ) {
+          resolve({
+            document: value.document,
+            savedAt: Number(value.savedAt),
+            version: Number(value.version),
+          });
+          return;
+        }
+
+        resolve(null);
+      });
+      request.addEventListener("error", () => {
+        database.close();
+        reject(request.error ?? new Error("the draft could not be read"));
+      });
+    });
+  });
+}
+
 /** The document as the browser is holding it, for claims about structure. */
 export function canvas(page: Page): Locator {
   return page.locator(CANVAS);

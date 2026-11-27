@@ -11,6 +11,7 @@ import {
   downloadFromFileMenu,
   open as openRichTextEditor,
   pressAt,
+  saveStatus,
   selectBodyText,
   toolbarControl,
   writeInBody,
@@ -143,15 +144,19 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
 });
 
 /**
- * The Rich Text Editor's page, held to the same rule (#206, extended by #210).
+ * The Rich Text Editor's page, held to the same rule (#206, extended by #209 and
+ * #210).
  *
- * Typing is the page's behaviour, and since #210 so is exporting: the editor is a
- * third-party tree mounted into this document, and the export builds a blob and
- * hands it to the browser's downloader. The run therefore types, selects and
- * formats, and downloads both formats before it asserts — a page that asked a
+ * Typing drives the editor and the draft's own write, and since #210 so does
+ * exporting: the editor is a third-party tree mounted into this document, the
+ * draft is IndexedDB, and the export builds a blob and hands it to the browser's
+ * downloader. The run therefore types, selects and formats, awaits the save
+ * status, and downloads both formats before it asserts — a page that asked a
  * server for anything would have to do it on one of those paths, and the export
- * is the one that could plausibly want to. Import and autosave extend this same
- * test when their slices land.
+ * is the one that could plausibly want to. The save status is awaited rather than
+ * assumed, because a write that happened after the listener had been torn down
+ * would be a request nobody watched. Import extends this same test when its slice
+ * lands.
  */
 test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
   page,
@@ -163,6 +168,7 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   await writeInTitle(page, "本地文档");
   await writeInBody(page, "写一句，看看这一页会不会向外请求。");
   await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("写一句");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
 
   await selectBodyText(page);
   await pressAt(page, toolbarControl(page, "加粗"));

@@ -291,8 +291,8 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206) with its toolbar (#207) and its exports
-     * (#210).
+     * The fourth Tool's page (#206) with its toolbar (#207), its exports (#210)
+     * and its draft (#209).
      *
      * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
      * area is the whole 720px reading measure, and an overlay across it would sit on
@@ -313,9 +313,14 @@ const PAGES = [
      * rather than coverage. The two placeholders are painted `::before` sentences,
      * so they are not controls and no name here can reach them.
      *
-     * The save status and the rest of the file menu arrive with #209 and #211, and
-     * each declares its own controls in its own ticket; this page declares only
-     * what exists today. `outgoing` is the whole document: this page has one layer.
+     * #209 adds the save status beside 文件. It is a sentence, not a control, so it
+     * does not enter `controls`; the retry it adds in the failure state does not
+     * exist on the page this Instrument opens, and declaring a name that is not
+     * there would make the page fail for being in its normal state. The retry is
+     * still a real 44px `<button>`, and the gate presses it at its coordinates
+     * after refusing a write. The rest of the file menu arrives with #211 and
+     * #212, and each declares its own controls in its own ticket. `outgoing` is
+     * the whole document: this page has one layer.
      */
     controls: [
       "切换到",

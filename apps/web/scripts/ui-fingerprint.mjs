@@ -183,17 +183,27 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206, and its toolbar in #207): the shared shell,
-     * the Tool's frame, the command row above the canvas and the canvas an empty
-     * document is edited in. The canvas is one region rather than the whole page so
-     * that a later move of it is proved to be a move, and the blocks inside it are
+     * The fourth Tool's page (#206, its toolbar in #207 and its local draft in
+     * #209): the shared shell, the Tool's frame, the command row above the canvas,
+     * the canvas an empty document is edited in, and the save status at the row's
+     * right end. The canvas is one region rather than the whole page so that a
+     * later move of it is proved to be a move, and the blocks inside it are
      * ProseMirror's own children — they cannot carry an anchor, so the card that
      * holds them is the anchored thing. The toolbar is a region of its own because
      * it is page chrome above the reading measure: a move of the bar must read as a
-     * move of the bar, not as the canvas changing shape. The save status and the
-     * file menu's own contents are later slices and add their anchors there.
+     * move of the bar, not as the canvas changing shape. The save status is its own
+     * anchor because its sentence changes width as it moves between the states, and
+     * a change that pushes the file menu must read as a move of the status rather
+     * than as the toolbar changing shape. The file menu's own contents are a later
+     * slice and add their anchors there.
      */
-    anchors: [...SHELL_ANCHORS, "tool-page", "rich-text-toolbar", "rich-text-canvas"],
+    anchors: [
+      ...SHELL_ANCHORS,
+      "tool-page",
+      "rich-text-toolbar",
+      "rich-text-canvas",
+      "rich-text-save-status",
+    ],
     name: "rich-text-editor",
     path: "/tools/rich-text-editor",
   },
