@@ -1,6 +1,7 @@
 "use client";
 
 import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
@@ -52,6 +53,15 @@ const EDITOR_LABEL = "文档内容";
  * `label` with a native checkbox and a `div` of content, so the checked state is the
  * node's own `data-checked` attribute; the line through a finished item is the one
  * piece of the canvas that changes without the visitor typing.
+ *
+ * A table (#217) is the extension's own DOM too: its node view wraps the table in
+ * `.tableWrapper`, so that wrapper is what scrolls sideways rather than the canvas
+ * widening past its 720px measure — a ten-column table is wider than a reading
+ * column, and the measure is a site rule. Cells sit on hairlines with the same
+ * padding as the rest of the canvas and the first row is the secondary surface,
+ * which is how a header row reads without a cell-styling model the spec excludes.
+ * The zero margin on a cell's paragraph is geometry: a cell holds a paragraph, and
+ * the canvas's own `my-2` would otherwise double the cell's padding.
  */
 const EDITOR_CLASS = [
   "min-h-[60vh] outline-none",
@@ -80,6 +90,11 @@ const EDITOR_CLASS = [
   "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
   "[&_hr]:my-8 [&_hr]:border-t [&_hr]:border-border",
   "[&_a]:underline [&_a]:underline-offset-[3px]",
+  "[&_.tableWrapper]:my-4 [&_.tableWrapper]:overflow-x-auto",
+  "[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
+  "[&_th]:border [&_th]:border-border [&_th]:bg-secondary [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+  "[&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
+  "[&_td_p]:my-0 [&_th_p]:my-0",
 ].join(" ");
 
 /**
@@ -200,6 +215,14 @@ function EditorSurface({
         },
         nested: true,
       }),
+      /*
+       * Tables (#217). The grid picker and the contextual menu are this Tool's own
+       * React interfaces (`table-control/`); the kit supplies the schema and the
+       * commands those two call. `resizable: false` is the spec's line rather than
+       * a default left alone: no column widths and no free drag-to-resize, so a
+       * table is a fixed grid and the only widths it has are its content's.
+       */
+      TableKit.configure({ table: { resizable: false } }),
       Placeholder.configure({
         /*
          * One placeholder function, two sentences: the document's first block says

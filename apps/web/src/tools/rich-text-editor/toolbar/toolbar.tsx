@@ -14,6 +14,7 @@ import { runCommand } from "../editor/execute";
 import { FileMenu } from "../file-menu/file-menu";
 import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
 import { LinkControl } from "../link-control/link-control";
+import { TableControl } from "../table-control/table-control";
 
 /**
  * The toolbar above the canvas: every command the table names, grouped the way
@@ -224,6 +225,14 @@ export function EditorToolbar({
               openRequest={linkRequest}
               pressed={state.pressed.link}
             />
+          ) : command.id === "table" ? (
+            /*
+             * 表格 is an interface command like 链接: the same button opens the grid
+             * picker outside a table and the contextual menu inside one (#217). What
+             * changes between the two states comes from `state.inTable`, which is the
+             * selection's own answer, so the button cannot disagree with the caret.
+             */
+            <TableControl editor={editor} inTable={state.inTable} key={command.id} />
           ) : TOGGLE_COMMANDS.has(command.id) ? (
             toggle(command)
           ) : (

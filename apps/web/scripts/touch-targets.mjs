@@ -337,6 +337,14 @@ const PAGES = [
      * and the two dialog buttons carry `.touch-target`, so a scan that catches them
      * open still measures 44px.
      *
+     * #217's 表格 is one button in two states, and the button itself is always on
+     * the page, so its name is declared: outside a table it opens the grid picker,
+     * and inside one the contextual row/column menu. Both surfaces are transient —
+     * they exist only while the popover is open — so neither the grid's cells nor
+     * the menu's rows are named here, for 导入's reason. Every one of them carries
+     * `.touch-target` on its own button, so a scan that catches the surface open
+     * still measures 44px, and the gate opens it and presses its cells and rows.
+     *
      * The cover (#212) is the homepage card's illustration and does not change this
      * page. `outgoing` is the whole document: this page has one layer.
      *
@@ -368,6 +376,7 @@ const PAGES = [
       "代码块",
       "分隔线",
       "链接",
+      "表格",
       "文件",
     ],
     name: "rich-text-editor",
