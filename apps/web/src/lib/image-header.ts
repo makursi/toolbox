@@ -200,27 +200,29 @@ function readExifOrientation(payload: Uint8Array): number | null {
   if (order !== "II" && order !== "MM") return null;
 
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  const little = order === "II";
+  const isLittleEndian = order === "II";
 
-  if (u16(view, tiff + 2, little) !== 42) return null;
+  if (u16(view, tiff + 2, isLittleEndian) !== 42) return null;
 
-  const directory = tiff + u32(view, tiff + 4, little);
+  const directory = tiff + u32(view, tiff + 4, isLittleEndian);
   if (directory + 2 > payload.byteLength) return null;
 
-  const count = u16(view, directory, little);
+  const count = u16(view, directory, isLittleEndian);
   // A count that would run off the segment is malformed; the bound keeps the
   // walk from trusting a number the file could make arbitrarily large.
   if (directory + 2 + count * 12 > payload.byteLength) return null;
 
   for (let entry = 0; entry < count; entry += 1) {
     const at = directory + 2 + entry * 12;
-    if (u16(view, at, little) !== 0x0112) continue;
+    if (u16(view, at, isLittleEndian) !== 0x0112) continue;
 
     // Orientation is a SHORT with one value; anything else is not the tag this
     // reader understands, and guessing would swap the sides wrongly.
-    if (u16(view, at + 2, little) !== 3 || u32(view, at + 4, little) < 1) return null;
+    if (u16(view, at + 2, isLittleEndian) !== 3 || u32(view, at + 4, isLittleEndian) < 1) {
+      return null;
+    }
 
-    const value = u16(view, at + 8, little);
+    const value = u16(view, at + 8, isLittleEndian);
 
     return value >= 1 && value <= 8 ? value : null;
   }
@@ -228,12 +230,12 @@ function readExifOrientation(payload: Uint8Array): number | null {
   return null;
 }
 
-function u16(view: DataView, offset: number, little: boolean): number {
-  return little ? view.getUint16(offset, true) : view.getUint16(offset, false);
+function u16(view: DataView, offset: number, isLittleEndian: boolean): number {
+  return isLittleEndian ? view.getUint16(offset, true) : view.getUint16(offset, false);
 }
 
-function u32(view: DataView, offset: number, little: boolean): number {
-  return little ? view.getUint32(offset, true) : view.getUint32(offset, false);
+function u32(view: DataView, offset: number, isLittleEndian: boolean): number {
+  return isLittleEndian ? view.getUint32(offset, true) : view.getUint32(offset, false);
 }
 
 /** The ASCII text of `length` bytes at `offset`; callers bound-check first. */
