@@ -162,48 +162,22 @@ const TABLE_EXECUTORS: Record<TableOperationId, (editor: Editor) => void> = {
   "delete-column": (editor) => {
     editor.chain().focus().deleteColumn().run();
   },
+  /*
+   * 删除表格 leaves a paragraph behind because StarterKit's `TrailingNode` does:
+   * its plugin appends an empty paragraph whenever the document's last block is
+   * not one, and the transaction that removes the table is immediately followed by
+   * one that puts a paragraph back. The command is therefore the extension's own
+   * `deleteTable` and nothing else — the append this entry used to carry could
+   * never run, because by the time the state was read there was always a paragraph.
+   * The gate proves the outcome rather than the mechanism: one empty paragraph is
+   * left, and the caret types in it.
+   */
   "delete-table": (editor) => {
-    deleteTableLeavingParagraph(editor);
+    editor.chain().focus().deleteTable().run();
   },
 };
 
 /** Run one contextual table action. */
 export function runTableOperation(editor: Editor, id: TableOperationId): void {
   TABLE_EXECUTORS[id](editor);
-}
-
-/**
- * Delete the table and leave a paragraph behind.
- *
- * ProseMirror's `deleteTable` removes the node and nothing else, so a document that
- * was a heading plus one table would end as a heading: no block to type into and the
- * caret in the title. The paragraph is part of the action rather than a repair — the
- * ticket says deleting the table leaves a paragraph, and a caret with nowhere to go
- * is exactly the state that sentence exists to prevent. A document that already has
- * a paragraph keeps it, because then there *is* somewhere to type.
- *
- * That check is written for a document that arrives without a paragraph from
- * somewhere else (an import, a hand-edited draft). The page's own editing does not
- * reach that shape: ProseMirror puts a table beside an empty body paragraph rather
- * than over it, and StarterKit's trailing-node plugin appends an empty paragraph
- * whenever the last block is not one. So by the time this function reads the state
- * there is a paragraph to keep, and the gate asserts the outcome (exactly one empty
- * paragraph, and a caret that types into it) rather than which of the two wrote it.
- */
-function deleteTableLeavingParagraph(editor: Editor): void {
-  if (!editor.isActive("table")) return;
-
-  editor.chain().focus().deleteTable().run();
-
-  const { state } = editor;
-  const hasParagraph = state.doc.content.content.some((node) => node.type.name === "paragraph");
-  if (hasParagraph) return;
-
-  const end = state.doc.content.size;
-  editor
-    .chain()
-    .focus()
-    .insertContentAt(end, { type: "paragraph" })
-    .setTextSelection(end + 1)
-    .run();
 }
