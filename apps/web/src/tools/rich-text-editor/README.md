@@ -15,13 +15,21 @@ Selecting text shows a toolbar next to the selection with the inline marks and t
 link action, placed above it (or below it when there is no room above) so that it
 never covers the words.
 
-The toolbar and the command table landed in #207. A visitor can start writing, turn a
-paragraph into 标题 1–3 and back, mark a selection bold, italic, underlined, struck
-through or inline code, make bulleted, numbered and task lists (nested, and a task
-can be checked), insert a quote, a code block and a rule, set, edit and remove a link
-on selected text, undo and redo, and clear the document from the file menu. The
-toolbar reads the state at the cursor, so a mark that is on says so and the block menu
-names the block the caret is in.
+The toolbar (#207) is what the document is written with. A visitor can start
+writing, turn a paragraph into 标题 1–3 and back, mark a selection bold, italic,
+underlined, struck through or inline code, make bulleted, numbered and task lists
+(nested, and a task can be checked), insert a quote, a code block and a rule, set,
+edit and remove a link on selected text, undo and redo, and clear the document from
+the file menu. The toolbar reads the state at the cursor, so a mark that is on says
+so and the block menu names the block the caret is in.
+
+The exports landed in #210. The file menu offers 导出 Markdown and 导出 HTML, and each
+one writes the document's current bytes to a download: GitHub Flavored Markdown with
+underline as the one inline HTML construct, or a complete standalone HTML document
+with a doctype, a charset, the document's title and an embedded stylesheet. The file
+is named from the sanitised title and today's date, falling back to 文档-YYYY-MM-DD
+when the document has no title. There is no filename field: the document names
+itself.
 
 Everything the three surfaces can do comes from one table in the Tool's pure core
 (`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
@@ -38,21 +46,22 @@ already loads. The gate proves each rule and each of its near-misses, because a 
 nobody exercised is a rule nobody has.
 
 What is deliberately **not here yet**, and lands in its own ticket: autosave and
-restore (#209), export (#210) and import (#211). The Tool's cover landed in #212 and
-is the homepage card's illustration; it does not change this page. Nothing is saved
-yet either: a reload gives a fresh empty document, which is the current state rather
-than a bug. The page is known to both instruments and to the browser gate, so none of
-this is unmeasured.
+restore (#209) and import (#211). The Tool's cover landed in #212 and is the homepage
+card's illustration; it does not change this page. Nothing is saved yet either: a
+reload gives a fresh empty document, which is the current state rather than a bug.
+The page is known to both instruments and to the browser gate, so none of this is
+unmeasured.
 
 The Tool's own design rules, the command table's contract, the toolbar's groups and
-hit areas, the two placeholders and why the canvas is not a `.touch-target`, are in
-[`rules.md`](./rules.md).
+hit areas, the two menus' placement and keys, the input rules StarterKit supplies,
+the export and filename rules, the two placeholders and why the canvas is not a
+`.touch-target`, are in [`rules.md`](./rules.md).
 
 ## Layout
 
 ```
 RichTextEditor.tsx                        the writing surface: TipTap, the extensions, the canvas typography
-toolbar/toolbar.tsx                       the pinned toolbar: the block menu, the file menu, the table's groups
+toolbar/toolbar.tsx                       the pinned toolbar: the block menu, the file menu and the downloads
 slash-menu/slash-menu-extension.ts        `/` at the start of a paragraph, and the plugin that follows the caret
 slash-menu/slash-menu.tsx                 the menu itself: rows, arrow keys, Enter
 selection-toolbar/selection-toolbar.tsx   the row that follows a selection: the marks and the link, placed clear of the words
@@ -62,9 +71,15 @@ editor/execute.ts                         what each command does: one executor f
 hooks/use-editor-command-state/…          the state at the cursor, read through TipTap's selector
 core/commands.ts                          the one command table, its filters, and the slash menu's subset
 core/copy.ts                              the two menus' sentences, held where a test can read them
-core/document.ts                          what an empty document is, for the editor and for 清空
+core/document.ts                          what an empty document is, and where the document's title comes from
+core/markdown.ts                          ProseMirror JSON to GFM
+core/html.ts                              ProseMirror JSON to a complete standalone HTML document
+core/naming.ts                            the export filename rule: sanitised title, date, extension
 core/__tests__/commands.test.ts           the table's contract in Vitest
 core/__tests__/copy.test.ts               the menu sentences' punctuation in Vitest
+core/__tests__/markdown.test.ts           the Markdown writer, in GFM's terms
+core/__tests__/html.test.ts               the standalone document and its escaping
+core/__tests__/naming.test.ts             the filename rule, including the empty-title fallback
 meta.ts                                   the Tool Registry entry
 rules.md                                  this Tool's own rules, linked from this file
 README.md                                 this file: what it does, its files, a run, and the checklist
@@ -118,7 +133,16 @@ fingerprint's baseline is a local file, not a repository one.
    the words (below them when there is no room above), with the five inline marks and
    the link action; pressing one applies it to the same document selection the pinned
    toolbar acts on. It is not in the document at all while the selection is empty.
-8. **Read back.** The text is the editor's own document: the gate reads it from the
+8. **Export.** The file menu's 导出 Markdown and 导出 HTML ask the editor for its
+   JSON and hand it to the pure writer for that format. The writer returns a string;
+   the toolbar wraps it in a blob, mints a temporary object URL, clicks an anchor
+   named by `core/naming.ts`, and revokes the URL on the next task. The browser
+   saves the file, so the gate can read the bytes back. The name is the sanitised
+   title and today's local date with the format's extension, capped at 40 title
+   characters, or 文档 with the date when the document has no title. An empty
+   document exports as an empty Markdown file and an HTML file whose article is
+   empty; both are still complete files.
+9. **Read back.** The text is the editor's own document: the gate reads it from the
    contenteditable after typing, and the blocks are not re-seeded from the initial
    content when the page renders again.
 
@@ -127,8 +151,8 @@ Link configured `openOnClick: false`), `TaskList` and `TaskItem` from
 `@tiptap/extension-list`, `Placeholder` from `@tiptap/extensions`, and #208's
 `SlashMenuExtension`, which is `@tiptap/suggestion` wrapped in an `Extension` so the
 plugin gets the editor it needs. The two menus' sentences live in `core/copy.ts`.
-No third-party asset came with any of it, and no new dependency did either: the TipTap
-tree arrived in `chore(web): the TipTap tree at V1's minimum`, which is the dependency
+No third-party asset and no new dependency came with any of it; the TipTap tree
+arrived in `chore(web): the TipTap tree at V1's minimum` and is the dependency
 expansion the Tool's spec records. `@tiptap/extension-floating-menu` is installed and
 is _not_ used: its React binding imports a package this Tool does not declare, and its
 bare plugin positions its element before re-adding it, so a React row would be placed
@@ -174,17 +198,30 @@ browser and covers the items marked **▣**:
   the toolbar's own buttons.
 - ▣ At 390px the middle groups scroll horizontally while the file menu's position
   does not move, the page itself does not overflow, and the file menu still opens.
+- ▣ The file menu downloads both formats: the Markdown file is the document as GFM,
+  the HTML file is a complete document with its title in `<title>` and an embedded
+  stylesheet, and each file's name is the sanitised title, today's date and the
+  format's extension.
+- ▣ A document with no title exports as `文档-YYYY-MM-DD.md` and
+  `文档-YYYY-MM-DD.html`, and the HTML file's `<title>` is 无标题.
 - ▣ The Tool has a homepage card linking to its route and an entry in `/sitemap.xml`.
-- ▣ Typing reaches nothing off this origin, prints no console error or warning, and
-  raises no uncaught error (`apps/web/e2e/no-outbound-requests.spec.ts`).
+- ▣ Typing, formatting and exporting both formats reaches nothing off this origin,
+  prints no console error or warning, and raises no uncaught error
+  (`apps/web/e2e/no-outbound-requests.spec.ts`).
 
-`pnpm test` covers the command table: ids are unique, every command has a label and
+`pnpm test` covers the command table (ids are unique, every command has a label and
 keywords, `commandsInGroup` keeps the table's order, `filterCommands` matches by
 keyword and returns the table's order, an empty query returns the whole table, and
 `slashCommands` offers exactly the ten block commands — filtering by the same
-keywords and never reaching a mark, the link or a whole-document command. A second
-test file holds the two menus' sentences: no em dash, no `——`, no Latin punctuation
-at the end of a Chinese one. The one structural claim a unit test cannot make, that
+keywords and never reaching a mark, the link or a whole-document command), the two
+menus' sentences (no em dash, no `——`, no Latin punctuation at the end of a Chinese
+one), the Markdown writer (headings, both kinds of list and their nesting, task items
+and their checked state, quotes, fenced code with its language and backtick growth,
+rules, every mark with underline as inline HTML, links, hard breaks, escaping, and
+the empty document's empty string), the standalone-HTML writer (doctype, charset,
+title, embedded stylesheet, every block and mark, escaping, and both fallbacks) and
+the filename rule (title, date padding, invalid characters, the 40-character cap and
+the empty-title fallback). The one structural claim a unit test cannot make, that
 every id has an executor, is the typed executor map in `editor/execute.ts`: `tsc` is
 what holds it.
 
@@ -242,12 +279,20 @@ here re-runs it.
 - [ ] **▣** The selection toolbar shows the five marks and the link on a selection,
       sits clear of the selected words, applies 加粗 at its own coordinates, and is
       gone once the selection is a caret.
+- [ ] **▣** 导出 Markdown downloads a GFM file whose bytes are the document, and the
+      filename is `<title>-YYYY-MM-DD.md`.
+- [ ] **▣** 导出 HTML downloads a complete document with a doctype, a charset, the
+      title in `<title>` and an embedded stylesheet, and the filename is
+      `<title>-YYYY-MM-DD.html`.
+- [ ] **▣** An untitled document's exports are named `文档-YYYY-MM-DD.<ext>`, and the
+      HTML file's `<title>` is 无标题.
 - [ ] **▣** At 390px the middle groups scroll, the file menu does not move, and the
       page does not gain a horizontal scrollbar.
 - [ ] **▣** The homepage card links to `/tools/rich-text-editor`, and the sitemap
       lists the route.
-- [ ] **▣** The page makes no request off this origin while typing, writes no
-      console error or warning, and raises no uncaught error.
+- [ ] **▣** The page makes no request off this origin while typing, formatting and
+      exporting both formats, writes no console error or warning, and raises no
+      uncaught error.
 
 ### A person must still check
 
@@ -256,12 +301,14 @@ here re-runs it.
       two placeholder sentences are readable, and the placeholder colour is the
       measured one.
 - [ ] Chinese input through a real IME composes into the paragraph and the first
-      committed character takes the body placeholder away. The gate types
-      characters, not composition events.
+      committed character takes the body placeholder away, and composing after a `/`
+      filters the slash menu rather than applying a command mid-composition. The
+      gate types characters, not composition events.
 - [ ] A screen reader announces the editing surface as 文档内容, the toolbar as
       格式工具栏, each icon control by its name, the pressed state of a mark, and the
       block menu as 块类型：<当前块>; whether it also reads the placeholders (they are
-      CSS `::before` content, which screen readers are not obliged to announce).
+      CSS `::before` content, which screen readers are not obliged to announce); and
+      whether the slash menu and the floating row are announced by their names.
 - [ ] Tab reaches the toolbar controls in order, Enter or Space presses a toggle,
       the block menu and the file menu open and close with the keyboard, and Escape
       closes the link popover.
@@ -272,6 +319,11 @@ here re-runs it.
       toolbar scrolls sideways where it must and keeps its right end in place, the
       page does not scroll sideways, and every toolbar control keeps its 44px hit
       area (the instrument prints the numbers; a person reads the page).
+- [ ] The slash menu opens where the caret is, does not open for a `/` typed in the
+      middle of a sentence, in the title heading, or in a list item's paragraph, and
+      the selection toolbar sits above a one-line selection, flips below one near the
+      top of the viewport, stays inside the viewport at either margin, and follows a
+      scroll while it is open.
 - [ ] Pressing Enter at the end of the paragraph creates a second paragraph that
       paints no placeholder of its own: the starting sentence belongs to the
       document's first body block, not to every empty line.
@@ -280,16 +332,16 @@ here re-runs it.
 - [ ] The link popover opens with the caret in the field, an address without a
       scheme is read as `https`, and the remove action appears only when the
       selection is a link.
+- [ ] The exported HTML opens on its own from the filesystem in another browser
+      profile: its tab reads the document title, the stylesheet is the file's own,
+      the nesting and the checked task item read, and nothing is requested.
+- [ ] The exported Markdown opens in a GFM viewer: the headings, nested lists,
+      checked task item, quote, fenced code with its language, rule and link read as
+      the document, and underline shows as underlined text in a viewer that renders
+      inline HTML (and as `<u>` where it does not, which is the one construct GFM
+      has no form for).
+- [ ] A long title is cut at 40 characters in the filename, an empty one falls back
+      to 文档, and the file menu at 390px still shows 导出 Markdown, 导出 HTML and
+      清空 inside the viewport.
 - [ ] A long code line scrolls inside its block instead of widening the canvas, and
       a checked task item's line-through and dimmed text are legible in both schemes.
-- [ ] The slash menu opens where the caret is, closes when the page is scrolled while
-      it is open, and does not open for a `/` typed in the middle of a sentence, in
-      the title heading, or in a list item's paragraph.
-- [ ] Chinese input through a real IME filters the slash menu: the composed
-      characters appear as the query rather than committing a command mid-composition.
-- [ ] A screen reader announces the slash menu as a menu named 插入内容 and its rows,
-      and the floating row as 选中文本的格式 with the same mark names as the pinned
-      toolbar; both menus are pointer-only for a tab user, which is deliberate.
-- [ ] The selection toolbar sits above a one-line selection, flips below one near the
-      top of the viewport, stays inside the viewport for a selection at either margin,
-      and follows a scroll while it is open.

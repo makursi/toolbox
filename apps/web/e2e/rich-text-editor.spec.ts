@@ -1,4 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+
+import { expect, test, type Download } from "@playwright/test";
 
 import {
   BODY_PLACEHOLDER,
@@ -7,6 +9,7 @@ import {
   bodyParagraph,
   canvas,
   clearDocument,
+  downloadFromFileMenu,
   fileTrigger,
   linkField,
   open,
@@ -28,13 +31,15 @@ import {
 
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
- * command table (#207), and the three ways to write without leaving the keyboard
- * (#208).
+ * command table (#207), the three ways to write without leaving the keyboard (#208),
+ * and the two exports (#210).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
- * empty document paints, the text a visitor typed read back out of the browser, and
- * what each control does to the blocks and marks a screen reader can see. It does
- * not read TipTap's state, React's state or any serialiser.
+ * empty document paints, the text a visitor typed read back out of the browser,
+ * what each control does to the blocks and marks a screen reader can see, and the
+ * bytes of the files the file menu downloads. It does not read TipTap's state,
+ * React's state or any serialiser: the exported file is judged by its own text, and
+ * the filename by the rule's arithmetic.
  *
  * Every toolbar press goes through `pressAt`, which measures the control and
  * clicks its centre: a control that looks right and is dead to the mouse is the
@@ -58,6 +63,23 @@ const MARKS = [
   { element: "s", label: "删除线" },
   { element: "code", label: "行内代码" },
 ] as const;
+
+/** `YYYY-MM-DD` on this machine's own calendar day, the day the name carries. */
+function todayStamp(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+/** The downloaded file's bytes, as the text the page wrote. */
+async function readDownload(download: Download): Promise<string> {
+  const path = await download.path();
+  if (path === null) throw new Error("the download produced no file to read");
+
+  return readFile(path, "utf8");
+}
 
 test("an empty document shows both placeholders, and the first keystroke replaces the body one", async ({
   page,
@@ -465,6 +487,55 @@ test("the selection toolbar offers the marks and the link, and covers no selecte
   // A caret is the pinned toolbar's state: this row is for a selection only.
   await bodyParagraph(page).click();
   await expect(bar).toBeHidden();
+});
+
+/**
+ * The export, driven the way a visitor drives it and judged by the bytes.
+ *
+ * The document is typed and formatted through the page's own controls, and the
+ * file is downloaded through the page's own menu, so what is read back is the
+ * file the browser would save. The name is asserted against the rule's own
+ * arithmetic rather than against `core/naming.ts`: an expectation derived from
+ * the module under test would agree with it whether or not it is right.
+ */
+test("the file menu exports Markdown and a standalone HTML document, and names both", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInTitle(page, "导出测试");
+  await writeInBody(page, "第一段。");
+  await selectBodyText(page);
+  await pressAt(page, toolbarControl(page, "加粗"));
+
+  const markdown = await downloadFromFileMenu(page, "导出 Markdown");
+  expect(markdown.suggestedFilename()).toBe(`导出测试-${todayStamp()}.md`);
+  expect(await readDownload(markdown)).toBe("# 导出测试\n\n**第一段。**\n");
+
+  const html = await downloadFromFileMenu(page, "导出 HTML");
+  expect(html.suggestedFilename()).toBe(`导出测试-${todayStamp()}.html`);
+
+  const standalone = await readDownload(html);
+  expect(standalone.startsWith("<!doctype html>")).toBe(true);
+  expect(standalone).toContain('<meta charset="utf-8">');
+  expect(standalone).toContain("<title>导出测试</title>");
+  expect(standalone).toContain("<h1>导出测试</h1>");
+  expect(standalone).toContain("<p><strong>第一段。</strong></p>");
+  // The stylesheet is in the file, so the download opens on its own elsewhere.
+  expect(standalone).toContain("<style>");
+  expect(standalone.trimEnd().endsWith("</html>")).toBe(true);
+});
+
+test("an untitled document exports under the dated fallback name", async ({ page }) => {
+  await open(page);
+  await writeInBody(page, "没有标题。");
+
+  const markdown = await downloadFromFileMenu(page, "导出 Markdown");
+  expect(markdown.suggestedFilename()).toBe(`文档-${todayStamp()}.md`);
+  expect(await readDownload(markdown)).toBe("没有标题。\n");
+
+  const html = await downloadFromFileMenu(page, "导出 HTML");
+  expect(html.suggestedFilename()).toBe(`文档-${todayStamp()}.html`);
+  expect(await readDownload(html)).toContain("<title>无标题</title>");
 });
 
 test.describe("at 390px", () => {

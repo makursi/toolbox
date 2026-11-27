@@ -1,0 +1,161 @@
+import type { JSONContent } from "@tiptap/react";
+import { describe, expect, it } from "vitest";
+
+import { htmlFromDocument } from "@/tools/rich-text-editor/core/html";
+
+/**
+ * The standalone-HTML writer, held in HTML's own terms: the doctype, the charset,
+ * the title, the embedded stylesheet, the elements each block and mark becomes,
+ * and the escaping a browser needs. The bytes are checked as text; whether a
+ * browser paints them is the gate's question, not this file's.
+ */
+
+const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({
+  text: value,
+  type: "text",
+  ...(marks === undefined ? {} : { marks }),
+});
+
+const paragraph = (...content: JSONContent[]): JSONContent => ({
+  content,
+  type: "paragraph",
+});
+
+const heading = (level: number, ...content: JSONContent[]): JSONContent => ({
+  attrs: { level },
+  content,
+  type: "heading",
+});
+
+const documentOf = (...content: JSONContent[]): JSONContent => ({ content, type: "doc" });
+
+describe("the standalone HTML writer", () => {
+  it("writes a complete document that carries everything it needs", () => {
+    const html = htmlFromDocument(documentOf(heading(1, text("标题")), paragraph(text("正文"))));
+
+    expect(html.startsWith('<!doctype html>\n<html lang="zh-CN">\n<head>')).toBe(true);
+    expect(html).toContain('<meta charset="utf-8">');
+    expect(html).toContain("<title>标题</title>");
+    expect(html).toContain("<style>");
+    expect(html).toContain("</style>");
+    expect(html).toContain("<body>\n<article>\n<h1>标题</h1>\n<p>正文</p>\n</article>\n</body>");
+    expect(html.endsWith("</html>\n")).toBe(true);
+  });
+
+  it("names the file from the first heading, and falls back when there is none", () => {
+    expect(
+      htmlFromDocument(documentOf(heading(1, text("文档标题")), heading(2, text("小节")))),
+    ).toContain("<title>文档标题</title>");
+    expect(htmlFromDocument(documentOf(paragraph(text("没有标题"))))).toContain(
+      "<title>无标题</title>",
+    );
+  });
+
+  it("escapes the text and the link address", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        paragraph(text('<script>alert("x")</script> & 1 < 2')),
+        paragraph(
+          text("链接", [{ attrs: { href: 'https://example.com/?a=1&b="2"' }, type: "link" }]),
+        ),
+      ),
+    );
+
+    expect(html).toContain(
+      "<p>&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; 1 &lt; 2</p>",
+    );
+    expect(html).toContain('<a href="https://example.com/?a=1&amp;b=&quot;2&quot;">链接</a>');
+  });
+
+  it("writes each mark as the element with that meaning", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        paragraph(text("加粗", [{ type: "bold" }])),
+        paragraph(text("斜体", [{ type: "italic" }])),
+        paragraph(text("下划线", [{ type: "underline" }])),
+        paragraph(text("删除线", [{ type: "strike" }])),
+        paragraph(text("行内代码", [{ type: "code" }])),
+        paragraph(text("强调", [{ type: "bold" }, { type: "italic" }])),
+      ),
+    );
+
+    expect(html).toContain("<p><strong>加粗</strong></p>");
+    expect(html).toContain("<p><em>斜体</em></p>");
+    expect(html).toContain("<p><u>下划线</u></p>");
+    expect(html).toContain("<p><s>删除线</s></p>");
+    expect(html).toContain("<p><code>行内代码</code></p>");
+    expect(html).toContain("<p><strong><em>强调</em></strong></p>");
+  });
+
+  it("writes lists, task items and a start number", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        {
+          content: [
+            {
+              content: [
+                paragraph(text("第二项")),
+                {
+                  content: [{ content: [paragraph(text("子项"))], type: "listItem" }],
+                  type: "bulletList",
+                },
+              ],
+              type: "listItem",
+            },
+          ],
+          type: "bulletList",
+        },
+        {
+          attrs: { start: 3 },
+          content: [{ content: [paragraph(text("甲"))], type: "listItem" }],
+          type: "orderedList",
+        },
+        {
+          content: [
+            { attrs: { checked: false }, content: [paragraph(text("未完成"))], type: "taskItem" },
+            { attrs: { checked: true }, content: [paragraph(text("已完成"))], type: "taskItem" },
+          ],
+          type: "taskList",
+        },
+      ),
+    );
+
+    expect(html).toContain("<ul>\n<li>第二项\n<ul>\n<li>子项</li>\n</ul></li>\n</ul>");
+    expect(html).toContain('<ol start="3">\n<li>甲</li>\n</ol>');
+    expect(html).toContain('<ul class="task-list">');
+    expect(html).toContain(
+      '<li class="task-list-item"><input type="checkbox" disabled>未完成</li>',
+    );
+    expect(html).toContain(
+      '<li class="task-list-item"><input type="checkbox" disabled checked>已完成</li>',
+    );
+  });
+
+  it("writes a quote, a language-carrying code block, a rule and a hard break", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        { content: [paragraph(text("引用一句"))], type: "blockquote" },
+        {
+          attrs: { language: "ts" },
+          content: [text("const answer = 42;")],
+          type: "codeBlock",
+        },
+        paragraph(text("上"), { type: "hardBreak" }, text("下")),
+        { type: "horizontalRule" },
+      ),
+    );
+
+    expect(html).toContain("<blockquote>\n<p>引用一句</p>\n</blockquote>");
+    expect(html).toContain('<pre><code class="language-ts">const answer = 42;</code></pre>');
+    expect(html).toContain("<p>上<br>下</p>");
+    expect(html).toContain("<hr>");
+  });
+
+  it("loads nothing: the stylesheet is in the file, not linked", () => {
+    const html = htmlFromDocument(documentOf(paragraph(text("正文"))));
+
+    expect(html).not.toContain("<link");
+    expect(html).not.toContain("@import");
+    expect(html).not.toContain("src=");
+  });
+});

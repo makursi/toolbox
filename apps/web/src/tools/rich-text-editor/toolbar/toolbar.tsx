@@ -8,6 +8,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 import { CommandToggle } from "../command-toggle/command-toggle";
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
+import { htmlFromDocument } from "../core/html";
+import { markdownFromDocument } from "../core/markdown";
+import { exportFileName, type ExportFormat } from "../core/naming";
 import { runCommand } from "../editor/execute";
 import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
 import { LinkControl } from "../link-control/link-control";
@@ -26,9 +29,11 @@ import { LinkControl } from "../link-control/link-control";
  * says so and the block menu names the block the caret is in, without this component
  * keeping a copy of the document.
  *
- * What is deliberately absent: the file menu holds 清空 and nothing else until the
- * import/export slices land, and there is no save status here yet. A control for a
- * feature that does not exist is a promise the page cannot keep.
+ * The file menu holds the export actions (#210) and 清空. Each export asks the
+ * editor for its JSON, hands it to the pure writer in `core/`, and downloads the
+ * bytes under the name `core/naming.ts` derives. There is no filename field: the
+ * document names itself, which is the rule #205 settled. Import arrives in its
+ * own slice (#211) and the save status in #209.
  */
 
 /** Commands that read as on/off at the cursor; the rest are one-shot actions. */
@@ -45,6 +50,12 @@ const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
   "code-block",
 ]);
 
+/** What each export is called in the menu, and the bytes it writes. */
+const EXPORTS: readonly { format: ExportFormat; label: string; icon: string }[] = [
+  { format: "markdown", icon: "icon-[ph--markdown-logo-bold]", label: "导出 Markdown" },
+  { format: "html", icon: "icon-[ph--file-html-bold]", label: "导出 HTML" },
+];
+
 /** A hairline between two groups of controls. */
 function Separator() {
   return <span aria-hidden className="h-6 w-px shrink-0 bg-border" />;
@@ -60,6 +71,32 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
   };
 
   const blockLabel = commandById(state.block).label;
+
+  /**
+   * Download the document in one format.
+   *
+   * The bytes are the pure writer's and the name is the naming rule's; this
+   * function only turns them into a download. The blob URL is revoked on the
+   * next task rather than immediately, because the browser has to have taken the
+   * bytes before the URL goes away, and an empty file is the one failure a
+   * download cannot retry.
+   */
+  const download = (format: ExportFormat) => {
+    const json = editor.getJSON();
+    const contents = format === "markdown" ? markdownFromDocument(json) : htmlFromDocument(json);
+    const type = format === "markdown" ? "text/markdown;charset=utf-8" : "text/html;charset=utf-8";
+    const url = URL.createObjectURL(new Blob([contents], { type }));
+    const link = document.createElement("a");
+
+    link.download = exportFileName(json, format, new Date());
+    link.href = url;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 0);
+  };
 
   const toggle = (command: CommandSpec) => (
     <CommandToggle
@@ -182,15 +219,31 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
               <span aria-hidden className="icon icon-[ph--folder-simple-bold]" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-40 p-1">
+          <PopoverContent align="end" className="w-48 p-1">
+            {EXPORTS.map((item) => (
+              <Button
+                className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
+                key={item.format}
+                onClick={() => {
+                  download(item.format);
+                  setFileOpen(false);
+                }}
+                variant="ghost"
+              >
+                <span aria-hidden className={`icon ${item.icon}`} />
+                {item.label}
+              </Button>
+            ))}
+            <span aria-hidden className="my-1 block h-px bg-border" />
             <Button
-              className="touch-target h-11 w-full justify-start px-3 text-sm font-normal"
+              className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
               onClick={() => {
                 runCommand(editor, "clear");
                 setFileOpen(false);
               }}
               variant="ghost"
             >
+              <span aria-hidden className="icon icon-[ph--trash-bold]" />
               清空
             </Button>
           </PopoverContent>

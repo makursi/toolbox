@@ -7,7 +7,15 @@ import {
   open as openImageToPdf,
   transparentPng,
 } from "./image-to-pdf-page";
-import { open as openRichTextEditor, writeInBody } from "./rich-text-editor-page";
+import {
+  downloadFromFileMenu,
+  open as openRichTextEditor,
+  pressAt,
+  selectBodyText,
+  toolbarControl,
+  writeInBody,
+  writeInTitle,
+} from "./rich-text-editor-page";
 import { convertInEveryFormat } from "./tool-page";
 
 /**
@@ -135,12 +143,15 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
 });
 
 /**
- * The Rich Text Editor's page, held to the same rule (#206).
+ * The Rich Text Editor's page, held to the same rule (#206, extended by #210).
  *
- * Typing is the whole of the page's behaviour in this slice, and it is what the
- * listener watches: the editor is a third-party tree mounted into this document, so
- * the question is whether it brings anything with it. Later slices drive their own
- * behaviour through this same test when they land.
+ * Typing is the page's behaviour, and since #210 so is exporting: the editor is a
+ * third-party tree mounted into this document, and the export builds a blob and
+ * hands it to the browser's downloader. The run therefore types, selects and
+ * formats, and downloads both formats before it asserts — a page that asked a
+ * server for anything would have to do it on one of those paths, and the export
+ * is the one that could plausibly want to. Import and autosave extend this same
+ * test when their slices land.
  */
 test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
   page,
@@ -149,8 +160,17 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   const watched = watch(page, originOf(baseURL));
 
   await openRichTextEditor(page);
+  await writeInTitle(page, "本地文档");
   await writeInBody(page, "写一句，看看这一页会不会向外请求。");
   await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("写一句");
+
+  await selectBodyText(page);
+  await pressAt(page, toolbarControl(page, "加粗"));
+
+  // The path is awaited, not only the download event: a download that never
+  // finished would have exercised the click and not the bytes.
+  expect(await (await downloadFromFileMenu(page, "导出 Markdown")).path()).not.toBeNull();
+  expect(await (await downloadFromFileMenu(page, "导出 HTML")).path()).not.toBeNull();
 
   expect(watched.offSite, "requests off this origin").toEqual([]);
   expect(watched.noise, "console errors and warnings").toEqual([]);

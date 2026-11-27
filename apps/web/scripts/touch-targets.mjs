@@ -291,8 +291,9 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206) with its toolbar (#207) and the two surfaces
-     * that only exist while something is being done to the document (#208).
+     * The fourth Tool's page (#206) with its toolbar (#207), the two surfaces that
+     * only exist while something is being done to the document (#208), and its
+     * exports (#210).
      *
      * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
      * area is the whole 720px reading measure, and an overlay across it would sit on
@@ -304,11 +305,14 @@ const PAGES = [
      * Every toolbar control carries the class on its own `<button>` and is named:
      * the icon-only ones by `aria-label`, the block menu by `块类型：<current block>`
      * (the declared name is the stable prefix), and the file menu by `文件`. The
-     * block menu's items, the link field and 清空 live in popovers, so they only
-     * exist once a control is pressed; the gate covers them, and this Instrument
-     * declares only what is on the page without opening anything. The two
-     * placeholders are painted `::before` sentences, so they are not controls and
-     * no name here can reach them.
+     * block menu's items, the link field, 导出 Markdown, 导出 HTML and 清空 live in
+     * popovers, so they only exist once a control is pressed; the gate opens the
+     * file menu, presses each export at its coordinates and reads the downloaded
+     * bytes back. This Instrument still declares only what is on the page without
+     * opening anything, which is #210's sanctioned fallback: a declared name that
+     * cannot be found in the state the page is measured in would be a failure
+     * rather than coverage. The two placeholders are painted `::before` sentences,
+     * so they are not controls and no name here can reach them.
      *
      * #208's two surfaces are transient in the same way and are declared the same
      * way: the slash menu exists only between typing `/` and applying a row, and the
@@ -318,9 +322,9 @@ const PAGES = [
      * buttons, and the gate presses them at their coordinates; nothing here names
      * them, because a name in this list is a control that must be there on load.
      *
-     * The save status and the rest of the file menu arrive with #209-#212, and each
-     * declares its own controls in its own ticket; this page declares only what
-     * exists today. `outgoing` is the whole document: this page has one layer.
+     * The save status and the rest of the file menu arrive with #209 and #211, and
+     * each declares its own controls in its own ticket; this page declares only
+     * what exists today. `outgoing` is the whole document: this page has one layer.
      */
     controls: [
       "切换到",
