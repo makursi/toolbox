@@ -29,6 +29,23 @@ const heading = (level: number, ...content: JSONContent[]): JSONContent => ({
 
 const documentOf = (...content: JSONContent[]): JSONContent => ({ content, type: "doc" });
 
+/** The source an image node carries: a `data:` URL, for the reason the page has none. */
+const IMAGE_SRC = "data:image/png;base64,iVBORw0KGgo=";
+
+const image = (attrs: Record<string, unknown> = {}): JSONContent => ({
+  attrs: { alt: "", src: IMAGE_SRC, width: 100, ...attrs },
+  type: "image",
+});
+
+const cell = (type: "tableCell" | "tableHeader", ...content: JSONContent[]): JSONContent => ({
+  content,
+  type,
+});
+
+const row = (...cells: JSONContent[]): JSONContent => ({ content: cells, type: "tableRow" });
+
+const table = (...rows: JSONContent[]): JSONContent => ({ content: rows, type: "table" });
+
 describe("the standalone HTML writer", () => {
   it("writes a complete document that carries everything it needs", () => {
     const html = htmlFromDocument(documentOf(heading(1, text("标题")), paragraph(text("正文"))));
@@ -157,5 +174,94 @@ describe("the standalone HTML writer", () => {
     expect(html).not.toContain("<link");
     expect(html).not.toContain("@import");
     expect(html).not.toContain("src=");
+  });
+
+  it("writes an image as an img carrying its bytes, its alt and the width the document keeps", () => {
+    const html = htmlFromDocument(documentOf(image({ alt: "照片", width: 50 })));
+
+    expect(html).toContain(`<img src="${IMAGE_SRC}" alt="照片" style="width: 50%">`);
+    // The width is dropped from the Markdown file only; this one carries it.
+    expect(html).toContain('style="width: 50%"');
+  });
+
+  it("defaults an image's width to the measure and keeps an empty alt empty", () => {
+    const html = htmlFromDocument(documentOf(image()));
+
+    expect(html).toContain(`<img src="${IMAGE_SRC}" alt="" style="width: 100%">`);
+  });
+
+  it("escapes an alt text and a source so neither can break the document", () => {
+    const html = htmlFromDocument(
+      documentOf(image({ alt: '他说"你好" & <b>', src: `data:image/png;base64,a"b&c` })),
+    );
+
+    expect(html).toContain(
+      '<img src="data:image/png;base64,a&quot;b&amp;c" alt="他说&quot;你好&quot; &amp; &lt;b&gt;"',
+    );
+  });
+
+  it("writes a semantic table with a header row and a body row", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        table(
+          row(
+            cell("tableHeader", paragraph(text("名称"))),
+            cell("tableHeader", paragraph(text("数量"))),
+          ),
+          row(cell("tableCell", paragraph(text("甲"))), cell("tableCell", paragraph(text("1")))),
+        ),
+      ),
+    );
+
+    expect(html).toContain(
+      [
+        "<table>",
+        "<thead>",
+        "<tr>",
+        "<th>名称</th>",
+        "<th>数量</th>",
+        "</tr>",
+        "</thead>",
+        "<tbody>",
+        "<tr>",
+        "<td>甲</td>",
+        "<td>1</td>",
+        "</tr>",
+        "</tbody>",
+        "</table>",
+      ].join("\n"),
+    );
+    expect(html.match(/<th>/gu)).toHaveLength(2);
+  });
+
+  it("escapes a cell's text, so a cell that mentions a tag is text", () => {
+    const html = htmlFromDocument(
+      documentOf(table(row(cell("tableHeader", paragraph(text("<b>不是标签</b>")))))),
+    );
+
+    expect(html).toContain("<th>&lt;b&gt;不是标签&lt;/b&gt;</th>");
+  });
+
+  it("keeps both an image and a table inside the one complete document", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        heading(1, text("图文")),
+        image({ alt: "照片" }),
+        table(
+          row(
+            cell("tableHeader", paragraph(text("名称"))),
+            cell("tableHeader", paragraph(text("数量"))),
+          ),
+          row(cell("tableCell", paragraph(text("甲"))), cell("tableCell", paragraph(text("1")))),
+        ),
+      ),
+    );
+
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain("<title>图文</title>");
+    expect(html).toContain(`<img src="${IMAGE_SRC}" alt="照片" style="width: 100%">`);
+    expect(html).toContain("<th>名称</th>");
+    expect(html).toContain("<td>1</td>");
+    expect(html.trimEnd().endsWith("</html>")).toBe(true);
   });
 });

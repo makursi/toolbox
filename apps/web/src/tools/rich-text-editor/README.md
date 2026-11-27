@@ -61,7 +61,10 @@ underline as the one inline HTML construct, or a complete standalone HTML docume
 with a doctype, a charset, the document's title and an embedded stylesheet. The file
 is named from the sanitised title and today's date, falling back to 文档-YYYY-MM-DD
 when the document has no title. There is no filename field: the document names
-itself.
+itself. Since #219 both formats also carry an image and a table: Markdown writes
+`![alt](data:…)` and a GFM pipe table, HTML writes `<img src="data:…">` with the
+width and a semantic `<table>`, and the image's width is the one thing only Markdown
+has to drop.
 
 Everything the three surfaces can do comes from one table in the Tool's pure core
 (`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
@@ -348,9 +351,11 @@ record: the schema version, the timestamp and the ProseMirror document, with mal
 values refused. The Markdown writer: headings, both kinds of list and their nesting,
 task items and their checked state, quotes, fenced code with its language and backtick
 growth, rules, every mark with underline as inline HTML, links, hard breaks, escaping,
-and the empty document's empty string. The standalone-HTML writer: doctype, charset,
-title, embedded stylesheet, every block and mark, escaping, and both fallbacks. The
-filename rule: title, date padding, invalid characters, the 40-character cap and the
+an image as `![alt](data:…)` with its width dropped, a GFM pipe table with its header
+row and its pipe-escaping, and the empty document's empty string. The standalone-HTML
+writer: doctype, charset, title, embedded stylesheet, every block and mark, escaping,
+both fallbacks, and an image that carries its width and a semantic table. The filename
+rule: title, date padding, invalid characters, the 40-character cap and the
 empty-title fallback. The document's title and emptiness: the first heading wins, and
 the import's question counts text and a rule but not empty blocks or whitespace. The
 import format rule: the two extensions, the extension beating the content, the
@@ -458,6 +463,10 @@ here re-runs it.
       `<title>-YYYY-MM-DD.html`.
 - [ ] **▣** An untitled document's exports are named `文档-YYYY-MM-DD.<ext>`, and the
       HTML file's `<title>` is 无标题.
+- [ ] **▣** A document holding an image and a table exports in both formats: the
+      Markdown file inlines the image and writes the table as GFM pipes, the HTML
+      file carries the image's width and a semantic `<table>`, and the width is the
+      one thing the Markdown file drops.
 - [ ] **▣** 导入 a Markdown file through the file menu produces the fixture's
       headings, paragraph and its marks, nested lists, checked and unchecked task
       items, quote, fenced code with its language, link and rule; the imported
