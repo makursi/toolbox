@@ -885,6 +885,45 @@ test("an image and a table export in both formats, with the width only in the HT
 });
 
 /**
+ * A table picked while the image is still selected keeps the image (#216/#217).
+ *
+ * The image insert deliberately leaves a `NodeSelection` on the picture — that is how
+ * a second insert appends — and the table insert used to run the plain command, which
+ * treats that selection as content to replace: the picture vanished and the export
+ * carried nothing but the grid. So this case presses nothing on the canvas between
+ * the two inserts, and reads the document back through both exports: the blocks
+ * survive on screen, and the files prove they are the same document.
+ *
+ * It is the small, direct version of the export case above; that one is about the two
+ * writers, and this one is about the selection the picker inherits.
+ */
+test("a table inserted while the image is still selected keeps both blocks", async ({ page }) => {
+  await open(page);
+  await writeInTitle(page, "图文并存");
+  await writeInBody(page, "一段正文。");
+
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  // No press between the insert and the picker: the picture is still the selection,
+  // which is the state in which the table insert used to replace it.
+  await insertTableOfSize(page, 2, 2);
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(canvas(page).locator("table")).toHaveCount(1);
+
+  const markdown = await readDownload(await downloadFromFileMenu(page, "导出 Markdown"));
+  expect(markdown).toContain("![照片](data:image/png;base64,");
+  expect(markdown).toContain("|  |  |");
+  expect(markdown).toContain("| --- | --- |");
+
+  const standalone = await readDownload(await downloadFromFileMenu(page, "导出 HTML"));
+  expect(standalone).toContain('<img src="data:image/png;base64,');
+  expect(standalone).toContain('alt="照片"');
+  expect(standalone).toContain("<table>");
+  expect(standalone).toContain("<thead>");
+});
+
+/**
  * The import, driven the way a visitor drives it (#211).
  *
  * The file goes in through the file menu's 导入 row, and the document is judged

@@ -1,4 +1,3 @@
-import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 
 import {
@@ -10,6 +9,7 @@ import {
   type ImageRefusal,
 } from "../core/admission";
 import { DEFAULT_IMAGE_WIDTH } from "./image-extension";
+import { insertionPointAfterSelectedNode } from "./insertion-point";
 
 /**
  * The one insert three paths share, and the one replacement the image panel's 替换
@@ -157,42 +157,24 @@ export async function insertImageFile(editor: Editor, file: File): Promise<Image
   const attrs = { alt: altFromName(file.name), src: result.src, width: DEFAULT_IMAGE_WIDTH };
 
   /*
-   * Where the picture goes depends on what the selection *is*, and this is the trap
-   * that made ten dropped images leave one.
+   * A selected image is a `NodeSelection`, and inserting over it would replace the
+   * picture the visitor is standing on: that is the trap that made ten dropped images
+   * leave one, and `insertionPointAfterSelectedNode` answers the point after that node
+   * instead. `null` is a caret or a run of text — there `setImage` is the extension's
+   * own one-node insert, and the selection is where the visitor wants the picture.
+   * The reasoning, and the two defects it comes from, is that module's.
    *
-   * An image is an atom, block-level node, so clicking one selects the node itself:
-   * the selection becomes a `NodeSelection` on it. `setImage` is `insertContent`,
-   * and inserting over a non-empty selection replaces that selection — so a second
-   * `setImage` while the first image is selected deletes the first image and puts
-   * the second one in its place. Every insert after the initial one therefore
-   * disagreed with the document's own limit (ten images) while looking, on screen,
-   * like nothing happened.
-   *
-   * A `NodeSelection` is not content to replace here: it is the picture the visitor
-   * is standing on, and the insert belongs after it. `insertContentAt(selection.to,
-   * …)` is an insertion point at the node's end rather than over it, so the document
-   * grows instead of swapping one picture for another. Its `updateSelection` step then
-   * puts the selection at the end of what was inserted — a caret in the following
-   * block when there is one — which is why the next insert appends too. The position
-   * is at document level because the node is block-level: there is no paragraph to
-   * insert into, and ProseMirror puts the node between its siblings.
-   *
-   * The other selection — a caret or a run of text — goes through `setImage` as
-   * before: there the selection is where the visitor wants the picture, and
-   * `setImage` is the extension's own one-node insert. Both expressions are inside
-   * this one function so the toolbar, a drop, a paste and #218's replacement keep
-   * sharing one admission and one insert; a second insert path is where this
-   * distinction would get lost.
-   *
-   * #218's 替换 is the other side of the same distinction: it is the one caller that
-   * deliberately rewrites the selected node instead of appending after it, because
-   * replacing the picture the visitor is standing on is exactly what it is for.
+   * Both expressions are inside this one function so the toolbar, a drop, a paste and
+   * #218's replacement keep sharing one admission and one insert; a second insert path
+   * is where this distinction would get lost. #218's 替换 is the other side of the
+   * same distinction: it deliberately rewrites the selected node instead of appending
+   * after it, because replacing the picture the visitor is standing on is its point.
    */
-  const { selection } = editor.state;
+  const insertionPoint = insertionPointAfterSelectedNode(editor);
   const insert =
-    selection instanceof NodeSelection
-      ? editor.chain().focus().insertContentAt(selection.to, { attrs, type: "image" })
-      : editor.chain().focus().setImage(attrs);
+    insertionPoint === null
+      ? editor.chain().focus().setImage(attrs)
+      : editor.chain().focus().insertContentAt(insertionPoint, { attrs, type: "image" });
 
   insert.run();
 

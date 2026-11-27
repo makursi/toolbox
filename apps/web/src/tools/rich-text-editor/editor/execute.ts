@@ -1,7 +1,9 @@
+import { createTable } from "@tiptap/extension-table";
 import type { Editor } from "@tiptap/react";
 
 import type { CommandId } from "../core/commands";
 import type { TableOperationId, TableSize } from "../core/table";
+import { insertionPointAfterSelectedNode } from "./insertion-point";
 
 /**
  * What each command of the table does, as one TipTap chain.
@@ -104,12 +106,33 @@ export function runCommand(editor: Editor, id: CommandId): boolean {
  * first row is a header because both writers treat the first row as the header row
  * (#219/#220) and the spec gives no cell styling with which to mark one later.
  *
+ * Where the table goes is `insertionPointAfterSelectedNode`'s question, and the
+ * answer is what #217's own gate case taught: an image insert leaves that image
+ * selected (#216's transaction, deliberately, because it is how the next insert
+ * appends), and `insertTable` replaces whatever the selection is — so a table picked
+ * while the image was still selected replaced the picture and the export carried a
+ * table with no image. A selected node therefore gets `insertContentAt` with the
+ * extension's own `createTable`, which inserts *after* it; a caret or a range keeps
+ * the plain command, because there the selection is where the visitor wants the grid
+ * and replacing it is the ordinary insert. Both surfaces benefit: the picker reaches
+ * this function with the image still selected, and the slash menu reaches it after
+ * deleting its `/query` range, which leaves a caret.
+ *
  * The extension is configured with `resizable: false` in `RichTextEditor.tsx`: the
  * spec excludes column widths and free drag-to-resize, so the grid this inserts is
  * fixed.
  */
 export function insertTable(editor: Editor, { columns, rows }: TableSize): void {
-  editor.chain().focus().insertTable({ cols: columns, rows, withHeaderRow: true }).run();
+  const insertionPoint = insertionPointAfterSelectedNode(editor);
+  const insert =
+    insertionPoint === null
+      ? editor.chain().focus().insertTable({ cols: columns, rows, withHeaderRow: true })
+      : editor
+          .chain()
+          .focus()
+          .insertContentAt(insertionPoint, createTable(editor.schema, rows, columns, true));
+
+  insert.run();
 }
 
 /**
