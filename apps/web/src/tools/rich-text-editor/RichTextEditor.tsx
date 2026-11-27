@@ -15,8 +15,14 @@ import { EMPTY_DOCUMENT } from "./core/document";
 import { sanitizeHtml } from "./core/html-import";
 import type { SaveStatus } from "./core/save";
 import { ImageNode } from "./editor/image-extension";
-import { imageFiles, insertImageFile } from "./editor/insert-image";
+import {
+  imageFiles,
+  insertImageFile,
+  replaceImageFile,
+  type ImageReplacement,
+} from "./editor/insert-image";
 import { useDraft } from "./hooks/use-draft/use-draft";
+import { ImagePanel } from "./image-panel/image-panel";
 import { SelectionToolbar } from "./selection-toolbar/selection-toolbar";
 import { SlashMenuExtension } from "./slash-menu/slash-menu-extension";
 import { EditorToolbar } from "./toolbar/toolbar";
@@ -108,9 +114,11 @@ const EDITOR_CLASS = [
    * for a document that arrives from elsewhere (#220) with a width the node's clamp
    * never saw. `height: auto` keeps a percentage width from squashing the picture.
    *
-   * A selected image is what #218's panel will attach to, and the panel does not
-   * exist yet, so the selection has to be visible on its own: the ring is the site's
-   * focus colour, drawn outside the picture rather than as a border inside it.
+   * A selected image draws a ring, and it keeps drawing one now that #218's panel
+   * exists: the panel is placed away from the picture so it never covers it, and a
+   * selected picture with no mark on it would leave the visitor guessing which of
+   * several images the bar belongs to. The ring is the site's focus colour, drawn
+   * outside the picture rather than as a border inside it.
    */
   "[&_img]:my-4 [&_img]:block [&_img]:mx-auto [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md",
   "[&_img.ProseMirror-selectednode]:ring-2 [&_img.ProseMirror-selectednode]:ring-ring [&_img.ProseMirror-selectednode]:ring-offset-2 [&_img.ProseMirror-selectednode]:ring-offset-background",
@@ -423,6 +431,24 @@ function EditorSurface({
   }, [insertImage]);
 
   /*
+   * 替换 in the image panel (#218).
+   *
+   * The panel's own control, the same read-and-admit path as the insert, and the same
+   * answer: a kept file clears the sentence the last refusal left, a refused one
+   * paints its rule's sentence between the toolbar and the canvas. The difference
+   * from `insertImage` is only which image the file lands on, and that is
+   * `editor/insert-image.ts`'s — this callback owns the answer, not the rule.
+   */
+  const replaceImage = useCallback(
+    (image: ImageReplacement, file: File) => {
+      if (editor === null) return;
+
+      void replaceImageFile(editor, image, file).then(setImageRefusal, () => setImageRefusal(null));
+    },
+    [editor],
+  );
+
+  /*
    * 清空 empties the canvas and the stored draft together.
    *
    * `emitUpdate: false` is what keeps the clear from scheduling a save of the empty
@@ -499,9 +525,12 @@ function EditorSurface({
            * The selection toolbar is a fixed-position row placed from the
            * selection's own rectangle, so its place in this tree is only where it
            * is rendered: nothing about it is drawn between the toolbar and the
-           * canvas.
+           * canvas. The image panel (#218) is the other selection surface: it is
+           * drawn only while the selection is an image, and it is placed from the
+           * picture's own box, so it sits here for the same reason.
            */}
           <SelectionToolbar editor={editor} />
+          <ImagePanel editor={editor} onReplaceImage={replaceImage} />
         </>
       )}
 

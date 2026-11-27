@@ -1,13 +1,14 @@
 "use client";
 
 import { useEditorState, type Editor } from "@tiptap/react";
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { CommandToggle } from "../command-toggle/command-toggle";
 import { commandsInGroup } from "../core/commands";
 import { SELECTION_TOOLBAR_LABEL } from "../core/copy";
 import { runCommand } from "../editor/execute";
 import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
+import { useViewportReposition } from "../hooks/use-viewport-reposition/use-viewport-reposition";
 import { LinkControl } from "../link-control/link-control";
 
 /**
@@ -79,44 +80,14 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
   const [box, setBox] = useState({ height: 0, width: 0 });
 
   /*
-   * A forced re-render, and the value is never read: the row's position is derived
-   * from the editor's viewport coordinates on every render, so a scroll or a resize
-   * has to render again. `redraw` is the only half of the tuple this file uses,
-   * which is why it is named here rather than left as an anonymous discard.
+   * The row is `position: fixed`, so the page scrolling moves the words out from under
+   * it and the placement has to follow: scrolling and resizing only recompute, they
+   * never animate. The listener — a passive document `scroll` with capture, coalesced
+   * to one render a frame — is `hooks/use-viewport-reposition`, because the image
+   * panel (#218) needs exactly the same signal and a second copy would be a second
+   * place for the frame rule to drift.
    */
-  const [, redraw] = useReducer((count: number) => count + 1, 0);
-
-  useEffect(() => {
-    if (!visible) return undefined;
-
-    let frame = 0;
-    const schedule = () => {
-      if (frame !== 0) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        redraw();
-      });
-    };
-
-    /*
-     * The row is `position: fixed`, so the page scrolling moves the words out from
-     * under it and the placement has to follow. `apps/web/docs/design/motion.md`
-     * forbids `window.addEventListener("scroll")` because that is how a
-     * scroll-driven animation sneaks in; this listener drives no animation — it is
-     * `passive`, it coalesces every scroll in a frame into one render, and it
-     * listens on the document, which is this page's scroll container (the canvas
-     * has no scroller of its own), with capture so a scrolling region inside the
-     * page is seen too. `resize` is the same recomputation for the other input.
-     */
-    document.addEventListener("scroll", schedule, { capture: true, passive: true });
-    window.addEventListener("resize", schedule, { passive: true });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("scroll", schedule, { capture: true });
-      window.removeEventListener("resize", schedule);
-    };
-  }, [visible]);
+  useViewportReposition(visible);
 
   useLayoutEffect(() => {
     if (!visible) return;
