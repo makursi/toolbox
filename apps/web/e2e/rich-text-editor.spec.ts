@@ -1233,12 +1233,16 @@ test("the slash menu lists 图片, and applying it opens the same insert", async
 /**
  * The image panel (#218): the four controls an image gets while it is selected.
  *
- * Every case starts by pressing the picture, because that is how a visitor selects
- * one and the panel exists only in that state. What is asserted is the document's
- * own answer — the `style` the image is drawn with, the `alt` a screen reader reads,
- * whether the node is still there, and the JSON the draft stores — never the panel's
- * internals. The panel is transient, so the hit-area Instrument does not declare it;
- * these presses at coordinates are what proves its controls are reachable.
+ * The panel exists only while the selection is an image, and the insert is itself a
+ * way into that state: the insert leaves the picture selected (#216's transaction,
+ * deliberately, so a second insert appends), so the first case starts on the panel
+ * the visitor is already looking at and then takes the selection away. The other
+ * cases press the picture, because that is how a visitor selects one later. What is
+ * asserted is the document's own answer — the `style` the image is drawn with, the
+ * `alt` a screen reader reads, whether the node is still there, and the JSON the
+ * draft stores — never the panel's internals. The panel is transient, so the hit-area
+ * Instrument does not declare it; these presses at coordinates are what proves its
+ * controls are reachable.
  */
 test("selecting an image shows the panel, and a text selection hides it", async ({ page }) => {
   await open(page);
@@ -1246,8 +1250,21 @@ test("selecting an image shows the panel, and a text selection hides it", async 
   await insertImageFromToolbar(page, pngFile("面板.png"));
 
   await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  // The insert leaves the picture selected, so the panel is already the state the
+  // visitor is in. Asserting that is the honest premise: the picture on screen is the
+  // one the panel is drawn for, and a case that waited for it to be hidden here would
+  // be asserting a state the page never reaches.
+  await expect(imagePanel(page)).toBeVisible();
+
+  // A caret somewhere else is no longer an image selection, and the panel is gone
+  // rather than hidden: a row of invisible buttons is a row of targets that answer
+  // nowhere.
+  await titleBlock(page).click();
   await expect(imagePanel(page)).toHaveCount(0);
 
+  // Pressing the picture again is how a visitor selects one, and the panel comes back
+  // with each control and the width the document holds.
   await selectImage(page);
 
   await expect(imagePanel(page)).toBeVisible();
@@ -1259,12 +1276,6 @@ test("selecting an image shows the panel, and a text selection hides it", async 
   }
   // 100 % is the width a fresh image already has, so its preset says so.
   await expect(widthPreset(page, 100)).toHaveAttribute("aria-pressed", "true");
-
-  // A caret somewhere else is no longer an image selection, and the panel is gone
-  // rather than hidden: a row of invisible buttons is a row of targets that answer
-  // nowhere.
-  await titleBlock(page).click();
-  await expect(imagePanel(page)).toHaveCount(0);
 });
 
 test("each width preset changes the drawn width and the stored width", async ({ page }) => {
