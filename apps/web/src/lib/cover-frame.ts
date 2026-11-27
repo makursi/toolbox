@@ -21,25 +21,25 @@ const cardRatio: ImageSize = { width: 4, height: 3 };
 const cardFloor: ImageSize = { width: 1320, height: 990 };
 
 /**
- * The largest centred box of `ratio` that fits inside `size`.
+ * The largest centred 4:3 frame that fits inside `size`.
  *
  * The derived side is floored, never rounded: this number is the frame the card
  * can actually fill, so a fraction of a pixel is pixels the file does not have.
  * Rounding up would let a 1319-pixel source claim 990 and pass a check written
  * for a 989-pixel frame.
  */
-export function centredFrame(size: ImageSize, ratio: ImageSize = cardRatio): ImageSize {
+export function centredFrame(size: ImageSize): ImageSize {
   if (size.width === 0 || size.height === 0) return { width: 0, height: 0 };
 
-  if (size.width * ratio.height <= size.height * ratio.width) {
+  if (size.width * cardRatio.height <= size.height * cardRatio.width) {
     return {
       width: size.width,
-      height: Math.floor((size.width * ratio.height) / ratio.width),
+      height: Math.floor((size.width * cardRatio.height) / cardRatio.width),
     };
   }
 
   return {
-    width: Math.floor((size.height * ratio.width) / ratio.height),
+    width: Math.floor((size.height * cardRatio.width) / cardRatio.height),
     height: size.height,
   };
 }
@@ -54,7 +54,7 @@ export function centredFrame(size: ImageSize, ratio: ImageSize = cardRatio): Ima
  */
 export function coverFrameRefusal(cover: string, size: ImageSize | null): string | null {
   if (size === null) {
-    return `cover ${cover} has no pixel size this reader can read: its header is not a JPEG, PNG or WebP it knows`;
+    return `cover ${cover} has no readable header: its bytes are not a JPEG, PNG or WebP this reader knows`;
   }
 
   const frame = centredFrame(size);
