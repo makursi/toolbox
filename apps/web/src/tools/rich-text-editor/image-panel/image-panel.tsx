@@ -20,7 +20,7 @@ import {
   placeImagePanel,
   widthPresetLabel,
   type PanelAnchor,
-  type PanelSize,
+  type PanelPlacement,
 } from "../core/image-panel";
 import type { ImageReplacement } from "../editor/insert-image";
 import { useSelectedImage } from "../hooks/use-selected-image/use-selected-image";
@@ -71,9 +71,8 @@ export function ImagePanel({ editor, onReplaceImage }: ImagePanelProps) {
   const image = useSelectedImage(editor);
   const visible = image !== null;
 
-  // The row's own box, measured after it is drawn and before the browser paints it.
   const panelRef = useRef<HTMLElement | null>(null);
-  const [size, setSize] = useState<PanelSize>({ height: 0, width: 0 });
+  const [placement, setPlacement] = useState<PanelPlacement>({ left: 0, top: 0 });
 
   /*
    * The panel is fixed, so scrolling the page moves the picture out from under it and
@@ -83,17 +82,40 @@ export function ImagePanel({ editor, onReplaceImage }: ImagePanelProps) {
    */
   useViewportReposition(visible);
 
+  /*
+   * Two passes, and both of them after the commit rather than during the render.
+   *
+   * The first pass draws the bar at the placement the last commit left; this effect
+   * then reads the picture's real box from the DOM, measures the bar's real height
+   * (a wrapped row is two rows on a phone), and places it again — before the browser
+   * paints, so no frame shows it in the wrong place. It runs after *every* commit,
+   * not only when the selection changes, because the picture moves without a
+   * transaction: the refusal sentence above the canvas pushes it down when it
+   * appears and lets it back up when a kept file clears it, and a bar placed from
+   * the render's stale box would be left sitting on the picture. The render-time
+   * reading is the one thing this deliberately does not do.
+   *
+   * `setPlacement` compares before storing, so the extra pass is one render and the
+   * effect settles instead of looping.
+   */
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- no list on purpose: the picture moves without any of these values changing (see above), and the equality guard is what ends the chain the rule warns about
   useLayoutEffect(() => {
-    if (!visible) return;
-
     const node = panelRef.current;
-    if (node === null) return;
+    if (image === null || node === null) return;
 
-    const measured = { height: node.offsetHeight, width: node.offsetWidth };
-    setSize((current) =>
-      current.height === measured.height && current.width === measured.width ? current : measured,
+    const anchor = imageBox(editor, image.pos);
+    if (anchor === null) return;
+
+    const next = placeImagePanel(
+      anchor,
+      { height: node.offsetHeight, width: node.offsetWidth },
+      { height: window.innerHeight, width: window.innerWidth },
     );
-  }, [visible]);
+
+    setPlacement((current) =>
+      current.left === next.left && current.top === next.top ? current : next,
+    );
+  });
 
   /*
    * The alt popover's field and its open state.
@@ -113,14 +135,6 @@ export function ImagePanel({ editor, onReplaceImage }: ImagePanelProps) {
   // Nothing selected: no surface, and no hooks below this point — the state above is
   // declared before the early return so the hook order never changes.
   if (image === null) return null;
-
-  const anchor = imageBox(editor, image.pos);
-  if (anchor === null) return null;
-
-  const placement = placeImagePanel(anchor, size, {
-    height: window.innerHeight,
-    width: window.innerWidth,
-  });
 
   const applyAlt = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
