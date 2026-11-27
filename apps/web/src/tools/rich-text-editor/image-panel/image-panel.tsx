@@ -1,5 +1,6 @@
 "use client";
 
+import { closeHistory } from "@tiptap/pm/history";
 import type { Editor } from "@tiptap/react";
 import { useLayoutEffect, useId, useRef, useState, type FormEvent } from "react";
 
@@ -152,8 +153,30 @@ export function ImagePanel({ editor, onReplaceImage }: ImagePanelProps) {
     editor.chain().focus().setNodeSelection(image.pos).updateAttributes("image", { width }).run();
   };
 
+  /*
+   * 删除 is the node's own deletion, not the draft's: one transaction that removes
+   * the node, so undo brings the picture back with its bytes, its alt and its width
+   * intact. What it is not is *merged* with the insert that put the picture there:
+   * ProseMirror's history joins two changes into one undo step when they happen
+   * close together and touch adjacent content, and at the gate's pace insert then
+   * 删除 is exactly that pair — one 撤销 went from "image deleted" straight to "no
+   * image at all". `closeHistory` is the expression that was proved to split them:
+   * it resets the history group on this transaction, so the delete is its own event
+   * and one 撤销 stops at the state the visitor sees. Widening `newGroupDelay` was
+   * rejected: it moves the window rather than opening a group and changes every
+   * other control's undo granularity with it.
+   */
   const remove = () => {
-    editor.chain().focus().setNodeSelection(image.pos).deleteSelection().run();
+    editor
+      .chain()
+      .focus()
+      .setNodeSelection(image.pos)
+      .command(({ tr }) => {
+        closeHistory(tr);
+        return true;
+      })
+      .deleteSelection()
+      .run();
   };
 
   return (
@@ -246,9 +269,9 @@ export function ImagePanel({ editor, onReplaceImage }: ImagePanelProps) {
       <span aria-hidden className="mx-0.5 h-6 w-px shrink-0 bg-border" />
 
       {/*
-       * 删除 is the node's own deletion, not the draft's: it is one transaction in the
-       * editor's history, so undo brings the picture back with its bytes, its alt and
-       * its width intact.
+       * 删除 is the node's own deletion, not the draft's, and its own history group:
+       * `remove` above carries the reasoning and the expression that opens the group,
+       * so one 撤销 lands on the image rather than before the insert that made it.
        */}
       <Button className="touch-target h-11 shrink-0 px-3" onClick={remove} variant="ghost">
         {IMAGE_DELETE_LABEL}
