@@ -13,6 +13,7 @@ import type { SaveStatus } from "../core/save";
 import { runCommand } from "../editor/execute";
 import { FileMenu } from "../file-menu/file-menu";
 import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
+import { ImageInsert } from "../image-insert/image-insert";
 import { LinkControl } from "../link-control/link-control";
 import { TableControl } from "../table-control/table-control";
 
@@ -49,6 +50,15 @@ export interface EditorToolbarProps {
   readonly onRetry: () => void;
   /** 清空, which the writing surface routes through the draft store. */
   readonly onClear: () => void;
+  /**
+   * 插入图片: the file the picker returned, handed to the surface's one admission
+   * and one insert (#216). The button and its input live in `ImageInsert`; the
+   * sentence a refusal shows lives beside the canvas, where the drop and paste
+   * paths reach it too.
+   */
+  readonly onInsertImage: (file: File) => void;
+  /** Bumped when the slash menu applies 图片, so the picker opens (#216). */
+  readonly imageRequest: number;
 }
 
 /** Commands that read as on/off at the cursor; the rest are one-shot actions. */
@@ -76,6 +86,8 @@ export function EditorToolbar({
   saveStatus,
   onRetry,
   onClear,
+  onInsertImage,
+  imageRequest,
 }: EditorToolbarProps) {
   const [blockOpen, setBlockOpen] = useState(false);
   const state = useEditorCommandState(editor);
@@ -225,9 +237,18 @@ export function EditorToolbar({
               openRequest={linkRequest}
               pressed={state.pressed.link}
             />
+          ) : command.id === "image" ? (
+            /*
+             * 图片 is interface-shaped like the link: it has a row in the table and
+             * no chain in the executor map, because what it opens is a file input.
+             * This is that input, and the row renders as the button beside it. The
+             * slash menu applies the same row and reaches this input through
+             * `imageRequest`.
+             */
+            <ImageInsert key={command.id} onFile={onInsertImage} openRequest={imageRequest} />
           ) : command.id === "table" ? (
             /*
-             * 表格 is an interface command like 链接: the same button opens the grid
+             * 表格 is the other interface command: the same button opens the grid
              * picker outside a table and the contextual menu inside one (#217). What
              * changes between the two states comes from `state.inTable`, which is the
              * selection's own answer, so the button cannot disagree with the caret.

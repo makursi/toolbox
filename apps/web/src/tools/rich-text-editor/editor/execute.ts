@@ -9,19 +9,23 @@ import type { TableOperationId, TableSize } from "../core/table";
  * The table says what exists; this map says what it does, and it is the only such
  * map: the pinned toolbar, the slash menu and the selection toolbar all run a
  * command through `runCommand`, so a command cannot behave one way in the menu and
- * another on the bar. `Record<Exclude<CommandId, "link" | "table">, ...>` is the
- * exhaustiveness check TipTap's own commands cannot give: adding an id to the table
- * without a line here is a `tsc` error rather than a control that does nothing.
+ * another on the bar. `Record<Exclude<CommandId, "link" | "image" | "table">, ...>`
+ * is the exhaustiveness check TipTap's own commands cannot give: adding an id to
+ * the table without a line here is a `tsc` error rather than a control that does
+ * nothing.
  *
- * 链接 is the first command that is not a chain. Its behaviour is a field, and a
- * field is an interface: the pinned toolbar and the selection toolbar both open the
- * same link control, and `runCommand` answers `false` for it so a caller cannot
- * quietly believe it ran. 表格 is the second (#217): its behaviour is the grid
- * picker in `table-control/table-control.tsx`, and the insert it commits lives
- * below as `insertTable`.
+ * 链接, 图片 and 表格 are the three commands that are not a chain: their behaviour
+ * is an interface, so `runCommand` answers `false` for each and the caller owns
+ * the interface. 链接 is the field the pinned toolbar and the selection toolbar
+ * both open; 图片 is the toolbar's file input, which the slash menu reaches
+ * through the surface that owns it; 表格 is the grid picker in
+ * `table-control/table-control.tsx`, whose chosen size commits through
+ * `insertTable` below. The three are excluded from this map by name, so a fourth
+ * interface command is a `tsc` error until someone decides which exclusion list
+ * it belongs in.
  */
 
-type ExecutedCommandId = Exclude<CommandId, "link" | "table">;
+type ExecutedCommandId = Exclude<CommandId, "link" | "image" | "table">;
 
 const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   undo: (editor) => {
@@ -81,10 +85,11 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
  * Run one command on the editor.
  *
  * `true` means this function ran it. `false` means the command needs an interface
- * of its own — 链接 or 表格 — and the caller is the one that owns that interface.
+ * of its own — 链接, 图片 or 表格 — and the caller is the one that owns that
+ * interface.
  */
 export function runCommand(editor: Editor, id: CommandId): boolean {
-  if (id === "link" || id === "table") return false;
+  if (id === "link" || id === "image" || id === "table") return false;
 
   EXECUTORS[id](editor);
   return true;

@@ -11,8 +11,20 @@ schedules a write 800ms after the last change, and hiding the page writes
 immediately instead of waiting; the toolbar's right end reports 未保存, 保存中,
 已保存到本机, or 保存失败 with a retry. A returning visit opens the stored document
 silently, with no prompt, and 清空 in the file menu empties the canvas and removes
-the stored record. There is no document size limit: a browser refusal to write is
-the only failure.
+the stored record. Text has no size limit: a browser refusal to write is the only
+failure. Images carry their own admission rules (#216), below.
+
+This slice (#216) adds images. 插入图片 in the insert group opens a file picker, and
+a file can also be dropped on the canvas or pasted from the clipboard; all three
+paths go through one admission and one insert. An image is kept as a `data:` URL in
+the document itself — there is no upload service and the CSP draws nothing from
+another origin — so it survives a reload with the draft. JPEG, PNG and WebP up to
+5 MB, GIF up to 2 MB, at most ten images and 40 MB of image bytes per document; a
+file outside those rules is refused with the sentence for the rule it broke. The
+node carries the file's name as its alt text and a percentage width, so the picture
+fills the 720px measure without leaving it. The slash menu lists 图片 and inserts
+through the same path. The image panel (replace, alt text, delete, width presets)
+is the next slice, #218.
 
 This slice (#208) adds the three ways to write without leaving the keyboard. Typing
 `/` at the start of a paragraph opens a menu of the block commands; typing after the
@@ -55,13 +67,15 @@ Everything the three surfaces can do comes from one table in the Tool's pure cor
 (`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
 marks plus the link, and the pinned toolbar all of them. What each command _does_ is
 one executor in `editor/execute.ts`, and that map is typed
-`Record<Exclude<CommandId, "link">, …>`, so a command in the table with no handler is
-a `tsc` error rather than a dead button. 链接 is the one command that is an interface
-rather than a chain: the pinned toolbar and the floating toolbar both open the same
-`link-control/link-control.tsx`. The file menu is the one surface **not** rendered from
-that table and has no rows in it: 导入, the two exports and 清空 are file I/O around
-the document rather than editor commands, and `file-menu/file-menu.tsx` is their one
-home.
+`Record<Exclude<CommandId, "link" | "image" | "table">, …>`, so a command in the
+table with no handler is a `tsc` error rather than a dead button. 链接, 图片 and
+表格 are the three commands that are an interface rather than a chain: the pinned
+toolbar and the floating toolbar both open the same `link-control/link-control.tsx`,
+插入图片 opens the file input beside it, and 表格 opens the grid picker outside a
+table and the contextual row/column menu inside one. The file menu is the one
+surface **not** rendered from that table and has no rows in it: 导入, the two
+exports and 清空 are file I/O around the document rather than editor commands, and
+`file-menu/file-menu.tsx` is their one home.
 
 The Markdown input rules add no extension at all, and that is a checked conclusion
 rather than an omission: every rule #208 names ships with StarterKit, which the Tool
@@ -90,13 +104,19 @@ slash-menu/slash-menu.tsx                the menu itself: rows, arrow keys, Ente
 selection-toolbar/selection-toolbar.tsx  the row that follows a selection: the marks and the link, placed clear of the words
 command-toggle/command-toggle.tsx        one command as a toggle, the pressed state's one appearance and hit area
 link-control/link-control.tsx            the link action's trigger, field, 应用 and 移除
-editor/execute.ts                        what each command does: one executor for all three surfaces
+image-insert/image-insert.tsx            插入图片: the button and the hidden file input it opens
+table-control/table-control.tsx          the 表格 button: the grid picker outside a table, the contextual row/column menu inside one
+editor/execute.ts                        what each command does: one executor for all three surfaces, plus the table's own operations
+editor/image-extension.ts                the image node: base64 allowed, width as a percentage, clamped to the measure
+editor/insert-image.ts                   the one insert the toolbar, a drop and a paste share
 hooks/use-editor-command-state/…         the state at the cursor, read through TipTap's selector
 core/commands.ts                         the one command table, its filters, and the slash menu's subset
+core/table.ts                            the table's rules: the grid's extent, the one-click default, and the seven actions' words
+core/admission.ts                        what an image may be: the sniffed type, the two per-file limits, the count and the total
 core/document.ts                         what an empty document is, whether it says anything, where its title comes from, and the two readers both writers share (code text and heading level)
 core/draft.ts                            the stored record's shape, its schema version and the guard that reads it back
 core/save.ts                             the save-state machine: the 800ms debounce, the flush, the retry and old-revision rejection
-core/copy.ts                             the save-state sentences, the retry label, the disabled history reasons, the two menus' sentences and the import confirmation's
+core/copy.ts                             the save-state sentences, the retry label, the disabled history reasons, the two menus' sentences, the import confirmation's and the four image refusals
 core/markdown.ts                         ProseMirror JSON to GFM
 core/markdown-import.ts                  GFM to ProseMirror JSON
 core/html.ts                             ProseMirror JSON to a complete standalone HTML document
@@ -106,6 +126,8 @@ core/naming.ts                           the export filename rule: sanitised tit
 draft/draft-store.ts                     the hand-written IndexedDB store: open, read, write, remove
 hooks/use-draft/use-draft.ts             the timer, the store and React: silent restore, debounce, flush, retry, clear
 core/__tests__/commands.test.ts          the table's contract in Vitest
+core/__tests__/admission.test.ts         the image rules: each sniff, each limit, the document's count and total
+core/__tests__/table.test.ts             the table's rules: the grid, the default size, the seven actions
 core/__tests__/save.test.ts              the state machine's transitions in Vitest
 core/__tests__/copy.test.ts              the save status's wording, the menu sentences and the punctuation in Vitest
 core/__tests__/draft.test.ts             the stored record's guard in Vitest
@@ -253,7 +275,7 @@ browser and covers the items marked **▣**:
   document and brings the body placeholder back.
 - ▣ The link action sets a link on selected text, reopens with its address prefilled,
   edits it, and removes it.
-- ▣ `/` opens the slash menu with the ten block commands in the table's order, `标题`
+- ▣ `/` opens the slash menu with the twelve block commands in the table's order, `标题`
   filters it to the three headings, the arrow keys move the highlight and Enter
   applies 标题 2, leaves no `/标题` in the document and closes the menu.
 - ▣ Escape closes the slash menu and leaves the slash it opened on as text.
@@ -313,7 +335,7 @@ browser and covers the items marked **▣**:
 `pnpm test` covers the pure layers. The command table: ids are unique, every command
 has a label and keywords, `commandsInGroup` keeps the table's order, `filterCommands`
 matches by keyword and returns the table's order, an empty query returns the whole
-table, and `slashCommands` offers exactly the ten block commands — filtering by the
+table, and `slashCommands` offers exactly the twelve block commands — filtering by the
 same keywords and never reaching a mark, the link or a whole-document command. **The
 table's data is all a unit test can hold**: applying a command is a TipTap chain, and
 TipTap needs a DOM the Node tier does not have, so "the command in force produces this
@@ -397,10 +419,25 @@ here re-runs it.
 - [ ] **▣** A refused write shows 保存失败，草稿还在页面上。 with a visible 重试, and
       pressing 重试 writes the document that failed.
 - [ ] **▣** 链接 sets, edits and removes a link on selected text.
+- [ ] **▣** 插入图片 opens the file picker; the chosen PNG becomes an image node whose
+      `src` is a `data:` URL, whose alt is the file's name, and that fills the
+      measure without overflowing it; a reload brings the same picture back.
+- [ ] **▣** A dropped image and a pasted image file each insert through the same
+      admission and the same insert.
+- [ ] **▣** A file that is not an image, one byte over 5 MB, and an eleventh image
+      are each refused with their own sentence between the toolbar and the canvas,
+      and a file the rules take clears it.
+- [ ] **▣** `/图片` lists 图片 in the slash menu, and Enter opens the same picker.
+- [ ] **▣** 表格 opens the grid picker; choosing 2 rows × 3 columns inserts a 2 × 3
+      table with a header row, and typing in a cell edits that cell.
+- [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each
+      action adds or removes the row, column or table it names; 删除表格 leaves a
+      paragraph to type in.
+- [ ] **▣** `/表格` inserts the documented 3 × 3 table.
 - [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard; a mark
       (`Control+B`), the link (`Control+K`), a heading (`Control+Alt+1`) and a list
       (`Control+Shift+8`) also work from the keyboard.
-- [ ] **▣** `/` opens the slash menu with the ten block commands in the table's
+- [ ] **▣** `/` opens the slash menu with the twelve block commands in the table's
       order; `标题` filters it to three; the arrow keys move the highlighted row and
       Enter applies 标题 2, closes the menu and leaves no `/标题` in the document.
 - [ ] **▣** Escape closes the slash menu and leaves the slash it opened on as text.

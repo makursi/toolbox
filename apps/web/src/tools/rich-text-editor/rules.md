@@ -1,6 +1,6 @@
 # rich-text-editor · 设计规则（工具级）
 
-> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、本地草稿、命令表、键盘、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、导入、导出、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）、#209（本地草稿）、#210（导出与文件名）、#211（导入）、#217（表格）。
+> **管什么**：这个 Tool 自己的设计规则与词汇：页面结构、文档模型、本地草稿、命令表、键盘、工具栏、斜杠菜单、Markdown 输入规则、浮动工具栏、导入、导出、占位符、可访问名与命中区。**只约束 rich-text-editor；站点级规则**（外壳、设计语言、CSP、门禁量具、Tool 契约）在 `apps/web/docs/design.md` 与 `apps/web/docs/design/`，两者不互相重复。站点文档只装站点级规则，一个工具的私有规则住在这里，见 `docs/adr/0014-tool-scoped-rules-live-with-the-tool.md`。**和它一起读**：`README.md`（怎么工作、手工清单）、`docs/agents/design-notes.md`（这棵树为什么这样长）、issue #205（spec）、#206（画布）、#207（工具栏与命令表）、#208（斜杠菜单、输入规则、浮动工具栏）、#209（本地草稿）、#210（导出与文件名）、#211（导入）、#216（图片）、#217（表格）。
 
 ## 词汇
 
@@ -14,7 +14,8 @@
 - **草稿（draft）**：这台浏览器里保存的那一份文档。一个 IndexedDB 数据库、一个对象仓库、一个键下的一条记录，记录里是 schema 版本、ProseMirror JSON 文档与写入时间戳。每台浏览器只有一份，没有文档列表。
 - **保存状态（save status）**：工具栏右端那四个状态：**未保存**（有改动，800ms 的防抖窗口还没关）、**保存中**（写入正在进行）、**已保存到本机**（记录已经提交）、**保存失败**（浏览器拒绝了这次写入，旁边出现「重试」）。状态句来自 `core/copy.ts`。
 - **命令表（command table）**：`core/commands.ts` 里的那一份列表，工具栏、斜杠菜单与浮动工具栏都从它渲染。它只描述命令，不执行命令。
-- **执行表（executor map）**：`editor/execute.ts` 里把每个命令 id 映射到一条 TipTap 链的对象，三个命令面共用它。`Record<Exclude<CommandId, "link" | "table">, ...>` 让「表里有、执行表里没有」成为 `tsc` 错误；链接与表格是两个有界面而没有链的命令：链接由 `link-control/link-control.tsx` 负责，表格由 `table-control/table-control.tsx` 负责。
+- **执行表（executor map）**：`editor/execute.ts` 里把每个命令 id 映射到一条 TipTap 链的对象，三个命令面共用它。`Record<Exclude<CommandId, "link" | "image" | "table">, ...>` 让「表里有、执行表里没有」成为 `tsc` 错误；链接、图片与表格是仅有的三个「有界面而没有链」的命令：链接由 `link-control/link-control.tsx` 的地址框负责，图片由工具栏的文件输入负责，表格由 `table-control/table-control.tsx` 负责。
+- **图片（image）**：文档里的一个块级节点，`src` 是文档自己带着的 `data:` URL，`alt` 是可读名，`width` 是相对 720px 阅读度量的百分比。没有上传、没有 blob 存储、没有 id 间接层：草稿记录就是图片的存储（#215 的 Implementation Decisions）。
 - **表格（table）**：文档里的一个表节点（`@tiptap/extension-table` 的 `TableKit`），由行、表头单元格与单元格组成。它的宽度是内容给的，**没有列宽、没有单元格样式、没有合并单元格、没有公式**，也不可拖动改列宽（`resizable: false`）。插入时第一行是表头行。
 - **网格选择器（grid picker）**：工具栏「表格」按钮打开的浮层，10 × 10 个单元格，指针悬停或键盘聚焦读出 `N 行 × M 列`，按下即提交该行数 × 列数。
 - **表格菜单（table menu）**：光标在表格里时同一个「表格」按钮打开的上下文菜单，七项：上方插入行、下方插入行、左侧插入列、右侧插入列、删除行、删除列、删除表格。两者都是临时浮层，不是常驻控件。
@@ -57,7 +58,7 @@
 - **防抖 800ms**（`SAVE_DEBOUNCE_MS`）：每次改动重置窗口。`visibilitychange` 在 `document.visibilityState === "hidden"` 时**立刻写**，不等窗口关闭；已保存的页面被隐藏时什么都不做，正在写的页面被隐藏时也不并发开第二个写。
 - **失败与重试**：只有浏览器拒绝写入才会到 `failed`。失败句是 `core/copy.ts` 的 `SAVE_STATUS_TEXT.failed`（「保存失败，草稿还在页面上。」），旁边出现「重试」。重试**重放失败的那次操作**：写入失败就用失败时的那份文档，删除失败就再删一次。画布上的内容不因为失败而丢。
 - **清空是删除，不是写空文档**：文件菜单的「清空」用 `setContent(EMPTY_DOCUMENT, { emitUpdate: false })` 换掉画布，并调用 `removeDraft` 删记录。`emitUpdate: false` 防止空文档被当成一次改动而重新写回一条记录；revision 加一让任何在途写入过期；IndexedDB 的事务顺序保证删除排在那次写入之后。所以重新加载后画布和仓库都是空的。
-- **不设文档大小上限**：没有长度、节点数或字节数的检查。唯一的边界是浏览器的配额拒绝，它走 `failed` 那条路。
+- **文字没有大小上限，图片有**：长度、节点数或正文字节数都不设限，唯一的边界是浏览器的配额拒绝，它走 `failed` 那条路。图片另有一套准入规则（见「图片」），因为它比一个字贵几个数量级，而一次失败的插入不该让整份草稿写不进去。
 - **句子在纯层**：四个状态句与「重试」标签都在 `core/copy.ts`，由 Vitest 盯住措辞与标点；工具栏只决定画哪一句。
 
 ## 命令表
@@ -65,20 +66,21 @@
 - `core/commands.ts` 是**编辑器命令的唯一清单**，字段是 `id`、`label`、`group`、`keywords`、`block`、`icon`。`group` 就是工具栏的分组（`history` / `block` / `mark` / `list` / `insert`）；`block` 是命令作用的文档构造（块命令是节点名，行内命令是 mark 名，撤销重做是 `document`）；`keywords` 同时收中文与英文，供斜杠菜单过滤。
 - **文件菜单的四项不在这张表里，这是有意的窄口**：导入与两次导出是围着文档做文件 I/O，不改变文档；清空是草稿仓库的删除，不是 `setContent(EMPTY_DOCUMENT)`，所以它没有一条编辑器链可写。把它们塞进表就得给执行表开第四个例外，而声明「表里的每一行都有执行器」比声明「菜单也渲染表」更值钱——所以在 `file-menu/file-menu.tsx` 里就这一次，`CommandGroup` 里也没有 `file` 这一档，表里更没有一行没人渲染的 `clear`。表曾经有过那一行，它指向第二个 `setContent(EMPTY_DOCUMENT)` 的定义，且用的是默认 update（会把清空当成一次改动写回一条空记录）；那条死定义已经删掉，清空只有「草稿与保存」一节里那一条活的路径。
 - **纯的部分是数据加过滤函数**：`filterCommands(query)` 按 label 与 keywords 做大小写不敏感的子串匹配，空查询返回整张表，命中结果保持表的顺序。`commandsInGroup(group)` 给工具栏按组取命令，同样保持顺序。
-- **执行不是这张表的事**。`editor/execute.ts` 的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<Exclude<CommandId, "link" | "table">, ...>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
+- **执行不是这张表的事**。`editor/execute.ts` 的执行表把 id 映射到一条 TipTap 链（`toggleBold`、`toggleHeading({ level })`、`toggleTaskList`、`setHorizontalRule`……），`Record<Exclude<CommandId, "link" | "image" | "table">, ...>` 让漏掉的命令在 `tsc` 就红，而不是变成一个点不动的按钮。命令**是否真的生效**由浏览器门禁回答，组件自己证明不了。
 - **表的单测只到数据，应用是门禁的**（#207 复审，spec 的那条「each command applied to a document produces the expected document」）：`core/__tests__/commands.test.ts` 盯 id 唯一、label 与 keywords 非空、组内顺序、过滤与斜杠菜单的谓词；**没有一条单测真的把命令作用到文档上**。原因是这一层没有无 DOM 的路：执行器是 TipTap 的链，TipTap 建编辑器要 `document`、`window` 与可编辑元素，而本仓的单测是 Node、无 DOM（`docs/adr/0003-vitest-for-unit-tests.md`）；要在这里跑它就得引 jsdom（新依赖）或在纯层重写一遍 TipTap 的行为（那是第二份实现，不是测试）。所以「命令生效」由门禁按坐标与键盘逐条按出来，纯层只保证表本身没有缺口。
-- **两个命令有界面没有链**：`runCommand` 对它们返回 `false`，调用方知道这个动作要开一个界面。**链接**的界面是地址框（`link-control/link-control.tsx`），工具栏与浮动工具栏都用它；**表格**的界面是网格选择器与表格菜单（`table-control/table-control.tsx`），只有工具栏那一个按钮会打开。两者的区别是界面有几个面：链接有两个入口，表格只有一个。
+- **三个命令有界面没有链**：`runCommand` 对它们返回 `false`，调用方知道这个动作要开一个界面。**链接**的界面是地址框（`link-control/link-control.tsx`），工具栏与浮动工具栏都用它；**图片**的界面是工具栏那个 `sr-only` 的文件输入（`image-insert/image-insert.tsx`），斜杠菜单应用 `图片` 时拿到 `false`，于是把「开选择器」的请求交给画布，由画布转给工具栏；**表格**的界面是网格选择器与表格菜单（`table-control/table-control.tsx`），只有工具栏那一个按钮会打开。三者的区别是界面有几个面：链接与图片都从两个面到达（图片的两个面共用同一个文件输入），表格只有一个。
+- **图片是一次插入动作，不是第六个分组**：它加在 insert 组里 链接 之后（表里 `label` 是 `图片`、`block` 是 `image`），工具栏把它渲染成 `插入图片`（按下去开文件输入），斜杠菜单按同一行列 `图片`。两个名字不同是有意的：斜杠菜单列的是被插入的东西，工具栏按钮说的是按下去会发生什么。表格跟在它后面，是 insert 组的最后一行。
 - **三个命令面从同一张表渲染**：钉住的工具栏、斜杠菜单、浮动工具栏。加一条命令是一处编辑：表里加一行，执行表里加一个 handler；三处不需要各改一次。文件菜单是第四个面**而不**从表渲染，理由在上面那一条。
 
 ## 键盘
 
-- **user story 9 的整套快捷键**：撤销/重做 `Mod-Z` / `Mod-Shift-Z`，五个标记 `Mod-B` / `Mod-I` / `Mod-U` / `Mod-Shift-X` / `Mod-E`，标题 `Mod-Alt-1/2/3`，三个列表 `Mod-Shift-7/8/9`。除了链接之外**全部是 StarterKit 自带的 keymap**（History、Heading、BulletList、OrderedList、TaskList、Underline、Strike、Code），所以这里一条扩展都不加：再加一份就是同一条规则的第二份定义，而版本与默认配置在 `RichTextEditor.tsx` 的注释里。
-- **`Mod-K` 是这一片自己接的那一个**：链接没有链（表格是另一个，但它的界面不是键盘能一步打开的），地址框是 React 的，TipTap 的 keymap 打不开它。`editorProps.handleKeyDown` 先接住 `Mod-K`（`preventDefault`，所以那个 `k` 不会落进文档），把一次请求计数交给工具栏的 `LinkControl`（`openRequest`），由它打开地址框并预填现有的链接；计数而不是布尔值，是为了第二次按还是第二次打开。
+- **user story 9 的整套快捷键**：撤销/重做 `Mod-Z` / `Mod-Shift-Z`，五个标记 `Mod-B` / `Mod-I` / `Mod-U` / `Mod-Shift-X` / `Mod-E`，标题 `Mod-Alt-1/2/3`，三个列表 `Mod-Shift-7/8/9`。除了链接、图片与表格这三个界面命令之外**全部是 StarterKit 自带的 keymap**（History、Heading、BulletList、OrderedList、TaskList、Underline、Strike、Code），所以这里一条扩展都不加：再加一份就是同一条规则的第二份定义，而版本与默认配置在 `RichTextEditor.tsx` 的注释里。
+- **`Mod-K` 是这一片自己接的那一个**：链接没有链（图片与表格也是，但它们的界面不是键盘能一步打开的），地址框是 React 的，TipTap 的 keymap 打不开它。`editorProps.handleKeyDown` 先接住 `Mod-K`（`preventDefault`，所以那个 `k` 不会落进文档），把一次请求计数交给工具栏的 `LinkControl`（`openRequest`），由它打开地址框并预填现有的链接；计数而不是布尔值，是为了第二次按还是第二次打开。
 - 门禁真的按了这些键：`Control+B`、`Control+K`（链接的字段出现、应用后文档里有那个 `a`）、`Control+Alt+1`（标题）与 `Control+Shift+8`（项目符号列表），外加 `Control+Z` / `Control+Shift+Z`。只在工具栏上证明过的快捷键不算证明。
 
 ## 工具栏
 
-- 工具栏从表渲染，不另写一份控件清单：撤销/重做、块类型菜单、五个行内标记、三个列表、五个插入动作（引用、代码块、分隔线、链接、表格），右端是保存状态与文件菜单。
+- 工具栏从表渲染，不另写一份控件清单：撤销/重做、块类型菜单、五个行内标记、三个列表、六个插入动作（引用、代码块、分隔线、链接、插入图片、表格），右端是保存状态与文件菜单。
 - **保存状态在工具栏右端、文件菜单左边**：它是这一行里唯一不靠访客点击就会变的东西，所以和文件菜单一起留在不滚动的 `shrink-0` 区。句子来自纯层的 `SAVE_STATUS_TEXT`，用 `<output>`（隐式 `role="status"`）加 `aria-live="polite"` 播报；`min-w-[6em]` 让「未保存」「保存中」「已保存到本机」之间切换时不把文件菜单推来推去。失败句更长，允许它自己撑宽；「重试」是 44px 的文字按钮，只在失败时存在。
 - **状态来自 `useEditorState`**（`hooks/use-editor-command-state/`）：光标处的 mark、列表、块类型都由编辑器的 state 读出来，组件里没有一份「加粗是不是开着」的副本。`pressed` 是 `Record<CommandId, boolean>`，所以新命令不会悄悄没有状态。这个 hook 也是浮动工具栏读状态的地方，两处不是两份。
 - **会切换的按钮带 `aria-pressed`**：五个行内标记、三个列表、引用与代码块是 Radix 的 `Toggle`，由 `pressed` 控制；读屏读到的是「已按下 / 未按下」，门禁读的也是这个属性。撤销、重做、分隔线、链接是动作按钮，不带 `aria-pressed`。
@@ -92,7 +94,7 @@
 ## 斜杠菜单
 
 - **触发是「段落开头」而不是「句子里」**：`@tiptap/suggestion` 以 `char: "/"`、`startOfLine: true` 配置，`allow` 再收一道口子，只认文档第一层的 `paragraph`。标题块里的 `/` 和嵌套块（列表项、引用里）里的 `/` 都是普通字符。
-- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`、`table`，共十一条）。标记需要选区，链接需要选区加输入框，撤销/重做作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。清空根本不在表里，见「命令表」。**表格是一个例外而不是矛盾**：它也有界面（网格选择器），但斜杠菜单没有第二步，所以它照常列出来，回车时按 `TABLE_DEFAULT_SIZE` 直接插入 3 × 3；命令说的是「来一张表」，界面由哪个面打开决定大小。这条分支在 `slash-menu-extension.ts`，有注释说明它与链接的区别。
+- **它只列块命令**：行来自 `slashCommands(query)`，也就是 `filterCommands(query)` 再按 `block` 字段筛出能「产生一个块」的行（`paragraph`、`heading`、三个列表、`blockquote`、`codeBlock`、`horizontalRule`、`image`、`table`，共十二条）。标记需要选区，链接需要选区加输入框，撤销/重做作用于整份文档，所以它们不进行列；这条谓词写在 `core/commands.ts` 里，不是组件里的第二份清单。清空根本不在表里，见「命令表」。**图片与表格是两个例外而不是矛盾**：两者都有界面（文件输入、网格选择器），但斜杠菜单各用各的方式处理——`图片` 进菜单是因为它产生一个图片节点，选择器由调用方打开（拿到 `false` 后把请求交给画布，再由画布转给工具栏）；`表格` 没有第二步，回车时按 `TABLE_DEFAULT_SIZE` 直接插入 3 × 3。两条分支都在 `slash-menu-extension.ts`，各自的注释说明了自己与链接的区别。
 - **键位**：上下键在行间循环，回车应用（`/query` 先被删掉，命令再作用在那个空块上），Esc 关闭。Esc 是建议插件自己消费的：它先调用组件的 `onKeyDown`，再关闭菜单，所以组件对 Esc 返回 `false`，不重复处理。
 - **空格结束匹配**：`/标题 ` 里的空格让匹配结束、菜单关闭，`/标题` 留在文档里；只有真按了回车，`/query` 才会被当作过滤词删掉。这条是「输入不被吃掉」的实现，门禁里有对应断言。
 - **位置由插件的 `mount` 负责**：它把菜单元素挂到 body，用插件自己的 `clientRect`（光标处的矩形）在下方 4px 处定位，滚动与缩放由 Floating UI 跟随。菜单组件由 `ReactRenderer` 画进那个元素，所以它不在页面自己的 React 树里；键位通过 ref 句柄转进去，光标始终留在文档里。
@@ -105,7 +107,7 @@
 - **同一个按钮是两种界面**：光标在表格里时它打开表格菜单（七项，顺序是上方插入行、下方插入行、左侧插入列、右侧插入列、删除行、删除列、删除表格），否则打开网格选择器。状态来自 `useEditorCommandState` 的 `inTable`（`isActive("table")`），组件里没有「文档里有没有表」的副本；读屏靠 `aria-haspopup` 判断这一刻打开的是什么——表格里是 `menu`，表格外没有这个属性（选择器不是菜单，开合由 `aria-expanded` 说）。动作提交后浮层关闭时**不让焦点回到按钮**（`onCloseAutoFocus` 里按「这次关闭是不是提交」决定），因为每个动作都把焦点送回画布，把光标甩回工具栏会把刚插入的表丢掉；Esc 与点外面仍由 Radix 把焦点还给按钮。
 - **七项走第二张执行表**：`editor/execute.ts` 的 `TABLE_EXECUTORS` 把 `TableOperationId` 映射到 `addRowBefore` / `addRowAfter` / `addColumnBefore` / `addColumnAfter` / `deleteRow` / `deleteColumn` / `deleteTable`，`Record<TableOperationId, ...>` 让菜单多一行却没有动作成为 `tsc` 错误。它们不在命令表里，因为它们只作用于光标所在的表，不是文档级命令，也不从工具栏常驻渲染。
 - **删除表格留下一个段落**：ProseMirror 的 `deleteTable` 只删节点，一个「标题 + 表格」的文档会只剩标题，没有可写的块。所以 `delete-table` 不是一条链，而是「删表，再看文档里还有没有段落，没有就在末尾补一个空段落并把光标放进去」。这一段是动作的一部分而不是修补：验收要的就是删完还能接着写。
-- **斜杠菜单的 3 × 3 走同一个插入**：`表格` 是斜杠菜单里唯一一个「有界面」的行；菜单没有第二步，所以回车时用 `insertTable` 与 `TABLE_DEFAULT_SIZE` 直接插入 3 × 3。命令说「来一张表」，哪个面打开决定大小（见「斜杠菜单」）。
+- **斜杠菜单的 3 × 3 走同一个插入**：`表格` 与 `图片` 是斜杠菜单里仅有的两个「有界面」的行；菜单对他们的处理不同——`图片` 把开选择器的请求交回调用方，而 `表格` 没有第二步，回车时用 `insertTable` 与 `TABLE_DEFAULT_SIZE` 直接插入 3 × 3。命令说「来一张表」，哪个面打开决定大小（见「斜杠菜单」）。
 - **样式在 `EDITOR_CLASS` 里**：表格的 DOM 是扩展自己的 `.tableWrapper` + `<table>`，所以 `EDITOR_CLASS` 让 `.tableWrapper` 横向滚动（宽表不能把 720px 阅读度量撑开），表格用折叠边框与发丝线，表头行用 secondary 表面读成表头，单元格有和画布一致的横向内距；单元格里的段落 `my-0`，否则画布的 `my-2` 会把内距加一倍。没有单元格颜色、对齐或宽度，那是 spec 排除的「cell styling」。
 - **门禁回答「真的生效」，纯层回答「说得对」**：`core/table.ts` 的尺寸、默认值与七项标签由 Vitest 盯住（`core/__tests__/table.test.ts`）；插入 2 × 3 后看到几行几列、在单元格里打字、七项各按一次后的行/列数、删表后还能在段落里接着写、斜杠菜单列出 `表格` 并插入 3 × 3，都由门禁按坐标与键盘按出来（`e2e/rich-text-editor.spec.ts`）。
 - **不在这里的**：合并单元格、公式、列宽、单元格样式、拖拽改宽；表格的导出与导入在 #219 / #220，Markdown 与 HTML 写手目前还不认识表节点。
@@ -146,13 +148,25 @@
 - **Markdown 读成 JSON，HTML 读成消毒过的片段，而这是一处记录在案的偏差**。`#205` 的 Implementation Decisions 说这个工具有一个「import parser for Markdown and HTML」，且「nothing in it touches the DOM」。Markdown 那一半是真的：`core/markdown-import.ts` 不碰 DOM，直接产出 ProseMirror JSON，在 Vitest 的 Node 里用 fixture 测。HTML 那一半**不是**一个纯 JSON 解析器：`core/html-import.ts` 只负责**消毒**并返回 HTML 字符串，最后一步 DOM 解析是 `editor.commands.setContent` 里 TipTap 自己的解析器。**理由**：把 HTML 变成文档要回答的是「这个元素在**当前 schema** 里是什么节点、这个属性是不是这个 mark 的合法 attrs」，而 schema 的唯一权威是 TipTap 的；在纯层再写一份映射就是第二个 schema 知识来源，schema 一改它就悄悄漂移，而这正是本工具一直在防的东西（`EMPTY_DOCUMENT` 与命令表都是同一条道理）。**消毒器负责什么**：它有自己的 tokenizer 与片段解析器（`parseFragment`，不依赖 DOM）、元素与属性的白名单、两种任务列表写法归一、实体解码与再转义，以及「丢掉 `<script>`、样式、`<head>`、图片与 `javascript:` 链接」；这些都有单测（`html-import.test.ts`），所以「HTML 进不来脚本」与「导出的 HTML 能再导入」是纯层的断言。**它不负责什么**：任何 HTML 到 ProseMirror JSON 的映射。**未来若有一条不依赖 DOM 的纯 JSON 路径**：它要自带一份与 TipTap schema 同步的节点/标记表，并且最好由 TipTap 的 schema 生成而不是手抄；在那之前，把消毒器说成解析器只会让这条偏差消失而不是被修好。
 - **Markdown 解析器只认本工具导出的那套 GFM**：标题、段落、嵌套的项目符号/编号/任务列表、引用、带语言的围栏代码块、分隔线、链接、强调、删除线、行内代码，以及导出里唯一的内联 HTML 构造 `<u>`（下划线）。**不认识的语法保持文字**：表格、引用式链接、图片语法、未闭合的强调或链接都不报错、不吞段落；任何输入都不抛异常。
 - 列表按**标记的内容列**嵌套（`- ` 是 2，`1. ` 是 3，`- [ ] ` 是 6），所以导出写出的六格缩进读回来仍是嵌套任务列表；一个列表里只要有一项带 `[ ]` / `[x]`，整张表就是任务列表，其余项读成未勾选（schema 不允许两种 item 混在一张表里）。
-- **HTML 消毒器丢掉的东西**：`<script>`、`<style>`、`<title>`、`<head>` 子树、注释、doctype、事件处理属性、`style` 属性、图片（编辑器没有图片节点）、`javascript:` / `data:` 链接（链接退成文字），以及所有编辑器没有节点或标记的包裹元素（`div`、`section`、`span`、表格……只保留里面的字）。**保留的东西**：标题 1–6、段落、引用、围栏代码块（`pre > code` 的语言类）、分隔线、三种列表、`strong` / `em` / `u` / `s` / `code` / `a href` / `br`。
+- **HTML 消毒器丢掉的东西**：`<script>`、`<style>`、`<title>`、`<head>` 子树、注释、doctype、事件处理属性、`style` 属性、图片（把图片读进文档是 #220 的事；粘贴的图片文件走「图片」一节那条文件路径，不是 HTML 路径）、`javascript:` / `data:` 链接（链接退成文字），以及所有编辑器没有节点或标记的包裹元素（`div`、`section`、`span`、表格……只保留里面的字）。**保留的东西**：标题 1–6、段落、引用、围栏代码块（`pre > code` 的语言类）、分隔线、三种列表、`strong` / `em` / `u` / `s` / `code` / `a href` / `br`。
 - 任务的两种写法都认：导出写的 `<ul class="task-list">` + `<input type=checkbox>`，和编辑器自己的 `ul[data-type=taskList]` + `li[data-type=taskItem][data-checked]`。读回来统一写成编辑器那一种，所以**导出的 HTML 能再导入**。
 - 文本实体在入口解码、在出口转义，所以 `&amp;` 进来是 `&`、出去还是 `&amp;`，不会变成 `&amp;amp;`。
 - **粘贴走同一条消毒**：编辑器在 `editorProps.transformPastedHTML` 里调用 `sanitizeHtml`，ProseMirror 解析之前脚本就没了，而不是指望 schema 去拒绝它。这也是「粘贴的 HTML 被消毒」这条验收的实现。
 - **草稿非空时先问**：`isEmptyDocument`（`core/document.ts`）判断的是「有没有可失去的内容」：任何非空文本、任何 `horizontalRule` 都算；两个空块、空标题、只有空行不算。窗口是一个生成的 `AlertDialog`（`radix-ui` 的 `AlertDialog`，`alert-dialog.tsx`），标题「替换当前文档？」，说明「导入的文件会替换当前文档，取消则保持原样。」，按钮「取消」与「替换」，各 44px 并带 `.touch-target`；这四句在 `core/copy.ts`，由 Vitest 盯住措辞与标点。取消关闭弹窗、文档一个字节都不动，替换才 `setContent`。焦点、Escape 与焦点陷阱由 Radix 负责。
 - **导入的结果是一次普通改动**：`setContent` 默认发出 update，所以 #209 的防抖保存照常工作；导入后的文档可编辑、可继续排版、导出规则完全一样，没有任何「导入模式」标志。
 - 导入与粘贴都**不请求任何 origin**，也不新增依赖；文件读取用 `File.text()`，解析是纯函数。
+
+## 图片
+
+- **图片是文档里的一个节点**（`editor/image-extension.ts`）：`@tiptap/extension-image` 配置成 `allowBase64: true`，否则 `data:` 来源在重新解析时会被丢掉——没有上传服务、CSP 只允许 `img-src 'self'`，所以一张图片只能是文档自己带着的 `data:` URL（#215）。节点带 `src`、`alt` 与 `width`；`width` 是**百分比**（默认 100，钳在 1–100），渲染成 `style="width: 50%"`，解析时认 `style` 与 `width` 属性两种写法。像素宽度被否掉的理由会一直成立：Markdown 没有宽度语法，导出时要丢掉，丢一个百分比不显眼，丢一个像素数则是一句谎。
+- **宽度永远不越过度量**：节点自己钳住上限，画布再用 `[&_img]:max-w-full [&_img]:h-auto` 兜一次（导入的文档可能带着节点没见过的值，#220）。图片是块级、居中、`my-4`；选中的图片画一圈 ring（`.ProseMirror-selectednode`），因为 #218 的面板还没到，选中必须在没有面板时也看得见。
+- **准入是纯层的一条规则**（`core/admission.ts`）：从文件**头 16 字节**嗅类型（JPEG / PNG / WebP / GIF），读的是文件自己声明的 `size`，然后按 JPEG、PNG、WebP ≤ 5 MB、GIF ≤ 2 MB、每份文档最多 10 张、图片总字节 ≤ 40 MB 判。这个模块**不碰 DOM**：输入是「头 16 字节 + 大小」，所以 Node 的单测能驱动每一条规则与每一个边界。总数按 `data:` URL 解出来的**原始字节**算，不是按 base64 长度算——base64 会涨三分之一，而 40 MB 说的是图片。
+- **为什么先看数量再看大小**：文档满了，第十一张无论多小都进不来，先报大小会把访客送去压缩一个仍然放不进去的文件。类型永远第一个问：它不是图片，后两个问题都不成立。
+- **三条路，一次准入、一次插入**（`editor/insert-image.ts`）：工具栏的 `插入图片`（一个真 `<button>` 开一个 `sr-only` 的 `input[type=file]`）、把文件拖到画布上、从剪贴板粘贴图片文件。三条都走 `insertImageFile`：先读头与大小、过准入，再把整个文件读成 `data:` URL 并 `setImage`；`alt` 用文件名去掉扩展名（面板的字段是 #218 的事）。读整个文件发生在**准入之后**，所以超限的文件根本不会被读。
+- **拖放的第二个入口在画布卡片上**：ProseMirror 的 `handleDrop` 只收落在编辑面上的拖放，而卡片那圈 `p-5` 内边距也是访客会瞄准的画布；不接住它，浏览器对「落在可编辑区外的文件」的默认动作是导航过去，草稿就离开了页面。卡片用 `defaultPrevented` 判断编辑面是否已经收下，所以落在文字上的文件只插入一次。
+- **拒绝句在纯层**（`core/copy.ts` 的 `IMAGE_REFUSAL_TEXT`）：类型、过大、第十一张、总量各一句，Vitest 盯住四处措辞（含两个数字与「十张」）与标点。句子画在工具栏与画布之间的一行 `Alert` 上（站点用同一种方式说「文件被拒了」，先例是 image-converter 的清单），不弹提示、不要关闭：下一次尝试就是访客的下一步，它会替换这一句。
+- **斜杠菜单里的 `图片` 走同一行命令**：`block: "image"` 让 `slashCommands` 把它列出来；`runCommand` 对它返回 `false`（与链接同一个例外），斜杠菜单于是把「开选择器」的请求交给画布，由画布转给工具栏的输入框。`/图片` 这个过滤词在应用时已经删掉，取消选择器就什么都不发生。
+- **门禁按三条路各插一次并读回节点**：`src` 是 `data:` URL、`alt` 是文件名、`style` 里是百分比；草稿 JSON 里是 `"type":"image"` 与 `"width":100`，重新加载后同一张图还在。类型、过大与第十一张由门禁读句子；总量那一条由单测盯住，因为让门禁真的超过 40 MB 要把四十多兆图片推过页面。命中区量具点名 `插入图片`；拒绝句只在被拒后存在，不进清单。
 
 ## 占位符
 
@@ -179,7 +193,7 @@
 ## 量具
 
 - **指纹（`ui-fingerprint.mjs`）按页声明**外壳的四个锚点、`tool-page`、`rich-text-toolbar`、`rich-text-canvas` 与 `rich-text-save-status`。工具栏、画布与保存状态是三个区域：工具栏移动时读数应该显示工具栏移动，而不是画布变形；保存状态的句子换宽度时，读数也应该显示状态自己的移动。
-- **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十七个（`撤销`、`重做`、`块类型`、五个标记、三个列表、五个插入动作、`文件`）。保存状态是句子而不是控件，不进点名清单；失败态才出现的「重试」也不进，因为量具打开的是页面的正常态，声明一个不存在的名字会让正常页面变红。弹出层与弹窗里的项只在被打开后才存在，包括 #211 的「导入」、#210 的两个导出项与「清空」、以及确认框的「取消」/「替换」；量具不替页面打开它们，这一点是 #210 明确接受、#211 沿用的退路，由门禁按坐标按、再读回下载的字节或导入后的块。它们照样带 `.touch-target`，所以打开时任何一次扫描都能量到 44px；`重试` 由门禁在注入一次失败后按坐标按。**#217 的「表格」按钮是常驻的，所以它在点名清单里**；它打开的网格选择器与表格菜单是临时浮层，单元格与七行只在打开后存在，所以不进清单，由门禁按坐标按它们——和「导入」同一条退路。**这条量具还读两个状态**：`selection`（探针字进标题块、再套选区）让 `selection-toolbar-clearance` 读浮动行的位置，`scrolling` 让 `toolbar-scroll-end` 在窄屏把中间滚到底再读右端——它读之前会把滚动区的 `scrollLeft` 放回 0，因为同一趟扫描里 `hit-areas` 的 `scrollIntoView` 会把它拨走。
+- **命中区量具（`touch-targets.mjs`）按名字声明本页常驻的控件**：外壳的两个（`切换到`、`返回首页`）与工具栏的十八个（`撤销`、`重做`、`块类型`、五个标记、三个列表、六个插入动作、`文件`）。保存状态是句子而不是控件，不进点名清单；失败态才出现的「重试」也不进，因为量具打开的是页面的正常态，声明一个不存在的名字会让正常页面变红。弹出层与弹窗里的项只在被打开后才存在，包括 #211 的「导入」、#210 的两个导出项与「清空」、以及确认框的「取消」/「替换」；量具不替页面打开它们，这一点是 #210 明确接受、#211 沿用的退路，由门禁按坐标按、再读回下载的字节或导入后的块。它们照样带 `.touch-target`，所以打开时任何一次扫描都能量到 44px；`重试` 由门禁在注入一次失败后按坐标按。**#216 的 `插入图片` 与 #217 的「表格」按钮都是常驻的，所以都在点名清单里**；`表格` 打开的网格选择器与表格菜单是临时浮层，单元格与七行只在打开后存在，所以不进清单，由门禁按坐标按它们——和「导入」同一条退路；`插入图片` 的拒绝句是一行 `Alert`，只在文件被拒后存在，同样不进清单，由门禁读那一句。**这条量具还读两个状态**：`selection`（探针字进标题块、再套选区）让 `selection-toolbar-clearance` 读浮动行的位置，`scrolling` 让 `toolbar-scroll-end` 在窄屏把中间滚到底再读右端——它读之前会把滚动区的 `scrollLeft` 放回 0，因为同一趟扫描里 `hit-areas` 的 `scrollIntoView` 会把它拨走。
 - **#208 的斜杠菜单仍不进 `controls` 清单**：它只在输入 `/` 到应用之间存在，而这份清单是「加载时就该在」的清单。它每个按钮都带 `.touch-target`，要量得先给量具一个「输入斜杠」的钩子，本片没有加，因为门禁已经按坐标按过它（先例是 `convert`）。**浮动工具栏现在进了量具**：`selection` 钩子把一行探针字送进标题块、再把选区套上去，`selection-toolbar-clearance` 读它的盒子与选区自己的盒子；`selection-toolbar` 的按钮仍然不在 `controls` 清单里（它们不在加载状态中存在），但那个面的位置这句话已经由量具回答，不再由门禁回答。
 - **两个占位符是画的句子，门禁读它们，而这是站点级例外**：它们是 `::before` 的 `content: attr(data-placeholder)`，`ui-fingerprint` 刻意不读伪元素、`touch-targets` 只读盒子与命中区域，所以这一条由门禁读 `getComputedStyle(el, "::before").content`。理由与「未来钩子需要什么」写在 `apps/web/docs/design/instruments.md` 的「量具够不到的那一条」里，不是这里的第二份规则。
 - **门禁只管行为**：按下一个控件之后文档变成什么、导出的字节、存下的记录、导入后的块、快捷键真的落下什么。位置、命中区域、滚动与「有没有东西动过」全在 `scripts/` 的两个量具里（`docs/adr/0012-playwright-for-the-browser-gate.md`）。

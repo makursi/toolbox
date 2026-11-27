@@ -35,6 +35,7 @@ export type CommandId =
   | "code-block"
   | "horizontal-rule"
   | "link"
+  | "image"
   | "table";
 
 export type CommandBlock =
@@ -52,6 +53,7 @@ export type CommandBlock =
   | "codeBlock"
   | "horizontalRule"
   | "link"
+  | "image"
   | "table"
   | "document";
 
@@ -233,12 +235,22 @@ export const COMMANDS: readonly CommandSpec[] = [
     label: "链接",
   },
   /*
-   * 表格 is the second interface command (#217). Its behaviour is a grid picker
-   * owned by `table-control/table-control.tsx`, so it has no chain in the executor
-   * map and `runCommand` answers `false` for it — the same exception as 链接. While
-   * the caret is inside a table the same toolbar button becomes the contextual
-   * 表格 menu; that is a state of this one command, not a second row.
+   * 图片 and 表格 are the two interface-shaped insert commands (#216, #217), and
+   * they follow 链接 for the same reason: what they do is an interface, not a
+   * TipTap chain. Neither is in the executor map, so `runCommand` answers `false`
+   * for both and the surface that owns the interface runs it: 图片 opens the
+   * toolbar's file input, and 表格 opens the grid picker outside a table and the
+   * contextual 表格 menu inside one. 表格 while the caret is in a table is a state
+   * of one command, not a second row.
    */
+  {
+    block: "image",
+    group: "insert",
+    icon: "icon-[ph--image-bold]",
+    id: "image",
+    keywords: ["图片", "图像", "照片", "image", "photo", "picture"],
+    label: "图片",
+  },
   {
     block: "table",
     group: "insert",
@@ -287,12 +299,15 @@ export function filterCommands(query: string): readonly CommandSpec[] {
  * has, and 撤销 and 重做 act on the whole document rather than on a line.
  *
  * 链接 is a node-shaped row by name only: its behaviour is the field the toolbar
- * and the selection toolbar open, so it is not a slash command. 表格 is the
- * opposite — also a node-shaped row whose behaviour is an interface (#217) — and it
- * *is* offered here: the menu has no second step, so applying it inserts the
- * documented 3 × 3 directly (`TABLE_DEFAULT_SIZE`). The distinction is the
- * command's, not the menu's: the table command says a table arrives, and the
- * surface decides whether it arrives at a chosen size or the default one.
+ * and the selection toolbar open, so it is not a slash command. 图片 and 表格 are
+ * the two opposite kind of interface-shaped row — node-shaped, and behind an
+ * interface too (#216, #217) — and both **are** offered here, for different
+ * reasons. 图片 produces an image node, and the picker it opens belongs to the
+ * surface that owns the file input: the row runs no chain, so `runCommand`
+ * answers `false` and the menu hands the request to that surface. 表格 has no
+ * second step, so applying it inserts the documented 3 × 3 directly
+ * (`TABLE_DEFAULT_SIZE`); the command says a table arrives, and the surface
+ * decides whether it arrives at a chosen size or the default one.
  */
 const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "paragraph",
@@ -303,6 +318,7 @@ const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "blockquote",
   "codeBlock",
   "horizontalRule",
+  "image",
   "table",
 ]);
 

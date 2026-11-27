@@ -82,10 +82,19 @@ describe("the command table", () => {
     expect(commandById("link").block).toBe("link");
   });
 
-  it("appends the table to the insert group, after the link", () => {
+  it("appends the image and the table to the insert group, after the link", () => {
     const insert = commandsInGroup("insert").map((command) => command.id);
 
-    expect(insert).toEqual(["blockquote", "code-block", "horizontal-rule", "link", "table"]);
+    expect(insert).toEqual([
+      "blockquote",
+      "code-block",
+      "horizontal-rule",
+      "link",
+      "image",
+      "table",
+    ]);
+    expect(commandById("image").label).toBe("图片");
+    expect(commandById("image").block).toBe("image");
     expect(commandById("table").label).toBe("表格");
     expect(commandById("table").block).toBe("table");
   });
@@ -97,9 +106,10 @@ describe("the slash menu's commands", () => {
    * the table's order. Spelled out rather than derived, so a mark, an action or a
    * document command leaking into the menu is a red test rather than a coincidence.
    *
-   * 表格 is the last row and the second interface command (#217): the slash menu
-   * lists it like a block command even though applying it opens no picker and needs
-   * no chain — the menu inserts the documented 3 × 3 directly.
+   * 图片 and 表格 are the last two rows, and both are interface-shaped (#216, #217):
+   * the slash menu lists them like block commands even though neither runs a chain.
+   * 图片's picker is opened by the surface that owns the file input; 表格 needs no
+   * second step here, so the menu inserts the documented 3 × 3 directly.
    */
   it("offers the block commands and nothing that needs a selection or the document", () => {
     expect(slashCommands("").map((command) => command.id)).toEqual([
@@ -113,6 +123,7 @@ describe("the slash menu's commands", () => {
       "blockquote",
       "code-block",
       "horizontal-rule",
+      "image",
       "table",
     ]);
   });
@@ -130,6 +141,7 @@ describe("the slash menu's commands", () => {
       "ordered-list",
       "task-list",
     ]);
+    expect(slashCommands("图片").map((command) => command.id)).toEqual(["image"]);
   });
 
   it("cannot reach a mark, a link or a whole-document command", () => {
@@ -158,5 +170,46 @@ describe("the slash menu's commands", () => {
     }
 
     expect(slashCommands("没有这个命令")).toEqual([]);
+  });
+});
+
+/**
+ * The image row, and why it is a row rather than a control beside the table (#216).
+ *
+ * 图片 is an insert action, so it belongs in the insert group like 引用, 链接 and the
+ * rule; its `block` is what puts it in the slash menu. The command is
+ * interface-shaped: the executor map has no chain for it (the same exception as
+ * 链接 and 表格), so the row's contract is only what this test can hold — the label
+ * a visitor reads, the group it renders in, the keywords the filter matches, and
+ * the construct it produces.
+ */
+describe("the image command", () => {
+  it("is the insert group's 图片, and produces an image block", () => {
+    expect(commandById("image")).toMatchObject({
+      block: "image",
+      group: "insert",
+      label: "图片",
+    });
+  });
+
+  it("is reachable by the Chinese word and the English one", () => {
+    expect(filterCommands("图片").map((command) => command.id)).toEqual(["image"]);
+    expect(filterCommands("image").map((command) => command.id)).toEqual(["image"]);
+    expect(filterCommands("照片").map((command) => command.id)).toEqual(["image"]);
+  });
+
+  it("sits between the link and the table in the insert group", () => {
+    const insert = commandsInGroup("insert").map((command) => command.id);
+
+    expect(insert.indexOf("link")).toBeLessThan(insert.indexOf("image"));
+    expect(insert.indexOf("image")).toBeLessThan(insert.indexOf("table"));
+  });
+
+  it("is in the slash menu second to last, without dragging the link in with it", () => {
+    const ids = slashCommands("").map((command) => command.id);
+
+    expect(ids.at(-1)).toBe("table");
+    expect(ids.at(-2)).toBe("image");
+    expect(ids).not.toContain("link");
   });
 });

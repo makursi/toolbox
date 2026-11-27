@@ -337,13 +337,21 @@ const PAGES = [
      * and the two dialog buttons carry `.touch-target`, so a scan that catches them
      * open still measures 44px.
      *
-     * #217's 表格 is one button in two states, and the button itself is always on
-     * the page, so its name is declared: outside a table it opens the grid picker,
-     * and inside one the contextual row/column menu. Both surfaces are transient —
-     * they exist only while the popover is open — so neither the grid's cells nor
-     * the menu's rows are named here, for 导入's reason. Every one of them carries
-     * `.touch-target` on its own button, so a scan that catches the surface open
-     * still measures 44px, and the gate opens it and presses its cells and rows.
+     * #216's 插入图片 and #217's 表格 are both always-visible buttons in the insert
+     * group, so both are declared here like the other toolbar controls. 插入图片 is
+     * a real `<button>` that opens a hidden file input, and the input is not a
+     * control a visitor presses. 表格 is one button in two states: outside a table
+     * it opens the grid picker, and inside one the contextual row/column menu. Both
+     * of 表格's surfaces are transient — they exist only while the popover is open —
+     * so neither the grid's cells nor the menu's rows are named here, for 导入's
+     * reason. Every one of them carries `.touch-target` on its own button, so a
+     * scan that catches the surface open still measures 44px, and the gate opens it
+     * and presses its cells and rows.
+     *
+     * #216's refusal sentence is an `Alert` between the toolbar and the canvas, and
+     * it exists only after a file is refused, so it is not declared either: a name
+     * that is absent in the state this Instrument opens would fail the page for
+     * being in its normal state. The gate reads that sentence instead.
      *
      * The cover (#212) is the homepage card's illustration and does not change this
      * page. `outgoing` is the whole document: this page has one layer.
@@ -376,6 +384,7 @@ const PAGES = [
       "代码块",
       "分隔线",
       "链接",
+      "插入图片",
       "表格",
       "文件",
     ],

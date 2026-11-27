@@ -7,6 +7,19 @@ import { insertTable, runCommand } from "../editor/execute";
 import { SlashMenu, type SlashMenuHandle } from "./slash-menu";
 
 /**
+ * The slash menu's settings.
+ *
+ * 图片 is a command-table row with no chain behind it (#216): applying it must
+ * insert an image, but the file input is the pinned toolbar's, not this menu's. So
+ * the option is how the menu asks the surface that owns the input to open it — the
+ * same seam the link's `Mod-K` uses, and the reason `runCommand` answers `false` for
+ * an interface-shaped command rather than pretending it ran.
+ */
+export interface SlashMenuOptions {
+  readonly onImageRequest?: () => void;
+}
+
+/**
  * The slash menu's wiring: `/` at the start of a paragraph opens the command table,
  * and what is typed after the slash filters it.
  *
@@ -22,10 +35,16 @@ import { SlashMenu, type SlashMenuHandle } from "./slash-menu";
  * the paragraph's text, and only in a paragraph — a slash in the title heading is a
  * slash.
  */
-export const SlashMenuExtension = Extension.create({
+export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
   name: "slashMenu",
 
+  addOptions() {
+    return {};
+  },
+
   addProseMirrorPlugins() {
+    const requestImagePicker = this.options.onImageRequest;
+
     return [
       Suggestion<CommandSpec, CommandSpec>({
         editor: this.editor,
@@ -46,7 +65,7 @@ export const SlashMenuExtension = Extension.create({
           editor.chain().focus().deleteRange(range).run();
 
           /*
-           * 表格 is the second command whose behaviour is an interface rather than a
+           * 表格 is one of the commands whose behaviour is an interface rather than a
            * chain (#217), and this is where the two surfaces part company: the
            * toolbar opens the grid picker, while the slash menu is a keyboard gesture
            * that ends on Enter and has no second step. So it applies the documented
@@ -59,7 +78,13 @@ export const SlashMenuExtension = Extension.create({
             return;
           }
 
-          runCommand(editor, props.id);
+          const ran = runCommand(editor, props.id);
+
+          // 图片 is the other interface-shaped row that is a slash command, and it
+          // runs no chain: the caller owns the interface and opens its picker. Every
+          // other row left here is a real chain, which is why this is the only
+          // `false` branch.
+          if (!ran && props.id === "image") requestImagePicker?.();
         },
         render: () => {
           let component: ReactRenderer<SlashMenuHandle, SlashMenuPropsForRenderer> | null = null;
