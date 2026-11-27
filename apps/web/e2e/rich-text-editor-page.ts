@@ -395,3 +395,153 @@ export async function storedDraft(page: Page): Promise<StoredDraftRecord | null>
 export function canvas(page: Page): Locator {
   return page.locator(CANVAS);
 }
+
+/**
+ * One image file for the gate, in Playwright's in-memory form.
+ *
+ * `buffer` is the file's bytes as a person's disk would hold them, so a size claim
+ * is about the file the page is handed rather than about a number this file chose.
+ */
+export interface ImageFile {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly buffer: Buffer;
+}
+
+/**
+ * A real 1×1 PNG: the shortest file the sniffer and the browser both accept.
+ *
+ * It is a PNG's own bytes rather than a signature and a guess, so a case about
+ * insertion exercises the same decode path a visitor's photograph does. Its size is
+ * irrelevant: the node draws it at the width in the document, which is what the
+ * measure claim reads.
+ */
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+/** A valid PNG under the per-file limit, named so the alt text is predictable. */
+export function pngFile(name = "photo.png"): ImageFile {
+  return { buffer: PNG_1X1, mimeType: "image/png", name };
+}
+
+/**
+ * A PNG one byte over the 5 MB per-file limit.
+ *
+ * The first bytes are a PNG, so the size rule is the one it reaches; the rest is
+ * padding rather than a picture, because the claim is about a file admission must
+ * refuse before reading — a real 5 MB photograph would prove less and cost more.
+ */
+export function oversizedPng(name = "huge.png"): ImageFile {
+  const buffer = Buffer.alloc(5 * 1024 * 1024 + 1);
+  PNG_1X1.copy(buffer, 0);
+
+  return { buffer, mimeType: "image/png", name };
+}
+
+/**
+ * A file that claims to be a PNG and is not.
+ *
+ * Its name and its declared type both say `image/png`, which is exactly the case
+ * the sniffer exists for: the bytes are the only thing that decides.
+ */
+export function notAnImage(name = "note.png"): ImageFile {
+  return { buffer: Buffer.from("这不是一张图片。", "utf8"), mimeType: "image/png", name };
+}
+
+/** 插入图片: the toolbar control that opens the file picker. */
+export function imageInsert(page: Page): Locator {
+  return toolbarControl(page, "插入图片");
+}
+
+/**
+ * Insert an image through the toolbar's own control.
+ *
+ * The picker is pressed at its coordinates like every other toolbar control, and
+ * Playwright answers the browser's file chooser; the input is never set directly,
+ * because the claim is that the button opens it.
+ */
+export async function insertImageFromToolbar(page: Page, file: ImageFile): Promise<void> {
+  const chooser = page.waitForEvent("filechooser");
+  await pressAt(page, imageInsert(page));
+
+  await (await chooser).setFiles(file);
+}
+
+/** The sentence a refused file is shown. */
+export function refusalNotice(page: Page): Locator {
+  return page.getByRole("alert");
+}
+
+/** The images the canvas is drawing, in document order. */
+export function imagesInCanvas(page: Page): Locator {
+  return canvas(page).locator("img");
+}
+
+/** The file as the page's own JavaScript must rebuild it for a drop or a paste. */
+function entriesOf(files: readonly ImageFile[]) {
+  return files.map((file) => ({
+    base64: file.buffer.toString("base64"),
+    mimeType: file.mimeType,
+    name: file.name,
+  }));
+}
+
+/**
+ * Drop an image onto the editing surface, the way a visitor drags a file in.
+ *
+ * The bytes are rebuilt into a real `File` inside the page and carried by a real
+ * `DataTransfer`, so the editor's own drop handler is what reads them — the same
+ * seam the converter and Image to PDF gates use. The target is the editable rather
+ * than the card around it: that is where ProseMirror's handler listens, and the
+ * card's padding is the canvas's own fallback, not the path under test.
+ */
+export async function dropImage(page: Page, file: ImageFile): Promise<void> {
+  await editor(page).evaluate(
+    (element, entries) => {
+      const transfer = new DataTransfer();
+
+      for (const entry of entries) {
+        const binary = atob(entry.base64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+      }
+
+      element.dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+    },
+    entriesOf([file]),
+  );
+}
+
+/**
+ * Paste an image file into the editing surface.
+ *
+ * A screenshot arrives as a file in the clipboard, which is what the transfer
+ * carries: ProseMirror's paste listener sees the same `ClipboardEvent` a real paste
+ * dispatches, so the handler under test is the page's own.
+ */
+export async function pasteImage(page: Page, file: ImageFile): Promise<void> {
+  await editor(page).evaluate(
+    (element, entries) => {
+      const transfer = new DataTransfer();
+
+      for (const entry of entries) {
+        const binary = atob(entry.base64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+      }
+
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        }),
+      );
+    },
+    entriesOf([file]),
+  );
+}

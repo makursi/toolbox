@@ -337,6 +337,14 @@ const PAGES = [
      * and the two dialog buttons carry `.touch-target`, so a scan that catches them
      * open still measures 44px.
      *
+     * #216 adds 插入图片, an always-visible button in the insert group, so it is
+     * declared here like the other toolbar controls: it is a real `<button>` that
+     * opens a hidden file input, and the input is not a control a visitor presses.
+     * The sentence a refused file shows is an `Alert` between the toolbar and the
+     * canvas, and it exists only after a file is refused, so it is not declared: a
+     * name that is absent in the state this Instrument opens would fail the page for
+     * being in its normal state. The gate reads that sentence instead.
+     *
      * The cover (#212) is the homepage card's illustration and does not change this
      * page. `outgoing` is the whole document: this page has one layer.
      *
@@ -368,6 +376,7 @@ const PAGES = [
       "代码块",
       "分隔线",
       "链接",
+      "插入图片",
       "文件",
     ],
     name: "rich-text-editor",

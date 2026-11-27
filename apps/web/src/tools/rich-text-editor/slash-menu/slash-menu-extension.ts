@@ -21,10 +21,29 @@ import { SlashMenu, type SlashMenuHandle } from "./slash-menu";
  * the paragraph's text, and only in a paragraph — a slash in the title heading is a
  * slash.
  */
-export const SlashMenuExtension = Extension.create({
+/**
+ * The slash menu's settings.
+ *
+ * 图片 is a table row with no chain behind it (#216): applying it must insert an
+ * image, but the file input is the pinned toolbar's, not this menu's. So the option
+ * is how the menu asks the surface that owns the input to open it — the same seam
+ * the link's `Mod-K` uses, and the reason `runCommand` answers `false` for an
+ * interface-shaped command rather than pretending it ran.
+ */
+export interface SlashMenuOptions {
+  readonly onImageRequest?: () => void;
+}
+
+export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
   name: "slashMenu",
 
+  addOptions() {
+    return {};
+  },
+
   addProseMirrorPlugins() {
+    const requestImagePicker = this.options.onImageRequest;
+
     return [
       Suggestion<CommandSpec, CommandSpec>({
         editor: this.editor,
@@ -43,7 +62,12 @@ export const SlashMenuExtension = Extension.create({
           // The typed `/query` is not document content: it is the filter, so it
           // goes before the command runs and the command acts on the empty block.
           editor.chain().focus().deleteRange(range).run();
-          runCommand(editor, props.id);
+          const ran = runCommand(editor, props.id);
+
+          // 图片 runs no chain: the row is interface-shaped, so the caller owns the
+          // interface and opens its picker. Every other row here is a real chain,
+          // which is why this is the only branch.
+          if (!ran && props.id === "image") requestImagePicker?.();
         },
         render: () => {
           let component: ReactRenderer<SlashMenuHandle, SlashMenuPropsForRenderer> | null = null;

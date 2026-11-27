@@ -5,8 +5,8 @@
  * lists, quotes, code blocks and rules, and inline text has bold, italic,
  * underline, strike, code and link. Everything else a pasted or imported document
  * may carry (scripts, stylesheets, a `<head>`, layout wrappers, event handlers,
- * `javascript:` URLs, images the editor has no node for) is either dropped or
- * unwrapped here, before a parser ever sees it.
+ * `javascript:` URLs, images this path still drops; reading an image out of markup
+ * is #220's job) is either dropped or unwrapped here, before a parser ever sees it.
  *
  * The output is a fragment of the elements the schema does know, and the final
  * conversion to JSON is TipTap's own: the editor hands this markup to

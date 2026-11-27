@@ -11,15 +11,23 @@ import {
   canvas,
   clearDocument,
   downloadFromFileMenu,
+  dropImage,
   editor,
   fileTrigger,
   hidePage,
+  imagesInCanvas,
   importDialog,
   importFromFileMenu,
+  insertImageFromToolbar,
   linkField,
+  notAnImage,
   open,
+  oversizedPng,
   paintedPlaceholder,
+  pasteImage,
+  pngFile,
   pressAt,
+  refusalNotice,
   retrySave,
   saveStatus,
   selectBodyText,
@@ -39,8 +47,8 @@ import {
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
  * command table (#207), the three ways to write without leaving the keyboard (#208),
- * the two exports (#210), the local draft with its save status (#209), and the
- * import (#211).
+ * the two exports (#210), the local draft with its save status (#209), the import
+ * (#211), and the images that travel with the document (#216).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -802,6 +810,157 @@ test("pasted HTML is sanitised, so a script in it does not survive", async ({ pa
   await expect(bodyParagraph(page).locator("strong")).toHaveText("内容");
   expect(await page.evaluate("window.__pastePwned")).toBeUndefined();
   await expect(canvas(page).locator("script")).toHaveCount(0);
+});
+
+/**
+ * Images (#216): the three ways in, the node they produce, the measure it fits,
+ * and the sentence a refused file is shown.
+ *
+ * The files are real — a 1×1 PNG's own bytes go in through the page's controls —
+ * and the node is read back off the canvas: a `data:` URL in `src`, the file's name
+ * in `alt`, and a percentage in the inline style. The load-bearing claim is the
+ * data URL: there is no upload service and the CSP allows `img-src 'self'`, so an
+ * image that is not carried by the document could not be drawn at all, and a
+ * reload is what proves the bytes are in the draft rather than in this page's
+ * memory.
+ */
+test("the toolbar's 插入图片 inserts an image the draft and a reload both keep", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+
+  const image = imagesInCanvas(page).first();
+  await expect(image).toBeVisible();
+
+  const src = await image.getAttribute("src");
+  expect(src, "the image's source is the document's own data URL").toMatch(
+    /^data:image\/png;base64,/,
+  );
+  expect(await image.getAttribute("alt")).toBe("照片");
+  expect(await image.getAttribute("style")).toContain("width: 100%");
+
+  // The measure is the 720px canvas; the picture fills it and stays inside it.
+  const box = await image.boundingBox();
+  const measure = await canvas(page).boundingBox();
+  if (box === null || measure === null) throw new Error("the image or the canvas has no geometry");
+
+  expect(box.width).toBeLessThanOrEqual(measure.width);
+  expect(box.width).toBeGreaterThan(measure.width * 0.8);
+
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  const stored = await storedDraft(page);
+  const document = JSON.stringify(stored?.document);
+  expect(document, "the node is in the draft's JSON").toContain('"type":"image"');
+  expect(document).toContain("data:image/png;base64,");
+  expect(document).toContain('"width":100');
+  expect(document).toContain('"alt":"照片"');
+
+  await page.reload();
+  await expect(editor(page)).toBeVisible();
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toBe(src);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("照片");
+});
+
+test("a dropped image is inserted, and its file name becomes the alt text", async ({ page }) => {
+  await open(page);
+  // The drop carries bytes, not a caret, so the caret is where a visitor's would be
+  // when they drag a file into a document they are writing.
+  await bodyParagraph(page).click();
+  await dropImage(page, pngFile("拖进来的.png"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toMatch(
+    /^data:image\/png;base64,/,
+  );
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("拖进来的");
+});
+
+test("a pasted image file is inserted", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await pasteImage(page, pngFile("截图.png"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toMatch(
+    /^data:image\/png;base64,/,
+  );
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("截图");
+});
+
+/**
+ * Two of the four refusals, each with the sentence its own rule owns.
+ *
+ * The other two are the document's: the eleventh image and a document over 40 MB
+ * are held by the admission unit tests and by the count case below, because the
+ * total case would have to put more than forty megabytes of pictures through the
+ * page to reach a sentence that the count case already proves is displayed.
+ */
+test("a wrong type and an oversize file are each refused with their own sentence", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await insertImageFromToolbar(page, notAnImage());
+  await expect(refusalNotice(page)).toHaveText("只支持 JPEG、PNG、WebP 和 GIF 图片。");
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+
+  await insertImageFromToolbar(page, oversizedPng());
+  await expect(refusalNotice(page)).toHaveText(
+    "图片太大了：JPEG、PNG、WebP 不超过 5 MB，GIF 不超过 2 MB。",
+  );
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+
+  // A file the rules take clears the sentence the previous one left.
+  await insertImageFromToolbar(page, pngFile("可以.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(refusalNotice(page)).toHaveCount(0);
+});
+
+test("the eleventh image is refused with the document's own sentence", async ({ page }) => {
+  await open(page);
+
+  for (let index = 0; index < 10; index += 1) {
+    await dropImage(page, pngFile(`第${index + 1}张.png`));
+    await expect(imagesInCanvas(page)).toHaveCount(index + 1);
+  }
+
+  await insertImageFromToolbar(page, pngFile("第十一张.png"));
+
+  await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
+  await expect(imagesInCanvas(page)).toHaveCount(10);
+});
+
+/**
+ * The slash menu's 图片 row, and the two-step it takes to run.
+ *
+ * 图片 is interface-shaped like the link: it has no TipTap chain, so `runCommand`
+ * answers `false` and the surface that owns the file input opens it. The proof is
+ * the chooser the menu's Enter raises and the node that arrives from it; the typed
+ * `/图片` is the filter, so it must not be left in the document.
+ */
+test("the slash menu lists 图片, and applying it opens the same insert", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/图片");
+
+  await expect(slashMenuItems(page)).toHaveCount(1);
+  await expect(slashItem(page, "图片")).toHaveAttribute("aria-current", "true");
+
+  const chooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Enter");
+  await (await chooser).setFiles(pngFile("菜单.png"));
+
+  await expect(slashMenu(page)).toBeHidden();
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("菜单");
+  await expect(canvas(page)).not.toContainText("/图片");
 });
 
 /**
