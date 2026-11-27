@@ -81,7 +81,7 @@ const MIN = 43;
 const PREVIEW_MAX_SHARE = 0.45;
 
 /**
- * The five pages, and the controls each one has to carry **by name**.
+ * The six pages, and the controls each one has to carry **by name**.
  *
  * A page whose controls only exist after a file is dropped names the input that
  * takes it in `fileInput`; a later claim that needs the page list to scroll also
@@ -288,6 +288,99 @@ const PAGES = [
         tab: "导出",
       },
     ],
+  },
+  {
+    /*
+     * The fourth Tool's page (#206) with its toolbar (#207), the two surfaces that
+     * only exist while something is being done to the document (#208), its exports
+     * (#210), its draft (#209) and its import (#211).
+     *
+     * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
+     * area is the whole 720px reading measure, and an overlay across it would sit on
+     * top of the platform's own caret placement. The 44px floor is about the small
+     * controls around a document, not about the document. #172 is the same lesson
+     * from the other side: an overlay is harmless only while nothing inside the
+     * control needs the pointer.
+     *
+     * Every toolbar control carries the class on its own `<button>` and is named:
+     * the icon-only ones by `aria-label`, the block menu by `块类型：<current block>`
+     * (the declared name is the stable prefix), and the file menu by `文件`. The
+     * block menu's items, the link field, 导入, 导出 Markdown, 导出 HTML and 清空
+     * live in popovers, so they only exist once a control is pressed; the gate opens
+     * the file menu, presses each item at its coordinates and reads the downloaded
+     * bytes or the imported document back. This Instrument still declares only what
+     * is on the page without opening anything, which is #210's sanctioned fallback:
+     * a declared name that cannot be found in the state the page is measured in
+     * would be a failure rather than coverage. The two placeholders are painted
+     * `::before` sentences, so they are not controls and no name here can reach
+     * them.
+     *
+     * #209 adds the save status beside 文件. It is a sentence, not a control, so it
+     * does not enter `controls`; the retry it adds in the failure state does not
+     * exist on the page this Instrument opens, and declaring a name that is not
+     * there would make the page fail for being in its normal state. The retry is
+     * still a real 44px `<button>`, and the gate presses it at its coordinates
+     * after refusing a write.
+     *
+     * #208's two surfaces are transient in the same way and are declared the same
+     * way: the slash menu exists only between typing `/` and applying a row, and the
+     * selection toolbar only while a selection is not empty (it is not in the
+     * document at all otherwise, which is why it cannot be measured in this
+     * Instrument's default state). Both carry the class on every one of their own
+     * buttons, and the gate presses them at their coordinates; nothing here names
+     * them, because a name in this list is a control that must be there on load.
+     *
+     * #211's 导入 is a row in the same popover, and its confirmation is an alert
+     * dialog that only exists after a file is chosen while the draft is non-empty.
+     * Neither is declared here for #210's reason; the gate presses 导入 at its
+     * coordinates, answers the dialog, and reads the imported blocks back. The row
+     * and the two dialog buttons carry `.touch-target`, so a scan that catches them
+     * open still measures 44px.
+     *
+     * The cover (#212) is the homepage card's illustration and does not change this
+     * page. `outgoing` is the whole document: this page has one layer.
+     *
+     * Two claims need a state this page is not in when it loads, and both are read
+     * here rather than by the gate: geometry is what an Instrument is for
+     * (`docs/adr/0012-playwright-for-the-browser-gate.md`). `selection` fills the
+     * title block through a real input event and selects it, which is the only state
+     * the selection toolbar exists in, so `selection-toolbar-clearance` can compare
+     * the row's box with the selection's box. `scrolling` names the toolbar's
+     * scrolling region and the one control outside it, so `toolbar-scroll-end` can
+     * scroll the region and read both boxes again. The gate used to read both of
+     * these; this is where they moved (#207 review).
+     */
+    controls: [
+      "切换到",
+      "返回首页",
+      "撤销",
+      "重做",
+      "块类型",
+      "加粗",
+      "斜体",
+      "下划线",
+      "删除线",
+      "行内代码",
+      "项目符号列表",
+      "编号列表",
+      "任务列表",
+      "引用",
+      "代码块",
+      "分隔线",
+      "链接",
+      "文件",
+    ],
+    name: "rich-text-editor",
+    outgoing: ["body"],
+    path: "/tools/rich-text-editor",
+    scrolling: {
+      end: '[aria-label="文件"]',
+      region: '[data-slot="rich-text-toolbar-scroll"]',
+    },
+    selection: {
+      block: '[data-slot="rich-text-canvas"] h1',
+      toolbar: '[aria-label="选中文本的格式"]',
+    },
   },
 ];
 
@@ -624,6 +717,86 @@ const RESULT_ROW = `(() => {
   });
 })()`;
 
+/**
+ * The selection toolbar's box, and the box of the words it is following.
+ *
+ * Both are read off the rendered page: the row is the element the page names, and
+ * the words are the DOM selection's own rectangle — a paragraph is taller than its
+ * line of text, so comparing against the block would prove less. The reading does
+ * not decide; the claim's predicate does.
+ *
+ * No backticks in here: the expression is itself a template literal (#108).
+ */
+const SELECTION_CLEARANCE = (selection) => `(() => {
+  const bar = document.querySelector(${JSON.stringify(selection.toolbar)});
+  const block = document.querySelector(${JSON.stringify(selection.block)});
+  if (bar === null) return JSON.stringify({ missing: "toolbar" });
+  if (block === null) return JSON.stringify({ missing: "block" });
+  const dom = window.getSelection();
+  if (dom === null || dom.rangeCount === 0 || dom.isCollapsed) {
+    return JSON.stringify({ missing: "selection" });
+  }
+  const barBox = bar.getBoundingClientRect();
+  const words = dom.getRangeAt(0).getBoundingClientRect();
+  const box = (rect) => ({
+    bottom: Math.round(rect.bottom),
+    height: Math.round(rect.height),
+    left: Math.round(rect.left),
+    right: Math.round(rect.right),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+  });
+  return JSON.stringify({
+    bar: box(barBox),
+    viewport: { height: window.innerHeight, width: window.innerWidth },
+    words: box(words),
+  });
+})()`;
+
+assertNoDanglingInterpolation(
+  "SELECTION_CLEARANCE",
+  SELECTION_CLEARANCE({ block: "", toolbar: "" }),
+);
+
+/**
+ * The toolbar's scrolling region and the control outside it, before and after the
+ * region is scrolled to its end.
+ *
+ * Read in one expression so both positions belong to the same page state: a
+ * readiness race between two evaluations would read the control before the scroll
+ * landed and call a moving control pinned. The region is put back to 0 before the
+ * "before" reading — the hit-area claim scrolls every control into view, and that
+ * scrolls this region too — and left at 0 afterwards, so a later reading of the page
+ * starts where this one did.
+ *
+ * No backticks in here: the expression is itself a template literal (#108).
+ */
+const TOOLBAR_SCROLL = (scrolling) => `(() => {
+  const region = document.querySelector(${JSON.stringify(scrolling.region)});
+  const end = document.querySelector(${JSON.stringify(scrolling.end)});
+  if (region === null) return JSON.stringify({ missing: "region" });
+  if (end === null) return JSON.stringify({ missing: "end" });
+  const box = (el) => {
+    const rect = el.getBoundingClientRect();
+    return { left: Math.round(rect.left), right: Math.round(rect.right) };
+  };
+  // The hit-area reading scrolls every control into view before measuring it, which
+  // also scrolls this region sideways, so the start of the walk is put back to zero
+  // here rather than inherited from whatever the previous claim left behind.
+  region.scrollLeft = 0;
+  const before = {
+    end: box(end),
+    left: Math.round(region.scrollLeft),
+    scrollable: Math.round(region.scrollWidth - region.clientWidth),
+  };
+  region.scrollLeft = region.scrollWidth;
+  const after = { end: box(end), left: Math.round(region.scrollLeft) };
+  region.scrollLeft = 0;
+  return JSON.stringify({ after, before, viewport: window.innerWidth });
+})()`;
+
+assertNoDanglingInterpolation("TOOLBAR_SCROLL", TOOLBAR_SCROLL({ end: "", region: "" }));
+
 /** A check's whole output is its result, which is the one place a console is right. */
 function report(line) {
   // oxlint-disable-next-line no-console -- see above.
@@ -746,6 +919,84 @@ async function selectRatio(client, ratioKey) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`the download button never came to say 下载 ${ratioKey}`);
+}
+
+/**
+ * Drive the page to a non-empty selection in the block it declares.
+ *
+ * A selection toolbar only exists while something is selected, and the document
+ * this page serves is empty, so the page has to be brought to the state before the
+ * claim can read it — the same thing `convert` does for the second Tool. The text
+ * goes in through CDP's own input event (`Input.insertText`) rather than by writing
+ * a text node, so what the page holds is ProseMirror's document and not a DOM edit
+ * it will later notice.
+ *
+ * The probe is put in only while the block is empty: a sweep that reused a draft
+ * from an earlier case would otherwise pile copies of it into the title, and a title
+ * long enough to wrap is a different measurement than the one this claim names.
+ *
+ * Throws rather than returning quietly: a page that a claim cannot reach is not a
+ * page whose geometry passed.
+ */
+async function selectTextOnce(client, selection) {
+  const inserted = await client.evaluate(`(() => {
+    const block = document.querySelector(${JSON.stringify(selection.block)});
+    if (block === null) return "missing";
+    const editable = block.closest('[contenteditable="true"]');
+    if (editable === null) return "missing";
+    editable.focus();
+    return (block.textContent ?? "").trim() === "" ? "empty" : "text";
+  })()`);
+
+  if (inserted === "missing") {
+    throw new Error(`the page has no editable block matching ${selection.block}`);
+  }
+
+  if (inserted === "empty") {
+    await client.send("Input.insertText", { text: "选中一段话。" });
+
+    let arrived = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      arrived = await client.evaluate(`(() => {
+        const block = document.querySelector(${JSON.stringify(selection.block)});
+        return block !== null && (block.textContent ?? "").trim() !== "";
+      })()`);
+      if (arrived) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!arrived) throw new Error("the probe text never reached the selection's block");
+  }
+
+  const selected = await client.evaluate(`(() => {
+    const block = document.querySelector(${JSON.stringify(selection.block)});
+    if (block === null) return false;
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    const dom = window.getSelection();
+    if (dom === null) return false;
+    dom.removeAllRanges();
+    dom.addRange(range);
+    // ProseMirror reads the selection on its own document listener; the dispatch is
+    // for the case where the range was already what it is and the browser saw no
+    // change worth announcing.
+    document.dispatchEvent(new Event("selectionchange"));
+    return true;
+  })()`);
+
+  if (selected !== true) throw new Error("the block could not be selected");
+}
+
+/** Wait until a selector matches, without deciding what the page should have said. */
+async function waitForElement(client, selector) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (
+      (await client.evaluate(`document.querySelector(${JSON.stringify(selector)}) !== null`)) ===
+      true
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 /**
@@ -1210,6 +1461,89 @@ const CLAIMS = [
       ];
     },
   },
+  {
+    name: "selection-toolbar-clearance",
+    about:
+      "the toolbar that follows a selection sits outside the selected words and inside the viewport",
+    falsification: {
+      source:
+        "put the row's top on the selection's top instead of 8px above it — one line in selection-toolbar.tsx",
+    },
+    per: "page",
+    only: (ctx) => ctx.page.selection !== undefined,
+    prepare: async (ctx) => {
+      ctx.reset();
+      await selectTextOnce(ctx.client, ctx.page.selection);
+      await waitForElement(ctx.client, ctx.page.selection.toolbar);
+    },
+    read: (ctx) => ctx.read("selection", SELECTION_CLEARANCE(ctx.page.selection)),
+    judge: (reading) => {
+      if (reading.missing !== undefined) {
+        return [
+          {
+            ok: false,
+            line: `  FAIL  the selection toolbar's claim has no ${reading.missing} to read — the page never put the toolbar in front of a selection`,
+          },
+        ];
+      }
+      const { bar, viewport, words } = reading;
+      const above = bar.bottom <= words.top;
+      const below = bar.top >= words.bottom;
+      const inside = bar.left >= 0 && bar.right <= viewport.width && bar.height > 0;
+      const ok = (above || below) && inside;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  the row is ${
+            above ? "above" : below ? "below" : "across"
+          } the selected words and ${inside ? "inside" : "outside"} the viewport — bar ${bar.top}..${bar.bottom} x ${bar.left}..${bar.right}, words ${words.top}..${words.bottom}, viewport ${viewport.width}x${viewport.height}`,
+        },
+      ];
+    },
+  },
+  {
+    name: "toolbar-scroll-end",
+    about:
+      "the toolbar's middle scrolls sideways on a narrow screen while the control outside it stays put",
+    falsification: { injection: true },
+    per: "page",
+    // Only the narrow pass: a row that fits has nothing to scroll, and the reading
+    // would be a claim about a state the rule is not about. The gate used to read
+    // this at 390px; it is here because it is geometry (#207 review).
+    only: (ctx) => ctx.page.scrolling !== undefined && ctx.narrow,
+    read: (ctx) => ctx.read("scrolling", TOOLBAR_SCROLL(ctx.page.scrolling)),
+    judge: (reading) => {
+      if (reading.missing !== undefined) {
+        return [
+          {
+            ok: false,
+            line: `  FAIL  the toolbar's scrolling claim has no ${reading.missing} to read`,
+          },
+        ];
+      }
+      const { after, before, viewport } = reading;
+      // A row that fits proves nothing: the claim's subject is the scrolling, and a
+      // state without it has to be red rather than quietly green.
+      if (before.scrollable <= 0) {
+        return [
+          {
+            ok: false,
+            line: `  FAIL  the toolbar's middle does not overflow (${before.scrollable}px of travel), so the pinned end was not exercised`,
+          },
+        ];
+      }
+      const moved = after.left > 0;
+      const pinned = Math.abs(after.end.left - before.end.left) <= 1;
+      const inside = before.end.right <= viewport;
+      const ok = before.left === 0 && moved && pinned && inside;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  the middle scrolled while the end stayed put — scroll ${before.left} → ${after.left} of ${before.scrollable}px, end x ${before.end.left} → ${after.end.left} (right edge ${before.end.right} of ${viewport})`,
+        },
+      ];
+    },
+  },
 ];
 
 /**
@@ -1481,6 +1815,15 @@ const FALSIFY = [
     property: "position",
     selector: '[data-slot="pdf-result"]',
     value: "static",
+  },
+  {
+    case: { height: 900, width: 390 },
+    claim: "toolbar-scroll-end",
+    note: "the toolbar's scrolling region: with its overflow back to visible the row cannot scroll at all, so the 'the middle really scrolled' half of the claim goes red — the pinned end cannot move on its own, because nothing moved",
+    page: "rich-text-editor",
+    property: "overflow",
+    selector: '[data-slot="rich-text-toolbar-scroll"]',
+    value: "visible",
   },
   {
     case: { height: 667, width: 375 },

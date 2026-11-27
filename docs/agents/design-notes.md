@@ -106,3 +106,49 @@ The owner asked for the site's images to be "处理": first delete the ones noth
 - **Keeping the original filenames** (`微信图片_20260917102852_91_6.jpg`). The name would record where a file came from and nothing about what it is.
 - **Scanning only `src/` for references** and treating docs as non-references. `assets.md` is the register; a file mentioned nowhere at all is the orphan worth failing on.
 - **A generated manifest** listing each asset and its wiring. A second place to update, and one that goes stale silently.
+
+---
+
+# Rich Text Editor — does the toolbox gain a writing Tool, and in what shape (2026-11-27)
+
+## The question
+
+The owner wants a new Tool whose product document (`nuxt-editor-product-spec-simplified.md`, outside the repo) describes a modular rich-text editor written against the Nuxt Editor Template, with no AI features. This site is Next.js + React, has no server, no accounts and a CSP that forbids any request after load, so the document's host responsibilities (identity, permissions, persistence, image storage) have no host here. The tree settled the same day over four rounds. Its spec is #205; the slices it produced are #206–#212.
+
+## Settled branches
+
+1. **It is a Tool, bounded like one.** One local draft at a time, no document list, no accounts, no host API; the draft lives in this browser and the deliverable is an exported file. The editor is a self-contained component by design (props in, events out), but it is not extracted to a package: the page is the only consumer.
+2. **React + TipTap in this repo.** The product document's Nuxt 4 / Vue 3 / Nuxt UI table describes the reference product, not this site. The site's own layer carries the UI; TipTap carries the document model.
+3. **The slug is `rich-text-editor`, the title 「富文本编辑器」.** The reference product's name is not usable: it names its framework.
+4. **V1 is the writing core**, plus links, autosave and import/export. Images, tables, the emoji picker and the block drag menu are V1.1; Mention is never built, because the product document's own clause drops it when no host supplies data.
+5. **The page keeps the shared Tool shell**, and the editor adds one pinned toolbar row: undo/redo, a block-type menu, the inline marks, the lists, the insert actions, and at the right end the save status and a file menu. The document title is the canvas's first line; there is no second title input.
+6. **ProseMirror JSON is the canonical document.** Markdown and HTML are derived on export and parsed back on import; the draft is private to the editor and need not be portable.
+7. **The draft lives in IndexedDB**, one record under one key. Save is debounced 800ms and flushed when the page becomes hidden; the states are 未保存, 保存中, 已保存到本机 and 保存失败 with a retry, and the product document's 正在编辑 is a resting state rather than a status.
+8. **Restore is silent**; 清空 sits in the file menu.
+9. **Markdown export is GFM**, with underline written as inline HTML (the one construct GFM has no form for), task lists as `- [ ]`, and fenced code carrying its language. HTML export is a complete document with an embedded stylesheet.
+10. **The filename is derived, never asked for**: the sanitised title plus today's date, falling back to `文档-YYYY-MM-DD`. The title part is capped at **40 characters** — a settled number from the session, not a value the implementation was left to choose: long enough for a real title, short enough that the name stays one a filesystem accepts. The cap is on the title, so the date and the extension are never the part that gets cut.
+11. **Import replaces the draft after a confirmation** when the draft is not empty; pasted HTML goes through the editor's own sanitising paste.
+12. **One command table feeds both the toolbar and the slash menu**, so the two cannot disagree.
+13. **The component's surface is `initialContent` and `onChange` only.** The product document's ten host configuration items wait for a real host; the repo's rule against fields for later applies.
+14. **The TipTap tree is the one dependency expansion**, at V1's minimum, with literal versions rather than the catalog.
+15. **No document size limit.** The browser's quota is the only boundary, and its refusal is the failure state.
+16. **No new test seam.** The pure core carries the logic in Vitest, the page carries behaviour in the gate, and the instruments carry the two drawing claims.
+
+## Open branches
+
+- **The instruments' reach into the file menu.** Its items exist only while the menu is open; the hit-area instrument may need a small hook beside `convert`, or the menu items stay the gate's. The ticket that lands the menu decides.
+- **The 720px reading measure** is a design number chosen from the product document's "suitable for long-form reading", not measured against this site's 960px column yet.
+- **The TipTap extension set** is V1's minimum; V1.1's images and tables will add extensions, and that is when the dependency list is revisited.
+
+## Rejected branches, and why
+
+- **A separate Nuxt app (or a second deployable).** ADR-0001 settles one site; the product document's stack is a fact about its reference product.
+- **The full PRD V1.0 in one slice.** Images have no upload service here, tables need their own insert and row/column surfaces, and an emoji picker needs a self-hosted dataset. Each is its own decision, not a checkbox.
+- **Mention.** No host supplies the data, and the product document says not to enable it without one.
+- **localStorage for the draft.** It makes 保存中 a lie and cannot hold V1.1's images.
+- **HTML or Markdown as the canonical document.** HTML makes every load a re-parse of user HTML; Markdown cannot express underline or task state.
+- **A full top operation bar** (title, save, undo/redo, import/export, more) above the toolbar. On 390px it is two or three rows of chrome over the writing surface.
+- **A second title input** beside the canvas. The title is content; one place to type it means one answer to "what is the exported title".
+- **A host configuration object now.** It would be an API for a consumer that does not exist.
+- **Extracting the editor to a package now.** The second-consumer threshold is the repo's rule, and the page is the first consumer.
+- **A document size cap.** A number picked without evidence would refuse ordinary long documents; the quota refusal is the real boundary.

@@ -7,6 +7,19 @@ import {
   open as openImageToPdf,
   transparentPng,
 } from "./image-to-pdf-page";
+import {
+  answerImportDialog,
+  downloadFromFileMenu,
+  importDialog,
+  importFromFileMenu,
+  open as openRichTextEditor,
+  pressAt,
+  saveStatus,
+  selectBodyText,
+  toolbarControl,
+  writeInBody,
+  writeInTitle,
+} from "./rich-text-editor-page";
 import { convertInEveryFormat } from "./tool-page";
 
 /**
@@ -127,6 +140,63 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
   // happened" is a fact about the bytes rather than about the page's own state.
   const pdf = await inspectDownloadedPdf(path);
   expect(pdf.pageCount, "a PDF was really built from the two picked images").toBe(2);
+
+  expect(watched.offSite, "requests off this origin").toEqual([]);
+  expect(watched.noise, "console errors and warnings").toEqual([]);
+  expect(watched.crashes, "uncaught errors and unhandled rejections").toEqual([]);
+});
+
+/**
+ * The Rich Text Editor's page, held to the same rule (#206, extended by #209,
+ * #210 and #211).
+ *
+ * Typing drives the editor and the draft's own write, and since #210 so does
+ * exporting: the editor is a third-party tree mounted into this document, the
+ * draft is IndexedDB, and the export builds a blob and hands it to the browser's
+ * downloader. Since #211 importing is one too: the file is read as text, parsed
+ * and put back through the editor, and the confirmed replacement is saved like
+ * any other change. The run therefore types, selects and formats, awaits the save
+ * status, downloads both formats and imports a file before it asserts — a page
+ * that asked a server for anything would have to do it on one of those paths, and
+ * the export and import are the ones that could plausibly want to. The save status
+ * is awaited rather than assumed, because a write that happened after the listener
+ * had been torn down would be a request nobody watched.
+ */
+test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
+  page,
+  baseURL,
+}) => {
+  const watched = watch(page, originOf(baseURL));
+
+  await openRichTextEditor(page);
+  await writeInTitle(page, "本地文档");
+  await writeInBody(page, "写一句，看看这一页会不会向外请求。");
+  await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("写一句");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  await selectBodyText(page);
+  await pressAt(page, toolbarControl(page, "加粗"));
+
+  // The path is awaited, not only the download event: a download that never
+  // finished would have exercised the click and not the bytes.
+  expect(await (await downloadFromFileMenu(page, "导出 Markdown")).path()).not.toBeNull();
+  expect(await (await downloadFromFileMenu(page, "导出 HTML")).path()).not.toBeNull();
+
+  /*
+   * Since #211 the import is on this page too, and it is the path most likely to
+   * want a server: a file is read as text, parsed and put through the editor's own
+   * `setContent`, then written to the draft. The non-empty document means the
+   * confirmation is part of the path.
+   */
+  await importFromFileMenu(page, {
+    buffer: Buffer.from("# 本地导入\n\n导入一句，不应向外请求。", "utf8"),
+    mimeType: "text/markdown",
+    name: "导入.md",
+  });
+  await expect(importDialog(page)).toBeVisible();
+  await answerImportDialog(page, "替换");
+  await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("导入一句");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
 
   expect(watched.offSite, "requests off this origin").toEqual([]);
   expect(watched.noise, "console errors and warnings").toEqual([]);
