@@ -34,7 +34,8 @@ export type CommandId =
   | "blockquote"
   | "code-block"
   | "horizontal-rule"
-  | "link";
+  | "link"
+  | "image";
 
 export type CommandBlock =
   | "paragraph"
@@ -51,6 +52,7 @@ export type CommandBlock =
   | "codeBlock"
   | "horizontalRule"
   | "link"
+  | "image"
   | "document";
 
 export interface CommandSpec {
@@ -230,6 +232,14 @@ export const COMMANDS: readonly CommandSpec[] = [
     keywords: ["链接", "link", "url"],
     label: "链接",
   },
+  {
+    block: "image",
+    group: "insert",
+    icon: "icon-[ph--image-bold]",
+    id: "image",
+    keywords: ["图片", "图像", "照片", "image", "photo", "picture"],
+    label: "图片",
+  },
 ];
 
 /** The commands in one group, in the table's order. */
@@ -269,7 +279,11 @@ export function filterCommands(query: string): readonly CommandSpec[] {
  * rows whose `block` names a node: a mark needs a selection the slash menu never
  * has, and 撤销 and 重做 act on the whole document rather than on a line.
  * 链接 is a node-shaped row by name only: its behaviour is the field the toolbar
- * and the selection toolbar open, so it is not a slash command either.
+ * and the selection toolbar open, so it is not a slash command either. 图片 is the
+ * other kind of interface-shaped row and **is** here: applying it produces an
+ * image node, and the picker it opens is the caller's job (the row cannot run a
+ * chain, so `runCommand` answers `false` and the slash menu hands the request to
+ * the surface that owns the file input).
  */
 const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "paragraph",
@@ -280,6 +294,7 @@ const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "blockquote",
   "codeBlock",
   "horizontalRule",
+  "image",
 ]);
 
 /**

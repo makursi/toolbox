@@ -101,6 +101,7 @@ describe("the slash menu's commands", () => {
       "blockquote",
       "code-block",
       "horizontal-rule",
+      "image",
     ]);
   });
 
@@ -112,6 +113,7 @@ describe("the slash menu's commands", () => {
       "ordered-list",
       "task-list",
     ]);
+    expect(slashCommands("图片").map((command) => command.id)).toEqual(["image"]);
   });
 
   it("cannot reach a mark, a link or a whole-document command", () => {
@@ -140,5 +142,48 @@ describe("the slash menu's commands", () => {
     }
 
     expect(slashCommands("没有这个命令")).toEqual([]);
+  });
+});
+
+/**
+ * The image row, and why it is a row rather than a control beside the table (#216).
+ *
+ * 图片 is an insert action, so it belongs in the insert group like 引用, 链接 and the
+ * rule; its `block` is what puts it in the slash menu. The command is
+ * interface-shaped: the executor map has no chain for it (the same exception as the
+ * link), so the row's contract is only what this test can hold — the label a
+ * visitor reads, the group it renders in, the keywords the filter matches, and the
+ * construct it produces.
+ */
+describe("the image command", () => {
+  it("is the insert group's 图片, and produces an image block", () => {
+    expect(commandById("image")).toMatchObject({
+      block: "image",
+      group: "insert",
+      label: "图片",
+    });
+  });
+
+  it("is reachable by the Chinese word and the English one", () => {
+    expect(filterCommands("图片").map((command) => command.id)).toEqual(["image"]);
+    expect(filterCommands("image").map((command) => command.id)).toEqual(["image"]);
+    expect(filterCommands("照片").map((command) => command.id)).toEqual(["image"]);
+  });
+
+  it("keeps the table's order: the insert group ends with 链接 and then 图片", () => {
+    expect(commandsInGroup("insert").map((command) => command.id)).toEqual([
+      "blockquote",
+      "code-block",
+      "horizontal-rule",
+      "link",
+      "image",
+    ]);
+  });
+
+  it("is in the slash menu, last, without dragging the link in with it", () => {
+    const ids = slashCommands("").map((command) => command.id);
+
+    expect(ids.at(-1)).toBe("image");
+    expect(ids).not.toContain("link");
   });
 });

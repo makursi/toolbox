@@ -16,9 +16,15 @@ import type { CommandId } from "../core/commands";
  * is an interface: the pinned toolbar and the selection toolbar both open the same
  * link control, and `runCommand` answers `false` for it so a caller cannot quietly
  * believe it ran.
+ *
+ * 图片 is the second interface-shaped command (#216). Its behaviour is a file input,
+ * which lives on the toolbar; the slash menu applies the same row and gets the same
+ * `false`, then asks the surface that owns the input to open it. The two are
+ * excluded from the map by name, so a third interface command is a `tsc` error
+ * until someone decides which exclusion list it belongs in.
  */
 
-type ExecutedCommandId = Exclude<CommandId, "link">;
+type ExecutedCommandId = Exclude<CommandId, "link" | "image">;
 
 const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   undo: (editor) => {
@@ -78,10 +84,10 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
  * Run one command on the editor.
  *
  * `true` means this function ran it. `false` means the command needs an interface
- * of its own — 链接 — and the caller is the one that owns that interface.
+ * of its own — 链接 and 图片 — and the caller is the one that owns that interface.
  */
 export function runCommand(editor: Editor, id: CommandId): boolean {
-  if (id === "link") return false;
+  if (id === "link" || id === "image") return false;
 
   EXECUTORS[id](editor);
   return true;
