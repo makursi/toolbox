@@ -291,8 +291,9 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206) with its toolbar (#207) and its exports
-     * (#210).
+     * The fourth Tool's page (#206) with its toolbar (#207), the two surfaces that
+     * only exist while something is being done to the document (#208), its exports
+     * (#210), its draft (#209) and its import (#211).
      *
      * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
      * area is the whole 720px reading measure, and an overlay across it would sit on
@@ -304,20 +305,40 @@ const PAGES = [
      * Every toolbar control carries the class on its own `<button>` and is named:
      * the icon-only ones by `aria-label`, the block menu by `块类型：<current block>`
      * (the declared name is the stable prefix), and the file menu by `文件`. The
-     * block menu's items, the link field, 导入, 导出 Markdown, 导出 HTML, 清空 and
-     * the import confirmation live in popovers and a dialog, so they only exist
-     * after a control is pressed; the gate opens the file menu, presses each item
-     * at its coordinates and reads the downloaded bytes or the imported document
-     * back. This Instrument still declares only what is on the page without
-     * opening anything, which is the fallback #210 recorded and #211 keeps: a
-     * declared name that cannot be found in the state the page is measured in
+     * block menu's items, the link field, 导入, 导出 Markdown, 导出 HTML and 清空
+     * live in popovers, so they only exist once a control is pressed; the gate opens
+     * the file menu, presses each item at its coordinates and reads the downloaded
+     * bytes or the imported document back. This Instrument still declares only what
+     * is on the page without opening anything, which is #210's sanctioned fallback:
+     * a declared name that cannot be found in the state the page is measured in
      * would be a failure rather than coverage. The two placeholders are painted
      * `::before` sentences, so they are not controls and no name here can reach
      * them.
      *
-     * The save status and the rest of the file menu arrive with #209, and each
-     * declares its own controls in its own ticket; this page declares only what
-     * exists today. `outgoing` is the whole document: this page has one layer.
+     * #209 adds the save status beside 文件. It is a sentence, not a control, so it
+     * does not enter `controls`; the retry it adds in the failure state does not
+     * exist on the page this Instrument opens, and declaring a name that is not
+     * there would make the page fail for being in its normal state. The retry is
+     * still a real 44px `<button>`, and the gate presses it at its coordinates
+     * after refusing a write.
+     *
+     * #208's two surfaces are transient in the same way and are declared the same
+     * way: the slash menu exists only between typing `/` and applying a row, and the
+     * selection toolbar only while a selection is not empty (it is not in the
+     * document at all otherwise, which is why it cannot be measured in this
+     * Instrument's default state). Both carry the class on every one of their own
+     * buttons, and the gate presses them at their coordinates; nothing here names
+     * them, because a name in this list is a control that must be there on load.
+     *
+     * #211's 导入 is a row in the same popover, and its confirmation is an alert
+     * dialog that only exists after a file is chosen while the draft is non-empty.
+     * Neither is declared here for #210's reason; the gate presses 导入 at its
+     * coordinates, answers the dialog, and reads the imported blocks back. The row
+     * and the two dialog buttons carry `.touch-target`, so a scan that catches them
+     * open still measures 44px.
+     *
+     * The cover (#212) is the homepage card's illustration and does not change this
+     * page. `outgoing` is the whole document: this page has one layer.
      */
     controls: [
       "切换到",

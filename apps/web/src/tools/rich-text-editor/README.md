@@ -3,7 +3,26 @@
 A place to write on this site: one document at a time, edited in the browser, with
 nothing requested from anywhere after the page has loaded. The canonical document is
 ProseMirror JSON, and its title is the document's own first line rather than a second
-input beside the canvas.
+input beside the canvas. The draft lives in this browser's IndexedDB, and the toolbar
+says what happened to it.
+
+This slice (#209) adds the local draft, and #210 adds the two exports. Typing
+schedules a write 800ms after the last change, and hiding the page writes
+immediately instead of waiting; the toolbar's right end reports 未保存, 保存中,
+已保存到本机, or 保存失败 with a retry. A returning visit opens the stored document
+silently, with no prompt, and 清空 in the file menu empties the canvas and removes
+the stored record. There is no document size limit: a browser refusal to write is
+the only failure.
+
+This slice (#208) adds the three ways to write without leaving the keyboard. Typing
+`/` at the start of a paragraph opens a menu of the block commands; typing after the
+slash filters it, the arrow keys move the choice, Enter applies it and Escape closes
+it. The Markdown input rules turn `#`/`##`/`###`, `-`, `1.`, `>`, a backtick pair,
+` ``` `, `---`, `**`, `*` and `~~` into their blocks and marks as they are typed,
+and a paragraph that begins with the same characters but makes no rule stays text.
+Selecting text shows a toolbar next to the selection with the inline marks and the
+link action, placed above it (or below it when there is no room above) so that it
+never covers the words.
 
 This slice (#211) adds the import. The file menu's 导入 row opens a hidden file
 input that accepts `.md` and `.html`; the file is read as text, parsed, and put
@@ -13,15 +32,8 @@ sanitised by `core/html-import.ts` and then parsed by TipTap, so the final
 document is the editor's schema in both cases. When the draft already says
 something, an alert dialog asks before it is replaced, and cancelling leaves the
 draft untouched. The same HTML sanitiser runs on the editor's paste path, so
-pasted markup loses its scripts, styles and head material by the same rule.
-
-The previous slice (#210) added the two exports. The file menu offers 导出 Markdown
-and 导出 HTML, and each one writes the document's current bytes to a download:
-GitHub Flavored Markdown with underline as the one inline HTML construct, or a
-complete standalone HTML document with a doctype, a charset, the document's title
-and an embedded stylesheet. The file is named from the sanitised title and today's
-date, falling back to 文档-YYYY-MM-DD when the document has no title. There is no
-filename field: the document names itself.
+pasted markup loses its scripts, styles and head material by the same rule. The
+confirmed import is a document change like any other, so the draft saves it.
 
 The toolbar (#207) is what the document is written with. A visitor can start
 writing, turn a paragraph into 标题 1–3 and back, mark a selection bold, italic,
@@ -31,115 +43,187 @@ edit and remove a link on selected text, undo and redo, and clear the document f
 the file menu. The toolbar reads the state at the cursor, so a mark that is on says
 so and the block menu names the block the caret is in.
 
-Everything the toolbar can do comes from one table in the Tool's pure core
-(`core/commands.ts`). The toolbar renders it; the slash menu in #208 will render the
-same table. What each command _does_ is a TipTap chain in the toolbar's executor map,
-and that map is typed `Record<CommandId, () => void>`, so a command in the table with
-no handler is a `tsc` error rather than a dead button.
+The exports landed in #210. The file menu offers 导出 Markdown and 导出 HTML, and each
+one writes the document's current bytes to a download: GitHub Flavored Markdown with
+underline as the one inline HTML construct, or a complete standalone HTML document
+with a doctype, a charset, the document's title and an embedded stylesheet. The file
+is named from the sanitised title and today's date, falling back to 文档-YYYY-MM-DD
+when the document has no title. There is no filename field: the document names
+itself.
 
-What is deliberately **not here yet**, and lands in its own ticket: the slash menu,
-Markdown input rules, the selection toolbar (#208), and autosave and restore (#209).
-The Tool's cover landed in #212 and is the homepage card's illustration; it does not
-change this page. Nothing is saved yet either: a reload gives a fresh empty document,
-which is the current state rather than a bug. The page is known to both instruments
-and to the browser gate, so none of this is unmeasured.
+Everything the three surfaces can do comes from one table in the Tool's pure core
+(`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
+marks plus the link, and the pinned toolbar all of them. What each command _does_ is
+one executor in `editor/execute.ts`, and that map is typed
+`Record<Exclude<CommandId, "link">, …>`, so a command in the table with no handler is
+a `tsc` error rather than a dead button. 链接 is the one command that is an interface
+rather than a chain: the pinned toolbar and the floating toolbar both open the same
+`link-control/link-control.tsx`.
+
+The Markdown input rules add no extension at all, and that is a checked conclusion
+rather than an omission: every rule #208 names ships with StarterKit, which the Tool
+already loads. The gate proves each rule and each of its near-misses, because a rule
+nobody exercised is a rule nobody has.
+
+What is deliberately **not here yet**, and lands in its own ticket: nothing in this
+slice. The Tool's cover landed in #212 and is the homepage card's illustration; it
+does not change this page. The page is known to both instruments and to the browser
+gate, so none of this is unmeasured.
 
 The Tool's own design rules, the command table's contract, the toolbar's groups and
-hit areas, the import, export and filename rules, the two placeholders and why the
-canvas is not a `.touch-target`, are in [`rules.md`](./rules.md).
+hit areas, the save-state machine and its sentences, the two menus' placement and
+keys, the input rules StarterKit supplies, the import and paste rules, the export and
+filename rules, the two placeholders and why the canvas is not a `.touch-target`, are
+in [`rules.md`](./rules.md).
 
 ## Layout
 
 ```
-RichTextEditor.tsx              the writing surface: TipTap, the extensions, the canvas typography, the paste sanitiser
-toolbar/toolbar.tsx             the toolbar, the block menu, the link popover, the file menu, the import and the downloads
-core/commands.ts                the one command table, and the filter the slash menu will use
-core/document.ts                what an empty document is, whether it says anything, and where its title comes from
-core/markdown.ts                ProseMirror JSON to GFM
-core/markdown-import.ts         GFM to ProseMirror JSON
-core/html.ts                    ProseMirror JSON to a complete standalone HTML document
-core/html-import.ts             sanitised HTML for the import and paste paths
-core/import.ts                  which format a chosen file is, and the picker's accept value
-core/naming.ts                  the export filename rule: sanitised title, date, extension
-core/__tests__/commands.test.ts the table's contract in Vitest
-core/__tests__/document.test.ts the title, and the emptiness the import asks about
-core/__tests__/markdown.test.ts the Markdown writer, in GFM's terms
-core/__tests__/markdown-import.test.ts the Markdown reader, in the writer's terms
-core/__tests__/html.test.ts     the standalone document and its escaping
-core/__tests__/html-import.test.ts the sanitiser: kept blocks, dropped scripts, importable task lists
-core/__tests__/import.test.ts   the format rule, by name and then by content
-core/__tests__/naming.test.ts   the filename rule, including the empty-title fallback
-meta.ts                         the Tool Registry entry
-rules.md                        this Tool's own rules, linked from this file
-README.md                       this file: what it does, its files, a run, and the checklist
+RichTextEditor.tsx                       the writing surface: the draft gate, TipTap, the extensions, the canvas typography, the paste sanitiser
+toolbar/toolbar.tsx                      the pinned toolbar: the block menu, the save status, the file menu, the import and the downloads
+slash-menu/slash-menu-extension.ts       `/` at the start of a paragraph, and the plugin that follows the caret
+slash-menu/slash-menu.tsx                the menu itself: rows, arrow keys, Enter
+selection-toolbar/selection-toolbar.tsx  the row that follows a selection: the marks and the link, placed clear of the words
+command-toggle/command-toggle.tsx        one command as a toggle, the pressed state's one appearance and hit area
+link-control/link-control.tsx            the link action's trigger, field, 应用 and 移除
+editor/execute.ts                        what each command does: one executor for all three surfaces
+hooks/use-editor-command-state/…         the state at the cursor, read through TipTap's selector
+core/commands.ts                         the one command table, its filters, and the slash menu's subset
+core/document.ts                         what an empty document is, whether it says anything, and where its title comes from
+core/draft.ts                            the stored record's shape, its schema version and the guard that reads it back
+core/save.ts                             the save-state machine: the 800ms debounce, the flush, the retry and old-revision rejection
+core/copy.ts                             the save-state sentences, the retry label, the two menus' sentences and the import confirmation's
+core/markdown.ts                         ProseMirror JSON to GFM
+core/markdown-import.ts                  GFM to ProseMirror JSON
+core/html.ts                             ProseMirror JSON to a complete standalone HTML document
+core/html-import.ts                      sanitised HTML for the import and paste paths
+core/import.ts                           which format a chosen file is, and the picker's accept value
+core/naming.ts                           the export filename rule: sanitised title, date, extension
+draft/draft-store.ts                     the hand-written IndexedDB store: open, read, write, remove
+hooks/use-draft/use-draft.ts             the timer, the store and React: silent restore, debounce, flush, retry, clear
+core/__tests__/commands.test.ts          the table's contract in Vitest
+core/__tests__/save.test.ts              the state machine's transitions in Vitest
+core/__tests__/copy.test.ts              the save status's wording, the menu sentences and the punctuation in Vitest
+core/__tests__/draft.test.ts             the stored record's guard in Vitest
+core/__tests__/document.test.ts          the title, and the emptiness the import asks about
+core/__tests__/markdown.test.ts          the Markdown writer, in GFM's terms
+core/__tests__/markdown-import.test.ts   the Markdown reader, in the writer's terms
+core/__tests__/html.test.ts              the standalone document and its escaping
+core/__tests__/html-import.test.ts       the sanitiser: kept blocks, dropped scripts, importable task lists
+core/__tests__/import.test.ts            the format rule, by name and then by content
+core/__tests__/naming.test.ts            the filename rule, including the empty-title fallback
+meta.ts                                  the Tool Registry entry
+rules.md                                 this Tool's own rules, linked from this file
+README.md                                this file: what it does, its files, a run, and the checklist
 ```
 
 ```
 apps/web/e2e/
-  rich-text-editor-page.ts   the gate's page actions: open, type, select, press a control at its coordinates
+  rich-text-editor-page.ts   the gate's page actions: open, type, select, press a control at its coordinates, read the store
   rich-text-editor.spec.ts   what the gate asserts on every pull request
 ```
 
-The two page entries the instruments carry are not files: one line in
+The page entry the instruments carry is not a file: one line in
 `apps/web/scripts/touch-targets.mjs` names this page and its always-visible controls,
-and one line in `apps/web/scripts/ui-fingerprint.mjs` declares its anchors. The
-fingerprint's baseline is a local file, not a repository one.
+and one line in `apps/web/scripts/ui-fingerprint.mjs` declares its anchors, including
+`rich-text-save-status`. The fingerprint's baseline is a local file, not a repository
+one.
 
 ## How a run works
 
 1. **Open.** The route renders the shared `ToolPage` shell, a toolbar-shaped
    placeholder and an empty canvas. The editor is created in an effect after
-   hydration (`immediatelyRender: false`), so the server never renders a
-   contenteditable and the visitor's first cursor is never reconciled with server
-   HTML. The placeholder is the toolbar's own height, so the canvas does not jump
-   when the toolbar arrives.
-2. **Start.** The document is a `doc` with two empty text blocks: a `heading` at
-   level 1 and a `paragraph`. The Placeholder extension paints 无标题 on the empty
+   hydration (`immediatelyRender: false`), and only once the draft store has answered,
+   so the server never renders a contenteditable and a late restore never lands on a
+   cursor that is already typing. The placeholder is the toolbar's own height, so the
+   canvas does not jump when the editor arrives.
+2. **Restore.** One IndexedDB record is read before the editor exists: a schema
+   version, the ProseMirror JSON document and its timestamp. A valid record becomes
+   the editor's initial content, silently and with no prompt. No record, or one this
+   build cannot read, is simply the empty document; a failed read is an empty canvas
+   rather than a failure the visitor has to answer.
+3. **Start.** The empty document is a `doc` with two empty text blocks: a `heading`
+   at level 1 and a `paragraph`. The Placeholder extension paints 无标题 on the empty
    title heading and 开始写吧，输入 `/` 插入内容 on the document's first body block. An
    empty line the visitor makes with Enter paints nothing: that sentence is about an
    empty document, not about every empty line.
-3. **Type.** A click puts the caret in a block and a real keyboard writes into it.
+4. **Type.** A click puts the caret in a block and a real keyboard writes into it.
    The first keystroke in the paragraph makes it non-empty, so its placeholder
    disappears; the title's sentence stays until the title itself is typed.
-4. **Format.** Every toolbar control is a real `<button>` with its own 44px box.
+5. **Save.** Each change moves the status to 未保存 and starts an 800ms window. When
+   it closes the status is 保存中 while the record is written, then 已保存到本机. A
+   change during a write starts its own window and makes the older completion stale,
+   so a slow write cannot report "saved" over text it never saw. Hiding the page
+   writes at once instead of waiting; if the browser refuses the write, the status
+   says 保存失败，草稿还在页面上。 and a 重试 control re-attempts exactly the operation
+   that failed.
+6. **Format.** Every toolbar control is a real `<button>` with its own 44px box.
    Pressing a mark toggles it on the selection and sets `aria-pressed`; the block
    menu names the block at the cursor and replaces it; lists nest with Tab and a task
    item's checkbox is the item's own state; quote and code block toggle their block,
    the rule inserts one; the link action opens one field and sets, edits or removes
    the link on the selection. Undo and redo work from the toolbar and from the
    keyboard, because they are the editor's own history.
-5. **Read back.** The text is the editor's own document: the gate reads it from the
-   contenteditable after typing, and the blocks are not re-seeded from the initial
-   content when the page renders again.
-6. **Export.** The file menu's 导出 Markdown and 导出 HTML ask the editor for its
-   JSON and hand it to the pure writer for that format. The writer returns a string;
-   the toolbar wraps it in a blob, mints a temporary object URL, clicks an anchor
-   named by `core/naming.ts`, and revokes the URL on the next task. The browser
-   saves the file, so the gate can read the bytes back. The name is the sanitised
-   title and today's local date with the format's extension, capped at 40 title
-   characters, or 文档 with the date when the document has no title. An empty
-   document exports as an empty Markdown file and an HTML file whose article is
-   empty; both are still complete files.
-7. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
-   is read as text and its format is decided by `core/import.ts` from the extension
-   (falling back to the content when the name says nothing). Markdown goes through
-   `documentFromMarkdown` to JSON; HTML goes through `sanitizeHtml` and then through
-   TipTap's `setContent`, whose DOMParser is the final word on the document either
-   way. If the draft says anything (`isEmptyDocument`), an alert dialog asks first:
-   cancelling closes it and changes nothing, confirming replaces the document. The
-   input's value is cleared after every choice, so importing the same file twice
-   works. A file that sanitises to nothing leaves the empty document, and a paste of
-   HTML takes the same sanitiser through `transformPastedHTML` before ProseMirror
-   sees it.
+7. **Write without the mouse.** Typing `/` where a paragraph starts opens the slash
+   menu at the caret; what follows filters it (`标题` leaves the three headings), the
+   arrow keys move the highlight, Enter deletes the typed `/query` and applies the
+   command, and Escape closes the menu and leaves the slash as text. A space ends the
+   match, so `/标题 ` is text rather than a command nobody can see. The rows are the
+   table's block commands, so the menu and the pinned toolbar cannot disagree.
+8. **Type Markdown.** `#`/`##`/`###`, `-`, `1.`, `>`, a backtick pair, a fenced
+   backtick block, `---`, `**`, `*` and `~~` become their block or mark as they are
+   typed. Each rule needs its complete construct, so `#没有空格`, `-没有空格`,
+   `` `未闭合 `` and `**未闭合` stay text — the gate holds both ends.
+9. **Select and format.** A non-empty selection shows the floating toolbar just above
+   the words (below them when there is no room above), with the five inline marks and
+   the link action; pressing one applies it to the same document selection the pinned
+   toolbar acts on. It is not in the document at all while the selection is empty.
+10. **清空.** The file menu's 清空 replaces the canvas with `EMPTY_DOCUMENT` without
+    emitting an editor update, and removes the stored record rather than writing an
+    empty one. A reload therefore finds no draft to restore. A write that was already
+    in flight is made stale by the revision bump, and IndexedDB runs the removal after
+    it.
+11. **Export.** The file menu's 导出 Markdown and 导出 HTML ask the editor for its
+    JSON and hand it to the pure writer for that format. The writer returns a string;
+    the toolbar wraps it in a blob, mints a temporary object URL, clicks an anchor
+    named by `core/naming.ts`, and revokes the URL on the next task. The browser
+    saves the file, so the gate can read the bytes back. The name is the sanitised
+    title and today's local date with the format's extension, capped at 40 title
+    characters, or 文档 with the date when the document has no title. An empty
+    document exports as an empty Markdown file and an HTML file whose article is
+    empty; both are still complete files.
+12. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
+    is read as text and its format is decided by `core/import.ts` from the extension
+    (falling back to the content when the name says nothing). Markdown goes through
+    `documentFromMarkdown` to JSON; HTML goes through `sanitizeHtml` and then through
+    TipTap's `setContent`, whose DOMParser is the final word on the document either
+    way. If the draft says anything (`isEmptyDocument`), an alert dialog asks first:
+    cancelling closes it and changes nothing, confirming replaces the document. The
+    confirmed replacement is a `setContent` that emits an update, so #209 saves it
+    like any other change. The input's value is cleared after every choice, so
+    importing the same file twice works. A file that sanitises to nothing leaves the
+    empty document, and a paste of HTML takes the same sanitiser through
+    `transformPastedHTML` before ProseMirror sees it.
+13. **Read back.** The text is the editor's own document: the gate reads it from the
+    contenteditable after typing, and the blocks are not re-seeded from the initial
+    content when the page renders again. The same document comes back after a reload,
+    marks included, because ProseMirror JSON is what the store holds.
 
 The extension set is the minimum the slices after this one need: `StarterKit` (with
 Link configured `openOnClick: false`), `TaskList` and `TaskItem` from
-`@tiptap/extension-list`, and `Placeholder` from `@tiptap/extensions`. The import
-added no dependency: both parsers are the Tool's own code, and the confirmation's
-`alert-dialog.tsx` is generated from the `radix-ui` package the component layer
-already uses. No third-party asset came with it either; the TipTap tree arrived in
-`chore(web): the TipTap tree at V1's minimum` and is the dependency expansion the
-Tool's spec records.
+`@tiptap/extension-list`, `Placeholder` from `@tiptap/extensions`, and #208's
+`SlashMenuExtension`, which is `@tiptap/suggestion` wrapped in an `Extension` so the
+plugin gets the editor it needs. The two menus' sentences and the import
+confirmation's live in `core/copy.ts`.
+No third-party asset and no new dependency came with any of it; the TipTap tree
+arrived in `chore(web): the TipTap tree at V1's minimum` and is the dependency
+expansion the Tool's spec records. The draft store is hand-written against IndexedDB,
+so #209 added no dependency at all. #211 added none either: both import parsers are
+the Tool's own code, and the confirmation's `alert-dialog.tsx` is generated from the
+`radix-ui` package the component layer already uses. `@tiptap/extension-floating-menu`
+is installed and is _not_ used: its React binding imports a package this Tool does not
+declare, and its bare plugin positions its element before re-adding it, so a React row
+would be placed against a box with no height. `selection-toolbar.tsx` says so in place.
 
 ## What CI covers, and what is still yours
 
@@ -164,10 +248,33 @@ browser and covers the items marked **▣**:
   document and brings the body placeholder back.
 - ▣ The link action sets a link on selected text, reopens with its address prefilled,
   edits it, and removes it.
+- ▣ `/` opens the slash menu with the ten block commands in the table's order, `标题`
+  filters it to the three headings, the arrow keys move the highlight and Enter
+  applies 标题 2, leaves no `/标题` in the document and closes the menu.
+- ▣ Escape closes the slash menu and leaves the slash it opened on as text.
+- ▣ Each Markdown block rule makes its block (`#`/`##`/`###`, `-`, `1.`, `>`, a
+  fenced backtick block, `---`), and each mark rule marks its words (`**`, `*`,
+  `~~`, a backtick pair).
+- ▣ A paragraph that begins with the same characters but makes no rule stays text
+  (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick, an
+  unclosed `**`), and a slash inside a sentence is a slash.
+- ▣ The selection toolbar shows the five marks and the link on a selection, sits
+  clear of the selected words, applies 加粗 at its own coordinates, and is gone when
+  the selection becomes a caret.
 - ▣ Undo and redo work from the keyboard (`Control+z`, `Control+Shift+z`) and from
   the toolbar's own buttons.
 - ▣ At 390px the middle groups scroll horizontally while the file menu's position
   does not move, the page itself does not overflow, and the file menu still opens.
+- ▣ Typing and pausing writes the one record and reports 已保存到本机; the record
+  carries schema version 1, a numeric timestamp and the typed document.
+- ▣ A reload in the same browser context restores the title, the body and the bold
+  run exactly, with no dialog asking whether to open the draft.
+- ▣ Hiding the page before the 800ms window closes writes immediately: the status
+  read in the same step is 未保存, and 已保存到本机 follows from the flush.
+- ▣ 清空 empties the canvas, removes the record (not an empty one), and a reload finds
+  both the canvas and the store empty.
+- ▣ A refused write shows 保存失败，草稿还在页面上。, the 重试 control is visible, and
+  pressing it at its coordinates writes the document that failed.
 - ▣ The file menu downloads both formats: the Markdown file is the document as GFM,
   the HTML file is a complete document with its title in `<title>` and an embedded
   stylesheet, and each file's name is the sanitised title, today's date and the
@@ -187,37 +294,55 @@ browser and covers the items marked **▣**:
   does not run and does not reach the document, while the pasted words and their
   marks do.
 - ▣ The Tool has a homepage card linking to its route and an entry in `/sitemap.xml`.
-- ▣ Typing, formatting, exporting both formats and importing a file reaches nothing
-  off this origin, prints no console error or warning, and raises no uncaught error
-  (`apps/web/e2e/no-outbound-requests.spec.ts`).
+- ▣ Typing, formatting, saving, exporting both formats and importing a file reaches
+  nothing off this origin, prints no console error or warning, and raises no uncaught
+  error (`apps/web/e2e/no-outbound-requests.spec.ts`).
 
-`pnpm test` covers the command table (ids are unique, every command has a label and
-keywords, `commandsInGroup` keeps the table's order, `filterCommands` matches by
-keyword and returns the table's order, and an empty query returns the whole table),
-the Markdown writer (headings, both kinds of list and their nesting, task items and
-their checked state, quotes, fenced code with its language and backtick growth,
-rules, every mark with underline as inline HTML, links, hard breaks, escaping, and
-the empty document's empty string), the standalone-HTML writer (doctype, charset,
-title, embedded stylesheet, every block and mark, escaping, and both fallbacks), the
-filename rule (title, date padding, invalid characters, the 40-character cap and the
-empty-title fallback), the document's title and emptiness, the import format rule,
-the Markdown reader (the writer's constructs read back, nested lists and task items,
-hard and soft breaks, the export's `<u>` underline, escapes, unknown syntax kept as
-text, and no throw on malformed input), and the HTML sanitiser (kept blocks, head and
-scripts dropped, unsafe links unwrapped, the export's task list read back into the
-editor's markup, entity round-tripping, and no throw on malformed markup). The one
-structural claim a unit test cannot make, that every id has an executor, is the typed
-executor map in `toolbar/toolbar.tsx`: `tsc` is what holds it.
+`pnpm test` covers the pure layers. The command table: ids are unique, every command
+has a label and keywords, `commandsInGroup` keeps the table's order, `filterCommands`
+matches by keyword and returns the table's order, an empty query returns the whole
+table, and `slashCommands` offers exactly the ten block commands — filtering by the
+same keywords and never reaching a mark, the link or a whole-document command. The
+save machine: dirty → saving → saved, failure and retry, the hidden-page flush, a
+change during a write, a completion for an older revision, a debounce with no window
+to close, 清空 as a newer operation, and the 800ms constant. The copy: the four save
+sentences, the retry label, the two menus' sentences and the banned punctuation. The
+record: the schema version, the timestamp and the ProseMirror document, with malformed
+values refused. The Markdown writer: headings, both kinds of list and their nesting,
+task items and their checked state, quotes, fenced code with its language and backtick
+growth, rules, every mark with underline as inline HTML, links, hard breaks, escaping,
+and the empty document's empty string. The standalone-HTML writer: doctype, charset,
+title, embedded stylesheet, every block and mark, escaping, and both fallbacks. The
+filename rule: title, date padding, invalid characters, the 40-character cap and the
+empty-title fallback. The document's title and emptiness: the first heading wins, and
+the import's question counts text and a rule but not empty blocks or whitespace. The
+import format rule: the two extensions, the extension beating the content, the
+content sniff and the Markdown fallback. The Markdown reader: the writer's constructs
+read back, nested lists and task items, hard and soft breaks, the export's `<u>`
+underline, escapes, unknown syntax kept as text, and no throw on malformed input. The
+HTML sanitiser: kept blocks, head and scripts dropped, unsafe links unwrapped, the
+export's task list read back into the editor's markup, entity round-tripping, and no
+throw on malformed markup. The one structural claim a unit test cannot make, that
+every id has an executor, is the typed executor map in `editor/execute.ts`: `tsc` is
+what holds it.
 
 Still by hand: opening the page in both colour schemes and reading the toolbar, the
-pressed state, the canvas and its placeholders against the palette; typing Chinese
-through a real IME, which a Playwright keyboard does not simulate (the gate types
-characters, not composition events); whether a screen reader announces the two
-placeholders, the toolbar's name and each control's state; focus order through the
-toolbar and the popovers; the canvas's line becoming ink while the editing surface
-holds the focus; and the whole page at 360, 375, 390, 768 and 1024 px looking for
-horizontal overflow, a toolbar that scrolls where it should, and a canvas that still
-reads as a page.
+pressed state, the save status in all four states, the slash menu, the floating row,
+the import confirmation, the canvas and its placeholders against the palette; typing
+Chinese through a real IME, which a Playwright keyboard does not simulate (the gate
+types characters, not composition events) — both into a paragraph and after a `/`;
+whether the slash menu follows the caret when the page scrolls while it is open, and
+whether it opens where a person expects on a phone keyboard; whether a screen reader
+announces the two placeholders, the toolbar's name, each control's state, the save
+status's changes, the slash menu's role and highlighted row, the import confirmation's
+title and buttons, and the second toolbar as 选中文本的格式 rather than as a duplicate
+of the first; focus order through the toolbar, the popovers and the confirmation; the
+canvas's line becoming ink while the editing surface holds the focus; the draft
+surviving a real tab close rather than a Playwright reload; a browser that refuses the
+write for quota rather than the gate's injected refusal; and the whole page at 360,
+375, 390, 768 and 1024 px looking for horizontal overflow, a toolbar that scrolls
+where it should and keeps its right end (status and file menu) still, a floating row
+that stays inside the viewport, and a canvas that still reads as a page.
 
 ## Manual QA checklist
 
@@ -244,8 +369,33 @@ here re-runs it.
 - [ ] **▣** 项目符号列表 nests a second item with Tab, and 任务列表's checkbox checks
       the item.
 - [ ] **▣** 引用, 代码块 and 分隔线 insert their block; 清空 empties the document.
+- [ ] **▣** A fresh page has no stored record and reports 已保存到本机; typing and
+      pausing writes one record with schema version 1, a numeric timestamp and the
+      typed document, and the status says 已保存到本机.
+- [ ] **▣** A reload restores the title, the body and the bold run exactly, and no
+      dialog asks whether to open the draft.
+- [ ] **▣** Hiding the page while the status is still 未保存 writes immediately, and
+      已保存到本机 follows without waiting for the debounce.
+- [ ] **▣** 清空 empties the canvas and removes the record; a reload finds both the
+      canvas and the store empty.
+- [ ] **▣** A refused write shows 保存失败，草稿还在页面上。 with a visible 重试, and
+      pressing 重试 writes the document that failed.
 - [ ] **▣** 链接 sets, edits and removes a link on selected text.
 - [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard.
+- [ ] **▣** `/` opens the slash menu with the ten block commands in the table's
+      order; `标题` filters it to three; the arrow keys move the highlighted row and
+      Enter applies 标题 2, closes the menu and leaves no `/标题` in the document.
+- [ ] **▣** Escape closes the slash menu and leaves the slash it opened on as text.
+- [ ] **▣** Each Markdown block rule makes its block: `#`, `##`, `###`, `-`, `1.`,
+      `>`, a fenced backtick block and `---`.
+- [ ] **▣** Each Markdown mark rule marks its words: `**`, `*`, `~~` and a backtick
+      pair, with the delimiters gone from the document.
+- [ ] **▣** A paragraph that begins with the same characters but makes no rule stays
+      text (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick,
+      an unclosed `**`), and a slash inside a sentence is a slash.
+- [ ] **▣** The selection toolbar shows the five marks and the link on a selection,
+      sits clear of the selected words, applies 加粗 at its own coordinates, and is
+      gone once the selection is a caret.
 - [ ] **▣** 导出 Markdown downloads a GFM file whose bytes are the document, and the
       filename is `<title>-YYYY-MM-DD.md`.
 - [ ] **▣** 导出 HTML downloads a complete document with a doctype, a charset, the
@@ -268,14 +418,16 @@ here re-runs it.
 - [ ] **▣** The homepage card links to `/tools/rich-text-editor`, and the sitemap
       lists the route.
 - [ ] **▣** The page makes no request off this origin while typing, formatting,
-      exporting both formats and importing a file, writes no console error or
+      saving, exporting both formats and importing a file, writes no console error or
       warning, and raises no uncaught error.
 
 ### A person must still check
 
-- [ ] Both colour schemes: the toolbar's hairlines, the pressed ink state, the
-      canvas's type and the two placeholder sentences are readable, and the
-      placeholder colour is the measured one.
+- [ ] Both colour schemes: the toolbar's hairlines, the pressed ink state, the save
+      status in 未保存 / 保存中 / 已保存到本机 and the failure sentence, the slash
+      menu's card and highlighted row, the floating row, the import confirmation's
+      overlay and card, the canvas's type and the two placeholder sentences are
+      readable, and the placeholder colour is the measured one.
 - [ ] The import confirmation in both schemes: the overlay dims the page rather than
       washing it out, the title and the description read as one question, focus lands
       on 取消, Escape cancels, Tab reaches both buttons, and both are 44px tall.
@@ -285,16 +437,29 @@ here re-runs it.
 - [ ] A full page saved from a browser as HTML: its head, scripts, styles and layout
       wrappers are gone, its lists, quotes, code and links survive, and a
       `javascript:` link arrives as plain text.
-- [ ] Pasting rich content copied from another tab: the words and the marks are
-      kept, the scripts and styles are not, and the pasted link does not carry an
-      event handler.
+- [ ] Pasting rich content copied from another tab: the words and the marks are kept,
+      the scripts and styles are not, and the pasted link does not carry an event
+      handler.
+- [ ] In the browser's application panel the draft is one IndexedDB database, one
+      object store and one record under one key, holding `version: 1`, the
+      `type: "doc"` JSON and a timestamp; a second tab sees the same draft rather than
+      a second one.
+- [ ] Closing a real tab and opening the page again restores the draft; a reload is
+      only the gate's version of that path, and a tab close gives the flush less time.
+- [ ] A browser that refuses the write for quota (or a private window with storage
+      disabled) reaches 保存失败，草稿还在页面上。 rather than losing the text
+      silently, and 重试 recovers once the refusal is gone.
+- [ ] A screen reader announces the save region politely as it moves through the four
+      states, reads the failure sentence, and reaches 重试 by the keyboard.
 - [ ] Chinese input through a real IME composes into the paragraph and the first
-      committed character takes the body placeholder away. The gate types
-      characters, not composition events.
+      committed character takes the body placeholder away, and composing after a `/`
+      filters the slash menu rather than applying a command mid-composition. The
+      gate types characters, not composition events.
 - [ ] A screen reader announces the editing surface as 文档内容, the toolbar as
       格式工具栏, each icon control by its name, the pressed state of a mark, and the
       block menu as 块类型：<当前块>; whether it also reads the placeholders (they are
-      CSS `::before` content, which screen readers are not obliged to announce).
+      CSS `::before` content, which screen readers are not obliged to announce); and
+      whether the slash menu and the floating row are announced by their names.
 - [ ] Tab reaches the toolbar controls in order, Enter or Space presses a toggle,
       the block menu and the file menu open and close with the keyboard, and Escape
       closes the link popover.
@@ -305,6 +470,14 @@ here re-runs it.
       toolbar scrolls sideways where it must and keeps its right end in place, the
       page does not scroll sideways, and every toolbar control keeps its 44px hit
       area (the instrument prints the numbers; a person reads the page).
+- [ ] At 390px the failure sentence and 重试 together still leave the file menu on
+      screen and the page without horizontal overflow: that is the widest the right
+      end ever gets.
+- [ ] The slash menu opens where the caret is, does not open for a `/` typed in the
+      middle of a sentence, in the title heading, or in a list item's paragraph, and
+      the selection toolbar sits above a one-line selection, flips below one near the
+      top of the viewport, stays inside the viewport at either margin, and follows a
+      scroll while it is open.
 - [ ] Pressing Enter at the end of the paragraph creates a second paragraph that
       paints no placeholder of its own: the starting sentence belongs to the
       document's first body block, not to every empty line.

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEditorState, type Editor } from "@tiptap/react";
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import type { Editor } from "@tiptap/react";
+import { useRef, useState, type ChangeEvent } from "react";
 
 import {
   AlertDialog,
@@ -14,12 +14,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Toggle } from "@/components/ui/toggle";
 
+import { CommandToggle } from "../command-toggle/command-toggle";
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
+import {
+  IMPORT_CANCEL_LABEL,
+  IMPORT_CONFIRM_LABEL,
+  IMPORT_DIALOG_DESCRIPTION,
+  IMPORT_DIALOG_TITLE,
+  SAVE_RETRY_LABEL,
+  SAVE_STATUS_TEXT,
+} from "../core/copy";
 import { EMPTY_DOCUMENT, isEmptyDocument } from "../core/document";
 import { htmlFromDocument } from "../core/html";
 import { sanitizeHtml } from "../core/html-import";
@@ -27,36 +33,55 @@ import { IMPORT_ACCEPT, importFormatOf, type ImportFormat } from "../core/import
 import { markdownFromDocument } from "../core/markdown";
 import { documentFromMarkdown } from "../core/markdown-import";
 import { exportFileName, type ExportFormat } from "../core/naming";
+import type { SaveStatus } from "../core/save";
+import { runCommand } from "../editor/execute";
+import { useEditorCommandState } from "../hooks/use-editor-command-state/use-editor-command-state";
+import { LinkControl } from "../link-control/link-control";
 
 /**
  * The toolbar above the canvas: every command the table names, grouped the way
- * the table groups them.
+ * the table groups them, and the save status at the right end beside the file
+ * menu.
  *
- * It is the table's first renderer, not a second list. The middle groups come
- * from `commandsInGroup` in table order, so a command added to the core appears
- * here without an edit; the executor map below is the only place this component
- * has to know a command's id, and TypeScript's `Record<CommandId, ...>` makes a
- * command with no handler a compile error rather than a dead button.
+ * It is the table's renderer, not a second list. The groups come from
+ * `commandsInGroup` in table order, so a command added to the core appears here
+ * without an edit. What each command does is `runCommand` (`editor/execute.ts`),
+ * which the slash menu and the selection toolbar run too: one table, one executor,
+ * three surfaces.
  *
- * The execution is TipTap's. A handler is one chain, and the browser gate is
- * what proves the chain applied: a toolbar that renders and does nothing is a
- * shape this component cannot check by itself.
+ * The state at the cursor comes from `useEditorCommandState`, so a mark that is on
+ * says so and the block menu names the block the caret is in, without this component
+ * keeping a copy of the document.
  *
  * The file menu holds 导入 (#211), the two export actions (#210) and 清空. Each
- * export asks the editor for its JSON, hands it to the pure writer in `core/`,
- * and downloads the bytes under the name `core/naming.ts` derives. 导入 is one
- * action for both accepted formats: a hidden file input takes the file, the
- * format rule in `core/import.ts` picks the parser, and the result goes back
- * through TipTap's own `setContent`. When the draft says something, an alert
- * dialog asks before it is replaced; cancelling changes nothing. There is no
- * filename field: the document names itself, which is the rule #205 settled. The
- * save status arrives in #209.
+ * export asks the editor for its JSON, hands it to the pure writer in `core/`, and
+ * downloads the bytes under the name `core/naming.ts` derives. 导入 is one action
+ * for both accepted formats: a hidden file input takes the file, the format rule
+ * in `core/import.ts` picks the parser, and the result goes back through TipTap's
+ * own `setContent`. When the draft says something, an alert dialog asks before it
+ * is replaced; cancelling changes nothing. There is no filename field: the
+ * document names itself, which is the rule #205 settled.
+ *
+ * The save status beside the file menu is the draft's own state (#209); its
+ * sentences come from the Tool's pure copy layer, and the retry control exists
+ * only while a write is refused. 清空 goes through the same draft store: the
+ * writing surface empties the canvas and removes the record in one action, so a
+ * cleared document is not saved back as an empty one.
  */
 
 /** An import that is waiting on the visitor's confirmation. */
 interface PendingImport {
   readonly format: ImportFormat;
   readonly contents: string;
+}
+
+export interface EditorToolbarProps {
+  readonly editor: Editor;
+  readonly saveStatus: SaveStatus;
+  /** 重试, shown only in the failure state. */
+  readonly onRetry: () => void;
+  /** 清空, which the writing surface routes through the draft store. */
+  readonly onClear: () => void;
 }
 
 /** Commands that read as on/off at the cursor; the rest are one-shot actions. */
@@ -73,21 +98,6 @@ const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
   "code-block",
 ]);
 
-/**
- * A pressed toggle is ink, and stays ink under the pointer.
- *
- * The vendored toggle's own on-state is the hover surface, which is 1.1:1
- * against the canvas: a mark that is on would look like a mark that is merely
- * hovered. Ink on paper is the site's one filled control (`Button`'s default
- * variant), so the state reuses it rather than inventing a second one. The
- * hover rules are restated because the toggle's own hover would otherwise win
- * on the pressed control and turn the label grey on ink.
- */
-const TOGGLE_CLASS =
-  "touch-target size-11 shrink-0 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground";
-
-const LINK_INPUT_ID = "rich-text-link-url";
-
 /** What each export is called in the menu, and the bytes it writes. */
 const EXPORTS: readonly { format: ExportFormat; label: string; icon: string }[] = [
   { format: "markdown", icon: "icon-[ph--markdown-logo-bold]", label: "导出 Markdown" },
@@ -99,127 +109,16 @@ function Separator() {
   return <span aria-hidden className="h-6 w-px shrink-0 bg-border" />;
 }
 
-export function EditorToolbar({ editor }: { editor: Editor }) {
+export function EditorToolbar({ editor, saveStatus, onRetry, onClear }: EditorToolbarProps) {
   const [blockOpen, setBlockOpen] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [href, setHref] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const state = useEditorCommandState(editor);
 
-  /*
-   * The state at the cursor, read through TipTap's own selector rather than
-   * through React state of our own: the document is the editor's, and a copy of
-   * "is bold on" in this component would be a second answer that goes stale
-   * between a keystroke and a render. `pressed` is exhaustive so a new command
-   * cannot quietly arrive without an answer for "is it on".
-   */
-  const state = useEditorState({
-    editor,
-    selector: ({ editor: current }) => {
-      const block: CommandId = current.isActive("heading", { level: 1 })
-        ? "heading-1"
-        : current.isActive("heading", { level: 2 })
-          ? "heading-2"
-          : current.isActive("heading", { level: 3 })
-            ? "heading-3"
-            : "paragraph";
-
-      return {
-        block,
-        canRedo: current.can().redo(),
-        canUndo: current.can().undo(),
-        pressed: {
-          undo: false,
-          redo: false,
-          paragraph: block === "paragraph",
-          "heading-1": block === "heading-1",
-          "heading-2": block === "heading-2",
-          "heading-3": block === "heading-3",
-          bold: current.isActive("bold"),
-          italic: current.isActive("italic"),
-          underline: current.isActive("underline"),
-          strike: current.isActive("strike"),
-          code: current.isActive("code"),
-          "bullet-list": current.isActive("bulletList"),
-          "ordered-list": current.isActive("orderedList"),
-          "task-list": current.isActive("taskList"),
-          blockquote: current.isActive("blockquote"),
-          "code-block": current.isActive("codeBlock"),
-          "horizontal-rule": false,
-          link: current.isActive("link"),
-          clear: false,
-        } satisfies Record<CommandId, boolean>,
-      };
-    },
-  });
-
-  /**
-   * Every command, one handler each.
-   *
-   * This is the seam the table cannot cross: the table says what exists, and
-   * this map says what it does. `Record<CommandId, ...>` is the exhaustiveness
-   * check: adding an id to the table without a line here is a type error.
-   */
-  const run: Record<CommandId, () => void> = {
-    undo: () => {
-      editor.chain().focus().undo().run();
-    },
-    redo: () => {
-      editor.chain().focus().redo().run();
-    },
-    paragraph: () => {
-      editor.chain().focus().setParagraph().run();
-    },
-    "heading-1": () => {
-      editor.chain().focus().toggleHeading({ level: 1 }).run();
-    },
-    "heading-2": () => {
-      editor.chain().focus().toggleHeading({ level: 2 }).run();
-    },
-    "heading-3": () => {
-      editor.chain().focus().toggleHeading({ level: 3 }).run();
-    },
-    bold: () => {
-      editor.chain().focus().toggleBold().run();
-    },
-    italic: () => {
-      editor.chain().focus().toggleItalic().run();
-    },
-    underline: () => {
-      editor.chain().focus().toggleUnderline().run();
-    },
-    strike: () => {
-      editor.chain().focus().toggleStrike().run();
-    },
-    code: () => {
-      editor.chain().focus().toggleCode().run();
-    },
-    "bullet-list": () => {
-      editor.chain().focus().toggleBulletList().run();
-    },
-    "ordered-list": () => {
-      editor.chain().focus().toggleOrderedList().run();
-    },
-    "task-list": () => {
-      editor.chain().focus().toggleTaskList().run();
-    },
-    blockquote: () => {
-      editor.chain().focus().toggleBlockquote().run();
-    },
-    "code-block": () => {
-      editor.chain().focus().toggleCodeBlock().run();
-    },
-    "horizontal-rule": () => {
-      editor.chain().focus().setHorizontalRule().run();
-    },
-    link: () => {
-      setHref(editor.getAttributes("link").href ?? "");
-    },
-    clear: () => {
-      editor.chain().focus().setContent(EMPTY_DOCUMENT).run();
-    },
+  const run = (command: CommandSpec) => {
+    runCommand(editor, command.id);
   };
 
   const blockLabel = commandById(state.block).label;
@@ -234,6 +133,9 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
    * the one authority on what a document may hold. An import that sanitises to
    * nothing is the empty document, so a file of only a `<script>` leaves the
    * same two placeholders a fresh page shows.
+   *
+   * `setContent` emits an update (its default), so the import is written to the
+   * local draft by the same path every other change takes (#209).
    */
   const applyImport = (format: ImportFormat, contents: string) => {
     if (format === "markdown") {
@@ -314,15 +216,12 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
   };
 
   const toggle = (command: CommandSpec) => (
-    <Toggle
-      aria-label={command.label}
-      className={TOGGLE_CLASS}
+    <CommandToggle
+      command={command}
       key={command.id}
-      onPressedChange={() => run[command.id]()}
+      onPressed={() => run(command)}
       pressed={state.pressed[command.id]}
-    >
-      <span aria-hidden className={`icon ${command.icon}`} />
-    </Toggle>
+    />
   );
 
   const action = (command: CommandSpec) => (
@@ -330,29 +229,13 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       aria-label={command.label}
       className="touch-target size-11"
       key={command.id}
-      onClick={() => run[command.id]()}
+      onClick={() => run(command)}
       size="icon"
       variant="ghost"
     >
       <span aria-hidden className={`icon ${command.icon}`} />
     </Button>
   );
-
-  const applyLink = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const url = href.trim();
-    const chain = editor.chain().focus().extendMarkRange("link");
-
-    if (url === "") chain.unsetLink().run();
-    else chain.setLink({ href: url }).run();
-
-    setLinkOpen(false);
-  };
-
-  const removeLink = () => {
-    editor.chain().focus().extendMarkRange("link").unsetLink().run();
-    setLinkOpen(false);
-  };
 
   return (
     /*
@@ -378,7 +261,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             className="touch-target size-11"
             disabled={command.id === "undo" ? !state.canUndo : !state.canRedo}
             key={command.id}
-            onClick={() => run[command.id]()}
+            onClick={() => run(command)}
             size="icon"
             variant="ghost"
           >
@@ -407,7 +290,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
                   className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
                   key={command.id}
                   onClick={() => {
-                    run[command.id]();
+                    run(command);
                     setBlockOpen(false);
                   }}
                   variant="ghost"
@@ -435,56 +318,45 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
 
         <Separator />
 
-        {commandsInGroup("insert").map((command) => {
-          if (command.id === "link") {
-            return (
-              <Popover key={command.id} onOpenChange={setLinkOpen} open={linkOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    aria-label={command.label}
-                    className="touch-target size-11"
-                    onClick={() => run.link()}
-                    size="icon"
-                    variant="ghost"
-                  >
-                    <span aria-hidden className={`icon ${command.icon}`} />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-80 p-3">
-                  <form className="flex flex-col gap-3" onSubmit={applyLink}>
-                    <Label htmlFor={LINK_INPUT_ID}>链接地址</Label>
-                    <Input
-                      id={LINK_INPUT_ID}
-                      onChange={(event) => setHref(event.target.value)}
-                      placeholder="https://example.com"
-                      value={href}
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      {state.pressed.link ? (
-                        <Button
-                          className="touch-target h-11"
-                          onClick={removeLink}
-                          type="button"
-                          variant="ghost"
-                        >
-                          移除
-                        </Button>
-                      ) : null}
-                      <Button className="touch-target h-11" type="submit">
-                        应用
-                      </Button>
-                    </div>
-                  </form>
-                </PopoverContent>
-              </Popover>
-            );
-          }
-
-          return TOGGLE_COMMANDS.has(command.id) ? toggle(command) : action(command);
-        })}
+        {commandsInGroup("insert").map((command) =>
+          command.id === "link" ? (
+            <LinkControl editor={editor} key={command.id} pressed={state.pressed.link} />
+          ) : TOGGLE_COMMANDS.has(command.id) ? (
+            toggle(command)
+          ) : (
+            action(command)
+          ),
+        )}
       </div>
 
-      <div className="flex shrink-0 items-center border-l border-border pl-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-l border-border pl-2.5">
+        {/*
+         * The save status is page chrome beside the file menu, not a control in
+         * the scrolling groups: it must stay readable while the middle scrolls,
+         * and it is the one thing on this row that changes without the visitor
+         * pressing anything. `<output>` carries the implicit `role="status"` a
+         * screen reader announces politely for each sentence; the region's
+         * `data-slot` is what the fingerprint anchors. The minimum width stops
+         * 未保存 and 保存中 from shifting the file menu on every keystroke, while
+         * the failure sentence is allowed to be its own width because it is both
+         * longer and rarer.
+         */}
+        <div className="flex items-center gap-1.5" data-slot="rich-text-save-status">
+          <output
+            aria-atomic="true"
+            aria-live="polite"
+            className={`min-w-[6em] text-xs whitespace-nowrap ${
+              saveStatus === "failed" ? "text-foreground" : "text-muted-foreground"
+            }`}
+          >
+            {SAVE_STATUS_TEXT[saveStatus]}
+          </output>
+          {saveStatus === "failed" ? (
+            <Button className="touch-target h-11 px-2.5 text-xs" onClick={onRetry} variant="ghost">
+              {SAVE_RETRY_LABEL}
+            </Button>
+          ) : null}
+        </div>
         <Popover onOpenChange={setFileOpen} open={fileOpen}>
           <PopoverTrigger asChild>
             <Button aria-label="文件" className="touch-target size-11" size="icon" variant="ghost">
@@ -526,7 +398,7 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
             <Button
               className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
               onClick={() => {
-                run.clear();
+                onClear();
                 setFileOpen(false);
               }}
               variant="ghost"
@@ -561,15 +433,15 @@ export function EditorToolbar({ editor }: { editor: Editor }) {
       <AlertDialog onOpenChange={closeImportDialog} open={confirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>替换当前文档？</AlertDialogTitle>
-            <AlertDialogDescription>
-              导入的文件会替换当前文档，取消则保持原样。
-            </AlertDialogDescription>
+            <AlertDialogTitle>{IMPORT_DIALOG_TITLE}</AlertDialogTitle>
+            <AlertDialogDescription>{IMPORT_DIALOG_DESCRIPTION}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="touch-target h-11">取消</AlertDialogCancel>
+            <AlertDialogCancel className="touch-target h-11">
+              {IMPORT_CANCEL_LABEL}
+            </AlertDialogCancel>
             <AlertDialogAction className="touch-target h-11" onClick={confirmImport}>
-              替换
+              {IMPORT_CONFIRM_LABEL}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

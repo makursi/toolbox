@@ -142,9 +142,60 @@ export async function pressAt(page: Page, control: Locator): Promise<void> {
   await page.mouse.click(point.x, point.y);
 }
 
-/** A toolbar control by the name a screen reader reads on it. */
+/**
+ * A toolbar control by the name a screen reader reads on it.
+ *
+ * It is scoped to the pinned toolbar's region because there are two toolbars on this
+ * page: the one above the canvas and the one that follows a selection, which offers
+ * the same five marks and the link. A document-wide query would find both names and
+ * fail on the ambiguity rather than on the control.
+ */
 export function toolbarControl(page: Page, name: string): Locator {
-  return page.getByRole("button", { name, exact: true });
+  return page
+    .getByRole("toolbar", { name: "格式工具栏" })
+    .getByRole("button", { name, exact: true });
+}
+
+/** The toolbar that follows a selection, by the name its region carries. */
+export function selectionToolbar(page: Page): Locator {
+  return page.getByRole("toolbar", { name: "选中文本的格式" });
+}
+
+/** One control of the selection toolbar, by the name a screen reader reads. */
+export function selectionControl(page: Page, name: string): Locator {
+  return selectionToolbar(page).getByRole("button", { name, exact: true });
+}
+
+/** The slash menu, by the name its region carries. */
+export function slashMenu(page: Page): Locator {
+  return page.getByRole("menu", { name: "插入内容" });
+}
+
+/** The slash menu's rows, in the order the command table gives them. */
+export function slashMenuItems(page: Page): Locator {
+  return slashMenu(page).getByRole("menuitem");
+}
+
+/** One row of the slash menu, by the label the command table gives it. */
+export function slashItem(page: Page, label: string): Locator {
+  return slashMenu(page).getByRole("menuitem", { name: label, exact: true });
+}
+
+/**
+ * The selected words' own rectangle, in viewport coordinates.
+ *
+ * The selection toolbar's claim is that it does not cover what is selected, and the
+ * thing to compare its box against is the selection's rectangle rather than the
+ * block's: a paragraph is taller than its line of text.
+ */
+export async function selectedTextBox(page: Page): Promise<{ bottom: number; top: number } | null> {
+  return page.evaluate(() => {
+    const selection = window.getSelection();
+    if (selection === null || selection.rangeCount === 0) return null;
+
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    return { bottom: rect.bottom, top: rect.top };
+  });
 }
 
 /** The block menu's trigger, whose name carries the block at the cursor. */
@@ -167,11 +218,22 @@ export async function selectBodyText(page: Page): Promise<void> {
 }
 
 /**
- * The file menu's trigger. 清空 and the two exports are inside the popover, so
- * the gate opens the menu by pressing this and then presses the item.
+ * The file menu's trigger. 导入, 清空 and the two exports are inside the popover,
+ * so the gate opens the menu by pressing this and then presses the item.
  */
 export function fileTrigger(page: Page): Locator {
   return page.getByRole("button", { name: "文件", exact: true });
+}
+
+/**
+ * Empty the document from the file menu.
+ *
+ * It is how a claim starts from a clean title, an empty paragraph and nothing else:
+ * the alternative is a reload per case, and the draft is not persisted yet.
+ */
+export async function clearDocument(page: Page): Promise<void> {
+  await pressAt(page, fileTrigger(page));
+  await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
 }
 
 /**
@@ -241,6 +303,109 @@ export function importDialog(page: Page): Locator {
 /** Answer the import confirmation with 取消 or 替换, at the button's coordinates. */
 export async function answerImportDialog(page: Page, answer: "取消" | "替换"): Promise<void> {
   await pressAt(page, importDialog(page).getByRole("button", { name: answer, exact: true }));
+}
+
+/** The save status's own region: the sentence the toolbar reports. */
+export function saveStatus(page: Page): Locator {
+  return page.locator('[data-slot="rich-text-save-status"]');
+}
+
+/** The retry control the failure state adds beside the sentence. */
+export function retrySave(page: Page): Locator {
+  return page.getByRole("button", { name: "重试", exact: true });
+}
+
+/**
+ * Hide the page the way a tab switch does, and answer the status that was showing
+ * immediately before it.
+ *
+ * `document.visibilityState` is a read-only accessor, so the page defines it on the
+ * document object and dispatches the event the browser would: that is the only way
+ * a headless page can reach the hidden state the save flush is written for. The
+ * returned sentence is the state *before* the dispatch; a caller that needs the
+ * flush to be the writer, rather than the debounce that was still pending, checks
+ * that it read 未保存.
+ */
+export async function hidePage(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const before =
+      document.querySelector('[data-slot="rich-text-save-status"]')?.textContent?.trim() ?? "";
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    return before;
+  });
+}
+
+/** The record the store keeps; spelled out here rather than imported from the Tool. */
+export interface StoredDraftRecord {
+  readonly version: number;
+  readonly document: unknown;
+  readonly savedAt: number;
+}
+
+/**
+ * Read the one record out of IndexedDB, or `null` when there is none.
+ *
+ * The names are the store's contract, but they are written here rather than imported
+ * from the Tool: an expectation derived from the code under test would agree with a
+ * renamed database. `indexedDB.databases()` is asked first so a read on a page that
+ * has never saved does not create an empty database as a side effect.
+ */
+export async function storedDraft(page: Page): Promise<StoredDraftRecord | null> {
+  return page.evaluate(async () => {
+    const databases = await indexedDB.databases();
+
+    if (!databases.some((database) => database.name === "rich-text-editor")) return null;
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("rich-text-editor");
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () =>
+        reject(request.error ?? new Error("the draft database could not open")),
+      );
+    });
+
+    if (!database.objectStoreNames.contains("drafts")) {
+      database.close();
+      return null;
+    }
+
+    return await new Promise<StoredDraftRecord | null>((resolve, reject) => {
+      const transaction = database.transaction("drafts", "readonly");
+      const request = transaction.objectStore("drafts").get("draft");
+
+      request.addEventListener("success", () => {
+        const value: unknown = request.result;
+        database.close();
+
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          "version" in value &&
+          "document" in value &&
+          "savedAt" in value
+        ) {
+          resolve({
+            document: value.document,
+            savedAt: Number(value.savedAt),
+            version: Number(value.version),
+          });
+          return;
+        }
+
+        resolve(null);
+      });
+      request.addEventListener("error", () => {
+        database.close();
+        reject(request.error ?? new Error("the draft could not be read"));
+      });
+    });
+  });
 }
 
 /** The document as the browser is holding it, for claims about structure. */

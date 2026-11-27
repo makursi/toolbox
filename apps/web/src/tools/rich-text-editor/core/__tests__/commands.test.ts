@@ -5,6 +5,7 @@ import {
   commandById,
   commandsInGroup,
   filterCommands,
+  slashCommands,
   type CommandGroup,
 } from "@/tools/rich-text-editor/core/commands";
 
@@ -79,5 +80,65 @@ describe("the command table", () => {
   it("looks a command up by the id the executor map is keyed by", () => {
     expect(commandById("heading-2").label).toBe("标题 2");
     expect(commandById("link").block).toBe("link");
+  });
+});
+
+describe("the slash menu's commands", () => {
+  /**
+   * What a slash menu offers on an empty query: the rows that produce a block, in
+   * the table's order. Spelled out rather than derived, so a mark, an action or a
+   * document command leaking into the menu is a red test rather than a coincidence.
+   */
+  it("offers the block commands and nothing that needs a selection or the document", () => {
+    expect(slashCommands("").map((command) => command.id)).toEqual([
+      "paragraph",
+      "heading-1",
+      "heading-2",
+      "heading-3",
+      "bullet-list",
+      "ordered-list",
+      "task-list",
+      "blockquote",
+      "code-block",
+      "horizontal-rule",
+    ]);
+  });
+
+  it("filters by the same keywords as the pinned toolbar", () => {
+    expect(slashCommands("引用").map((command) => command.id)).toEqual(["blockquote"]);
+    expect(slashCommands("H2").map((command) => command.id)).toEqual(["heading-2"]);
+    expect(slashCommands("列表").map((command) => command.id)).toEqual([
+      "bullet-list",
+      "ordered-list",
+      "task-list",
+    ]);
+  });
+
+  it("cannot reach a mark, a link or a whole-document command", () => {
+    for (const query of ["加粗", "链接", "撤销", "清空", ""]) {
+      const ids = slashCommands(query).map((command) => command.id);
+
+      for (const excluded of ["bold", "italic", "link", "undo", "redo", "clear"]) {
+        expect(ids, `${query} reached ${excluded}`).not.toContain(excluded);
+      }
+    }
+  });
+
+  it("keeps the table's order and returns nothing for a miss", () => {
+    const ids = slashCommands("标题").map((command) => command.id);
+    expect(ids).toEqual(["heading-1", "heading-2", "heading-3"]);
+
+    // The menu keeps the table's order, which is what makes a filtered list read
+    // the same way as the whole one.
+    const tableOrder = COMMANDS.map((command) => command.id);
+    let previous = -1;
+
+    for (const id of slashCommands("").map((command) => command.id)) {
+      const index = tableOrder.indexOf(id);
+      expect(index, id).toBeGreaterThan(previous);
+      previous = index;
+    }
+
+    expect(slashCommands("没有这个命令")).toEqual([]);
   });
 });

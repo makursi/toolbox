@@ -9,15 +9,27 @@ import {
   blockTrigger,
   bodyParagraph,
   canvas,
+  clearDocument,
   downloadFromFileMenu,
+  editor,
   fileTrigger,
+  hidePage,
   importDialog,
   importFromFileMenu,
   linkField,
   open,
   paintedPlaceholder,
   pressAt,
+  retrySave,
+  saveStatus,
   selectBodyText,
+  selectedTextBox,
+  selectionControl,
+  selectionToolbar,
+  slashItem,
+  slashMenu,
+  slashMenuItems,
+  storedDraft,
   textOf,
   titleBlock,
   toolbarControl,
@@ -27,20 +39,58 @@ import {
 
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
- * command table (#207), the two exports (#210) and the import (#211).
+ * command table (#207), the three ways to write without leaving the keyboard (#208),
+ * the two exports (#210), the local draft with its save status (#209), and the
+ * import (#211).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
- * what each toolbar control does to the blocks and marks a screen reader can
- * see, the bytes of the files the file menu downloads, and the document an
- * imported file produces. It does not read TipTap's state, React's state or any
- * serialiser: the exported file is judged by its own text, and the imported
- * document by the blocks the canvas renders.
+ * what each control does to the blocks and marks a screen reader can see, the
+ * bytes of the files the file menu downloads, the record the browser keeps, and the
+ * document an imported file produces. It does not read TipTap's state, React's
+ * state or any serialiser: the exported file is judged by its own text, the
+ * filename by the rule's arithmetic, the draft through the page's own IndexedDB,
+ * and the imported document by the blocks the canvas renders.
  *
  * Every toolbar press goes through `pressAt`, which measures the control and
  * clicks its centre: a control that looks right and is dead to the mouse is the
- * failure this file exists to catch, and a keyboard path would never see it.
+ * failure this file exists to catch, and a keyboard path would never see it. The
+ * slash menu is the exception that proves the rule — it is a keyboard surface, so it
+ * is driven by keys and only its rows are pressed when a row has to be checked.
  */
+
+/**
+ * The five inline marks, in the order the toolbar offers them, with the element
+ * TipTap's mark renders as.
+ *
+ * Spelled out rather than read from the command table: the table is the other side
+ * of this assertion, and an expectation derived from the code under test would
+ * agree with it whether or not it is right.
+ */
+const MARKS = [
+  { element: "strong", label: "加粗" },
+  { element: "em", label: "斜体" },
+  { element: "u", label: "下划线" },
+  { element: "s", label: "删除线" },
+  { element: "code", label: "行内代码" },
+] as const;
+
+/** `YYYY-MM-DD` on this machine's own calendar day, the day the name carries. */
+function todayStamp(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+/** The downloaded file's bytes, as the text the page wrote. */
+async function readDownload(download: Download): Promise<string> {
+  const path = await download.path();
+  if (path === null) throw new Error("the download produced no file to read");
+
+  return readFile(path, "utf8");
+}
 
 /** A file for the import, in Playwright's in-memory form. */
 function fileOf(name: string, mimeType: string, contents: string) {
@@ -104,39 +154,6 @@ const HTML_FIXTURE = [
   "<hr>",
   "</article></body></html>",
 ].join("");
-
-/**
- * The five inline marks, in the order the toolbar offers them, with the element
- * TipTap's mark renders as.
- *
- * Spelled out rather than read from the command table: the table is the other side
- * of this assertion, and an expectation derived from the code under test would
- * agree with it whether or not it is right.
- */
-const MARKS = [
-  { element: "strong", label: "加粗" },
-  { element: "em", label: "斜体" },
-  { element: "u", label: "下划线" },
-  { element: "s", label: "删除线" },
-  { element: "code", label: "行内代码" },
-] as const;
-
-/** `YYYY-MM-DD` on this machine's own calendar day, the day the name carries. */
-function todayStamp(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-/** The downloaded file's bytes, as the text the page wrote. */
-async function readDownload(download: Download): Promise<string> {
-  const path = await download.path();
-  if (path === null) throw new Error("the download produced no file to read");
-
-  return readFile(path, "utf8");
-}
 
 test("an empty document shows both placeholders, and the first keystroke replaces the body one", async ({
   page,
@@ -346,6 +363,207 @@ test("undo and redo work from the keyboard and from the toolbar", async ({ page 
 });
 
 /**
+ * The slash menu: `/` at the start of a paragraph, filtered by typing, moved with
+ * the arrow keys, applied with Enter and closed with Escape.
+ *
+ * The rows are the command table's block commands, so the count and the first row
+ * are asserted against what a visitor sees rather than against the table: a table
+ * that grew an extra row without the menu drawing it would be invisible here, which
+ * is why the count is spelled out (ten: 正文, three headings, three lists, 引用,
+ * 代码块 and 分隔线).
+ */
+test("the slash menu filters by typing, moves with the arrow keys and applies with Enter", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/");
+
+  await expect(slashMenu(page)).toBeVisible();
+  await expect(slashMenuItems(page)).toHaveCount(10);
+  await expect(slashMenuItems(page).first()).toHaveText("正文");
+
+  await page.keyboard.type("标题");
+  await expect(slashMenuItems(page)).toHaveCount(3);
+  await expect(slashItem(page, "标题 1")).toHaveAttribute("aria-current", "true");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(slashItem(page, "标题 2")).toHaveAttribute("aria-current", "true");
+  await expect(slashItem(page, "标题 1")).not.toHaveAttribute("aria-current", "true");
+
+  await page.keyboard.press("Enter");
+
+  await expect(slashMenu(page)).toBeHidden();
+  await expect(canvas(page).locator("h2")).toHaveCount(1);
+  // The typed `/标题` was the filter and not content: it is not in the document.
+  await expect(canvas(page)).not.toContainText("/");
+});
+
+test("Escape closes the slash menu, and the slash it opened on stays text", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/");
+
+  await expect(slashMenu(page)).toBeVisible();
+
+  await page.keyboard.press("Escape");
+
+  await expect(slashMenu(page)).toBeHidden();
+  await expect(bodyParagraph(page)).toHaveText("/");
+  await expect(canvas(page).locator("h1")).toHaveCount(1);
+});
+
+test("each Markdown block rule makes its block", async ({ page }) => {
+  await open(page);
+
+  const headings = [
+    { typed: "# 一级标题", level: 1 },
+    { typed: "## 二级标题", level: 2 },
+    { typed: "### 三级标题", level: 3 },
+  ] as const;
+
+  for (const heading of headings) {
+    await clearDocument(page);
+    await bodyParagraph(page).click();
+    await page.keyboard.type(heading.typed);
+
+    await expect(
+      canvas(page).locator(`h${heading.level}`).filter({ hasText: "级标题" }),
+    ).toHaveCount(1);
+  }
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("- 第一项");
+  await expect(canvas(page).locator("ul li").first()).toHaveText("第一项");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("1. 第一条");
+  await expect(canvas(page).locator("ol li").first()).toHaveText("第一条");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("> 引用一句");
+  await expect(canvas(page).locator("blockquote")).toContainText("引用一句");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("```");
+  await page.keyboard.type(" ");
+  await page.keyboard.type("const answer = 42;");
+  await expect(canvas(page).locator("pre")).toContainText("const answer = 42;");
+
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("---");
+  await expect(canvas(page).locator("hr")).toHaveCount(1);
+});
+
+test("each Markdown mark rule marks its words", async ({ page }) => {
+  await open(page);
+
+  const marks = [
+    { typed: "**加粗**", element: "strong", text: "加粗" },
+    { typed: "*斜体*", element: "em", text: "斜体" },
+    { typed: "~~删除~~", element: "s", text: "删除" },
+    { typed: "`代码`", element: "code", text: "代码" },
+  ] as const;
+
+  for (const mark of marks) {
+    await clearDocument(page);
+    await bodyParagraph(page).click();
+    await page.keyboard.type(mark.typed);
+
+    await expect(canvas(page).locator(`p ${mark.element}`)).toHaveText(mark.text);
+    // The delimiters were the rule rather than the content.
+    await expect(bodyParagraph(page)).toHaveText(mark.text);
+  }
+});
+
+/**
+ * The other half of an input rule: the characters that *begin* one but make no rule
+ * are ordinary text.
+ *
+ * A rule that ate a paragraph beginning with `-` or `#` would be a bug a person
+ * would find with their first sentence, and the regular expressions only fire on a
+ * complete construct (a space after `#`, a closing delimiter). This holds the whole
+ * list of near-misses, because "it did not eat mine" is not a check.
+ */
+test("a paragraph that begins with the same characters but makes no rule stays text", async ({
+  page,
+}) => {
+  await open(page);
+
+  const nearMisses = [
+    "#没有空格",
+    ">没有空格",
+    "-没有空格",
+    "1.没有空格",
+    "`未闭合",
+    "**未闭合",
+  ] as const;
+
+  for (const typed of nearMisses) {
+    await clearDocument(page);
+    await bodyParagraph(page).click();
+    await page.keyboard.type(typed);
+
+    await expect(bodyParagraph(page)).toHaveText(typed);
+    await expect(slashMenu(page)).toBeHidden();
+  }
+
+  // A slash inside a sentence is a slash: the menu is a start-of-paragraph gesture.
+  await clearDocument(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("一段话/后面");
+  await expect(bodyParagraph(page)).toHaveText("一段话/后面");
+  await expect(slashMenu(page)).toBeHidden();
+});
+
+/**
+ * The toolbar that follows a selection: the five marks and the link, from the same
+ * command table, placed near the words and never on them.
+ */
+test("the selection toolbar offers the marks and the link, and covers no selected word", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInBody(page, "选中这一段话。");
+  await selectBodyText(page);
+
+  const bar = selectionToolbar(page);
+  await expect(bar).toBeVisible();
+
+  for (const label of ["加粗", "斜体", "下划线", "删除线", "行内代码", "链接"]) {
+    await expect(selectionControl(page, label)).toBeVisible();
+  }
+
+  const words = await selectedTextBox(page);
+  const box = await bar.boundingBox();
+  if (words === null || box === null) {
+    throw new Error("the selection or the selection toolbar has no geometry to compare");
+  }
+
+  // Above the words when there is room for the whole row, below them otherwise,
+  // never across them.
+  const above = box.y + box.height <= words.top;
+  const below = box.y >= words.bottom;
+  expect(
+    above || below,
+    `the row at ${box.y}..${box.y + box.height} covers ${words.top}..${words.bottom}`,
+  ).toBe(true);
+
+  // And the marks it offers are the editor's own, applied at the row's coordinates.
+  await pressAt(page, selectionControl(page, "加粗"));
+  await expect(bodyParagraph(page).locator("strong")).toHaveCount(1);
+
+  // A caret is the pinned toolbar's state: this row is for a selection only.
+  await bodyParagraph(page).click();
+  await expect(bar).toBeHidden();
+});
+
+/**
  * The export, driven the way a visitor drives it and judged by the bytes.
  *
  * The document is typed and formatted through the page's own controls, and the
@@ -548,6 +766,145 @@ test("pasted HTML is sanitised, so a script in it does not survive", async ({ pa
   await expect(bodyParagraph(page).locator("strong")).toHaveText("内容");
   expect(await page.evaluate("window.__pastePwned")).toBeUndefined();
   await expect(canvas(page).locator("script")).toHaveCount(0);
+});
+
+/**
+ * The local draft (#209): what the browser keeps, what the toolbar says about it,
+ * and what a returning visit and 清空 do.
+ *
+ * The store is read through the page's own IndexedDB rather than through a module:
+ * the claim is that the browser has the record, and a read through the Tool would
+ * agree with a broken writer that never touched the store.
+ */
+test.describe("the local draft", () => {
+  test("typing and pausing writes the draft and reports 已保存到本机", async ({ page }) => {
+    await open(page);
+
+    // A fresh context has no draft: the empty document is the state, not a save.
+    expect(await storedDraft(page)).toBeNull();
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    await writeInBody(page, "今天写一点东西。");
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    const stored = await storedDraft(page);
+
+    expect(stored?.version, "the record carries its schema version").toBe(1);
+    expect(typeof stored?.savedAt, "the record carries a timestamp").toBe("number");
+    expect(JSON.stringify(stored?.document), "the record carries the document").toContain(
+      "今天写一点东西。",
+    );
+  });
+
+  test("a reload restores the exact document, with no prompt", async ({ page }) => {
+    await open(page);
+    await writeInTitle(page, "草稿标题");
+    await writeInBody(page, "第一段。");
+    await selectBodyText(page);
+    await pressAt(page, toolbarControl(page, "加粗"));
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    const dialogs: string[] = [];
+    page.on("dialog", (dialog) => {
+      dialogs.push(dialog.message());
+      void dialog.dismiss();
+    });
+
+    await page.reload();
+    await expect(editor(page)).toBeVisible();
+
+    expect(await textOf(titleBlock(page))).toBe("草稿标题");
+    expect(await textOf(bodyParagraph(page))).toBe("第一段。");
+    // The mark is part of the document, not a class a re-render would drop: the
+    // stored JSON is what TipTap opened, so a restore keeps the bold run.
+    await expect(bodyParagraph(page).locator("strong")).toHaveText("第一段。");
+    expect(dialogs, "restore is silent: no prompt asks whether to open the draft").toEqual([]);
+  });
+
+  test("hiding the page writes immediately instead of waiting for the debounce", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInBody(page, "隐藏前写一句。");
+
+    // Hiding in the same evaluate as reading the status is what makes the claim
+    // about the flush: if the sentence was still 未保存, the 800ms window had not
+    // closed, so only the hidden page's own write can reach 已保存到本机 below.
+    const before = await hidePage(page);
+    expect(before, "the debounce had not elapsed when the page was hidden").toBe("未保存");
+
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    expect(await storedDraft(page)).not.toBeNull();
+  });
+
+  test("清空 empties the canvas and the stored draft, and a reload finds both empty", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInTitle(page, "要删掉的草稿");
+    await writeInBody(page, "这段也会消失。");
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    expect(await storedDraft(page)).not.toBeNull();
+
+    await pressAt(page, fileTrigger(page));
+    await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
+
+    await expect(canvas(page)).not.toContainText("要删掉的草稿");
+    await expect(canvas(page)).not.toContainText("这段也会消失。");
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    expect(await storedDraft(page), "the record is removed, not overwritten").toBeNull();
+
+    await page.reload();
+    await expect(editor(page)).toBeVisible();
+
+    expect(await textOf(titleBlock(page))).toBe("");
+    expect(await textOf(bodyParagraph(page))).toBe("");
+    expect(await paintedPlaceholder(titleBlock(page))).toBe(TITLE_PLACEHOLDER);
+    expect(await paintedPlaceholder(bodyParagraph(page))).toBe(BODY_PLACEHOLDER);
+    expect(await storedDraft(page), "the reload wrote nothing back").toBeNull();
+  });
+
+  test("a refused write shows the failure sentence and the retry writes the draft", async ({
+    page,
+  }) => {
+    await open(page);
+
+    /*
+     * Refuse exactly one write the way a browser refuses one: `put` throws the
+     * quota error a full disk would raise. Every later call is the real method, so
+     * the retry has a working store to write into.
+     */
+    await page.evaluate(() => {
+      // oxlint-disable-next-line typescript/unbound-method -- the original is re-bound with `.call(this, ...)` inside the replacement.
+      const original = IDBObjectStore.prototype.put;
+      let refused = false;
+
+      IDBObjectStore.prototype.put = function (
+        this: IDBObjectStore,
+        value: unknown,
+        key?: IDBValidKey,
+      ) {
+        if (!refused) {
+          refused = true;
+          throw new DOMException("the gate refused this write", "QuotaExceededError");
+        }
+
+        return original.call(this, value, key);
+      };
+    });
+
+    await writeInBody(page, "写一句，看看保存失败。");
+    await expect(saveStatus(page)).toContainText("保存失败");
+    await expect(retrySave(page)).toBeVisible();
+
+    await pressAt(page, retrySave(page));
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+    const stored = await storedDraft(page);
+    expect(JSON.stringify(stored?.document), "the retry wrote the document that failed").toContain(
+      "写一句，看看保存失败。",
+    );
+  });
 });
 
 test.describe("at 390px", () => {

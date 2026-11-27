@@ -264,3 +264,34 @@ export function filterCommands(query: string): readonly CommandSpec[] {
     [command.label, ...command.keywords].some((word) => word.toLowerCase().includes(needle)),
   );
 }
+
+/**
+ * The document constructs a slash command can produce.
+ *
+ * The slash menu inserts a block at the caret, so what it offers is exactly the
+ * rows whose `block` names a node: a mark needs a selection the slash menu never
+ * has, and 撤销, 重做 and 清空 act on the whole document rather than on a line.
+ * 链接 is a node-shaped row by name only: its behaviour is the field the toolbar
+ * and the selection toolbar open, so it is not a slash command either.
+ */
+const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
+  "paragraph",
+  "heading",
+  "bulletList",
+  "orderedList",
+  "taskList",
+  "blockquote",
+  "codeBlock",
+  "horizontalRule",
+]);
+
+/**
+ * The commands the slash menu offers, filtered by what the visitor has typed.
+ *
+ * It is the same table under the same filter, narrowed by one predicate over the
+ * row's own `block` field, so a block command added to the table appears in the
+ * slash menu without a second edit and a mark can never leak into it.
+ */
+export function slashCommands(query: string): readonly CommandSpec[] {
+  return filterCommands(query).filter((command) => SLASH_BLOCKS.has(command.block));
+}

@@ -14,6 +14,7 @@ import {
   importFromFileMenu,
   open as openRichTextEditor,
   pressAt,
+  saveStatus,
   selectBodyText,
   toolbarControl,
   writeInBody,
@@ -146,17 +147,20 @@ test("the Image to PDF conversion reaches nothing off this origin, and prints no
 });
 
 /**
- * The Rich Text Editor's page, held to the same rule (#206, extended by #210 and
- * #211).
+ * The Rich Text Editor's page, held to the same rule (#206, extended by #209,
+ * #210 and #211).
  *
- * Typing is the page's behaviour, and since #210 so is exporting: the editor is a
- * third-party tree mounted into this document, and the export builds a blob and
- * hands it to the browser's downloader. Since #211 importing is one too: the file
- * is read as text, parsed and put back through the editor. The run therefore
- * types, selects and formats, downloads both formats and imports a file before it
- * asserts — a page that asked a server for anything would have to do it on one of
- * those paths, and the export and import are the ones that could plausibly want
- * to. Autosave extends this same test when its slice lands.
+ * Typing drives the editor and the draft's own write, and since #210 so does
+ * exporting: the editor is a third-party tree mounted into this document, the
+ * draft is IndexedDB, and the export builds a blob and hands it to the browser's
+ * downloader. Since #211 importing is one too: the file is read as text, parsed
+ * and put back through the editor, and the confirmed replacement is saved like
+ * any other change. The run therefore types, selects and formats, awaits the save
+ * status, downloads both formats and imports a file before it asserts — a page
+ * that asked a server for anything would have to do it on one of those paths, and
+ * the export and import are the ones that could plausibly want to. The save status
+ * is awaited rather than assumed, because a write that happened after the listener
+ * had been torn down would be a request nobody watched.
  */
 test("the Rich Text Editor reaches nothing off this origin, and prints nothing", async ({
   page,
@@ -168,6 +172,7 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   await writeInTitle(page, "本地文档");
   await writeInBody(page, "写一句，看看这一页会不会向外请求。");
   await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("写一句");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
 
   await selectBodyText(page);
   await pressAt(page, toolbarControl(page, "加粗"));
@@ -180,7 +185,7 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   /*
    * Since #211 the import is on this page too, and it is the path most likely to
    * want a server: a file is read as text, parsed and put through the editor's own
-   * `setContent`. It must stay local, and the non-empty draft means the
+   * `setContent`, then written to the draft. The non-empty document means the
    * confirmation is part of the path.
    */
   await importFromFileMenu(page, {
@@ -191,6 +196,7 @@ test("the Rich Text Editor reaches nothing off this origin, and prints nothing",
   await expect(importDialog(page)).toBeVisible();
   await answerImportDialog(page, "替换");
   await expect(page.getByRole("textbox", { name: "文档内容" })).toContainText("导入一句");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
 
   expect(watched.offSite, "requests off this origin").toEqual([]);
   expect(watched.noise, "console errors and warnings").toEqual([]);
