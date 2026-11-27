@@ -3,25 +3,53 @@ import { expect, test } from "@playwright/test";
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
+  blockTrigger,
   bodyParagraph,
+  canvas,
+  fileTrigger,
+  linkField,
   open,
   paintedPlaceholder,
+  pressAt,
+  selectBodyText,
   textOf,
   titleBlock,
+  toolbarControl,
   writeInBody,
   writeInTitle,
 } from "./rich-text-editor-page";
 
 /**
- * The Rich Text Editor's first slice (#206): the page opens, an empty document says
- * where to start, and a real keyboard puts text into the document.
+ * The Rich Text Editor: the page and its placeholders (#206), and the toolbar and
+ * the command table (#207).
  *
- * What this holds is the document's *external* behaviour: the two sentences an empty
- * document paints, the text a visitor typed read back out of the browser, and the
- * body's placeholder giving way on the first keystroke. It does not read TipTap's
- * state, React's state or any serialiser: the toolbar, the slash menu and the
- * exported file are later slices and get their own assertions there.
+ * What this holds is the document's *external* behaviour: the two sentences an
+ * empty document paints, the text a visitor typed read back out of the browser,
+ * and what each toolbar control does to the blocks and marks a screen reader can
+ * see. It does not read TipTap's state, React's state or any serialiser: the
+ * slash menu and the exported file are later slices and get their own assertions
+ * there.
+ *
+ * Every toolbar press goes through `pressAt`, which measures the control and
+ * clicks its centre: a control that looks right and is dead to the mouse is the
+ * failure this file exists to catch, and a keyboard path would never see it.
  */
+
+/**
+ * The five inline marks, in the order the toolbar offers them, with the element
+ * TipTap's mark renders as.
+ *
+ * Spelled out rather than read from the command table: the table is the other side
+ * of this assertion, and an expectation derived from the code under test would
+ * agree with it whether or not it is right.
+ */
+const MARKS = [
+  { element: "strong", label: "加粗" },
+  { element: "em", label: "斜体" },
+  { element: "u", label: "下划线" },
+  { element: "s", label: "删除线" },
+  { element: "code", label: "行内代码" },
+] as const;
 
 test("an empty document shows both placeholders, and the first keystroke replaces the body one", async ({
   page,
@@ -75,6 +103,206 @@ test("a real keyboard writes into the document, and the text survives a re-rende
   expect(await textOf(bodyParagraph(page))).toBe("第一段。");
   expect(await paintedPlaceholder(titleBlock(page))).toBeNull();
   expect(await paintedPlaceholder(bodyParagraph(page))).toBeNull();
+});
+
+test("each inline mark toggles from its toolbar control at its coordinates", async ({ page }) => {
+  await open(page);
+  await writeInBody(page, "标记测试。");
+
+  for (const mark of MARKS) {
+    const control = toolbarControl(page, mark.label);
+
+    await selectBodyText(page);
+    await pressAt(page, control);
+
+    // The state at the cursor is the button's own state, so the assertion is on
+    // `aria-pressed` rather than on a class: it is what a screen reader reads, and
+    // what a button that merely looks pressed cannot fake.
+    await expect(control).toHaveAttribute("aria-pressed", "true");
+    await expect(bodyParagraph(page).locator(mark.element)).toHaveCount(1);
+
+    await pressAt(page, control);
+
+    await expect(control).toHaveAttribute("aria-pressed", "false");
+    await expect(bodyParagraph(page).locator(mark.element)).toHaveCount(0);
+  }
+});
+
+test("the block menu names the block and turns a paragraph into headings 1-3 and back", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInBody(page, "块测试。");
+
+  for (const level of [1, 2, 3] as const) {
+    await bodyParagraph(page).click();
+    await pressAt(page, blockTrigger(page));
+    await pressAt(page, page.getByRole("button", { name: `标题 ${level}`, exact: true }));
+
+    await expect(canvas(page).locator(`h${level}`).filter({ hasText: "块测试。" })).toBeVisible();
+    await expect(blockTrigger(page)).toHaveAttribute("aria-label", `块类型：标题 ${level}`);
+
+    await pressAt(page, blockTrigger(page));
+    await pressAt(page, page.getByRole("button", { name: "正文", exact: true }));
+
+    await expect(canvas(page).locator("p").filter({ hasText: "块测试。" })).toBeVisible();
+    await expect(blockTrigger(page)).toHaveAttribute("aria-label", "块类型：正文");
+  }
+});
+
+test("a bulleted list nests, and a task item can be checked", async ({ page }) => {
+  await open(page);
+
+  await bodyParagraph(page).click();
+  await pressAt(page, toolbarControl(page, "项目符号列表"));
+  await page.keyboard.type("第一项");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("嵌套项");
+
+  const list = canvas(page).locator("ul").first();
+  await expect(list.locator("li").first()).toContainText("第一项");
+  await expect(list.locator("ul li")).toContainText("嵌套项");
+
+  // The same document, emptied through the file menu and used again: 清空 is the
+  // only way to get a clean document without a reload, so the task list is proved
+  // on the state the menu produces.
+  await pressAt(page, fileTrigger(page));
+  await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
+
+  await bodyParagraph(page).click();
+  await pressAt(page, toolbarControl(page, "任务列表"));
+  await page.keyboard.type("买菜");
+
+  const item = canvas(page).locator('ul[data-type="taskList"] li').first();
+  const checkbox = canvas(page).locator('input[type="checkbox"]');
+
+  await expect(item).toHaveAttribute("data-checked", "false");
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
+  await expect(item).toHaveAttribute("data-checked", "true");
+});
+
+test("quote, code block and rule insert their block, and the file menu clears the document", async ({
+  page,
+}) => {
+  await open(page);
+
+  await writeInBody(page, "引用一句。");
+  await pressAt(page, toolbarControl(page, "引用"));
+  await expect(canvas(page).locator("blockquote")).toContainText("引用一句。");
+
+  await pressAt(page, fileTrigger(page));
+  await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
+
+  await expect(canvas(page).locator("blockquote")).toHaveCount(0);
+  expect(await paintedPlaceholder(bodyParagraph(page))).toBe(BODY_PLACEHOLDER);
+
+  await bodyParagraph(page).click();
+  await pressAt(page, toolbarControl(page, "代码块"));
+  await page.keyboard.type("const answer = 42;");
+  await expect(canvas(page).locator("pre")).toContainText("const answer = 42;");
+
+  await pressAt(page, fileTrigger(page));
+  await pressAt(page, page.getByRole("button", { name: "清空", exact: true }));
+
+  await bodyParagraph(page).click();
+  await pressAt(page, toolbarControl(page, "分隔线"));
+  await expect(canvas(page).locator("hr")).toHaveCount(1);
+});
+
+test("the link action sets, edits and removes a link on selected text", async ({ page }) => {
+  await open(page);
+  await writeInBody(page, "示例文字。");
+  await selectBodyText(page);
+
+  await pressAt(page, toolbarControl(page, "链接"));
+  await expect(linkField(page)).toBeVisible();
+  await linkField(page).fill("https://example.com");
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+
+  await expect(canvas(page).locator('a[href="https://example.com"]')).toHaveText("示例文字。");
+
+  // Reopening on the link's own text prefills the field with the address that is
+  // already there, which is what makes the second pass an edit rather than a set.
+  await pressAt(page, toolbarControl(page, "链接"));
+  await expect(linkField(page)).toHaveValue("https://example.com");
+  await linkField(page).fill("https://example.org/edited");
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+
+  await expect(canvas(page).locator('a[href="https://example.org/edited"]')).toHaveText(
+    "示例文字。",
+  );
+
+  await pressAt(page, toolbarControl(page, "链接"));
+  await pressAt(page, page.getByRole("button", { name: "移除", exact: true }));
+
+  await expect(canvas(page).locator("a")).toHaveCount(0);
+});
+
+test("undo and redo work from the keyboard and from the toolbar", async ({ page }) => {
+  await open(page);
+  await writeInBody(page, "撤销测试。");
+  await expect(bodyParagraph(page)).toHaveText("撤销测试。");
+
+  await page.keyboard.press("Control+z");
+  await expect(bodyParagraph(page)).toHaveText("");
+
+  await page.keyboard.press("Control+Shift+z");
+  await expect(bodyParagraph(page)).toHaveText("撤销测试。");
+
+  await pressAt(page, toolbarControl(page, "撤销"));
+  await expect(bodyParagraph(page)).toHaveText("");
+
+  await pressAt(page, toolbarControl(page, "重做"));
+  await expect(bodyParagraph(page)).toHaveText("撤销测试。");
+});
+
+test.describe("at 390px", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("the middle groups scroll while the file menu stays put", async ({ page }) => {
+    await open(page);
+
+    const scroller = page.locator('[data-slot="rich-text-toolbar-scroll"]');
+    const file = fileTrigger(page);
+
+    const before = await file.boundingBox();
+    if (before === null) throw new Error("the file menu has no geometry at 390px");
+    expect(before.x + before.width).toBeLessThanOrEqual(390);
+
+    const metrics = await scroller.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollLeft: element.scrollLeft,
+      scrollWidth: element.scrollWidth,
+    }));
+
+    // The row does not fit a phone, and that is the state this claim needs: a
+    // toolbar that fitted would scroll nowhere and prove nothing.
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+    expect(metrics.scrollLeft).toBe(0);
+
+    await scroller.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    expect(await scroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+
+    const after = await file.boundingBox();
+    if (after === null) throw new Error("the file menu has no geometry after scrolling");
+    expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(1);
+
+    // The scrolling stays inside the row: the page itself does not gain a
+    // horizontal scrollbar, which is the other half of "the toolbar scrolls".
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBe(0);
+
+    // And the pinned end still works after the middle has moved.
+    await pressAt(page, file);
+    await expect(page.getByRole("button", { name: "清空", exact: true })).toBeVisible();
+  });
 });
 
 /**

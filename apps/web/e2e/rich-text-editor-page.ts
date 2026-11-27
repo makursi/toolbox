@@ -107,3 +107,79 @@ export async function writeInTitle(page: Page, text: string): Promise<void> {
   await titleBlock(page).click();
   await page.keyboard.type(text);
 }
+
+/**
+ * Press a control where it is drawn.
+ *
+ * The toolbar is the first part of this page a visitor reaches with a pointer, and
+ * the point of pressing at coordinates is that a control can look right and be
+ * dead to the mouse (the overlay that grows a hit area can become the target
+ * instead of the element that owns the click). A keyboard path would never see
+ * that, so every toolbar claim goes through here.
+ *
+ * `scrollIntoViewIfNeeded` first, and the viewport check second: `page.mouse.click`
+ * takes viewport coordinates and drops anything outside them without a word, so a
+ * control measured below the fold or beyond the toolbar's horizontal scroll would
+ * read as a missing handler rather than as a missing scroll (`e2e/tool-page.ts`).
+ */
+export async function pressAt(page: Page, control: Locator): Promise<void> {
+  await control.scrollIntoViewIfNeeded();
+
+  const box = await control.boundingBox();
+  if (box === null) throw new Error("the control has no geometry to press");
+
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const viewport = page.viewportSize();
+  if (
+    viewport !== null &&
+    (point.x < 0 || point.y < 0 || point.x >= viewport.width || point.y >= viewport.height)
+  ) {
+    throw new Error(
+      `the control is at ${Math.round(point.x)},${Math.round(point.y)}, outside the ${viewport.width}×${viewport.height} viewport, so a press there would be dropped rather than fail`,
+    );
+  }
+
+  await page.mouse.click(point.x, point.y);
+}
+
+/** A toolbar control by the name a screen reader reads on it. */
+export function toolbarControl(page: Page, name: string): Locator {
+  return page.getByRole("button", { name, exact: true });
+}
+
+/** The block menu's trigger, whose name carries the block at the cursor. */
+export function blockTrigger(page: Page): Locator {
+  return page.getByRole("button", { name: /^块类型：/ });
+}
+
+/**
+ * Select the text of the first body paragraph with the keyboard.
+ *
+ * Home then Shift+End is a selection the visitor could make with two keys, and it
+ * is the smallest selection the marks and the link action need. `Control+A` would
+ * also select the empty title block, which is harmless for a mark but says less
+ * about the one paragraph under test.
+ */
+export async function selectBodyText(page: Page): Promise<void> {
+  await bodyParagraph(page).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+}
+
+/**
+ * The file menu's trigger. `清空` is inside the popover, so the gate opens the
+ * menu by pressing this and then presses the item.
+ */
+export function fileTrigger(page: Page): Locator {
+  return page.getByRole("button", { name: "文件", exact: true });
+}
+
+/** The link popover's URL field. */
+export function linkField(page: Page): Locator {
+  return page.getByRole("textbox", { name: "链接地址" });
+}
+
+/** The document as the browser is holding it, for claims about structure. */
+export function canvas(page: Page): Locator {
+  return page.locator(CANVAS);
+}

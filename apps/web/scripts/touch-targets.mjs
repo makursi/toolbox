@@ -291,24 +291,48 @@ const PAGES = [
   },
   {
     /*
-     * The fourth Tool's page (#206), and the first slice of it: the shell, the
-     * Tool's frame and one canvas. Its always-visible controls are the shell's own
-     * two — the scheme switch and the way home — because the canvas is not a
-     * `.touch-target`: it is the editing surface itself, its hit area is the whole
-     * 720px reading measure, and an overlay across it would sit on top of the
-     * platform's own caret placement. The 44px floor is about the small controls
-     * around a document, not about the document. #172 is the same lesson from the
-     * other side: an overlay is harmless only while nothing inside the control
-     * needs the pointer.
+     * The fourth Tool's page (#206) with its toolbar (#207).
      *
-     * The toolbar, the file menu and the save status arrive with #207-#212, and each
+     * The canvas is not a `.touch-target`: it is the editing surface itself, its hit
+     * area is the whole 720px reading measure, and an overlay across it would sit on
+     * top of the platform's own caret placement. The 44px floor is about the small
+     * controls around a document, not about the document. #172 is the same lesson
+     * from the other side: an overlay is harmless only while nothing inside the
+     * control needs the pointer.
+     *
+     * Every toolbar control carries the class on its own `<button>` and is named:
+     * the icon-only ones by `aria-label`, the block menu by `块类型：<current block>`
+     * (the declared name is the stable prefix), and the file menu by `文件`. The
+     * block menu's items, the link field and 清空 live in popovers, so they only
+     * exist once a control is pressed; the gate covers them, and this Instrument
+     * declares only what is on the page without opening anything. The two
+     * placeholders are painted `::before` sentences, so they are not controls and
+     * no name here can reach them.
+     *
+     * The save status and the rest of the file menu arrive with #209-#212, and each
      * declares its own controls in its own ticket; this page declares only what
-     * exists today. The two placeholders are painted `::before` sentences, so they
-     * are not controls and no name here can reach them.
-     *
-     * `outgoing` is the whole document: this page has one layer.
+     * exists today. `outgoing` is the whole document: this page has one layer.
      */
-    controls: ["切换到", "返回首页"],
+    controls: [
+      "切换到",
+      "返回首页",
+      "撤销",
+      "重做",
+      "块类型",
+      "加粗",
+      "斜体",
+      "下划线",
+      "删除线",
+      "行内代码",
+      "项目符号列表",
+      "编号列表",
+      "任务列表",
+      "引用",
+      "代码块",
+      "分隔线",
+      "链接",
+      "文件",
+    ],
     name: "rich-text-editor",
     outgoing: ["body"],
     path: "/tools/rich-text-editor",
