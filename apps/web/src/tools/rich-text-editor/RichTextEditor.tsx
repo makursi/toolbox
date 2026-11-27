@@ -232,7 +232,10 @@ function EditorSurface({
    *
    * `imageRefusal` is the sentence a refused file shows, and `null` means the last
    * attempt was kept. It is state rather than a callback because the sentence
-   * belongs between the toolbar and the canvas, where all three paths can reach it.
+   * belongs between the toolbar and the canvas, where all three insert paths can
+   * reach it — and, since #220, the import as well: an imported file's refused
+   * images are the same rule and therefore the same sentence, handed down from the
+   * file menu rather than painted in a menu that is already closed.
    */
   const [imageRequest, setImageRequest] = useState(0);
   const [imageRefusal, setImageRefusal] = useState<ImageRefusal | null>(null);
@@ -503,6 +506,7 @@ function EditorSurface({
             imageRequest={imageRequest}
             linkRequest={linkRequest}
             onClear={handleClear}
+            onImportRefusal={setImageRefusal}
             onInsertImage={insertImage}
             onRetry={onRetry}
             saveStatus={saveStatus}

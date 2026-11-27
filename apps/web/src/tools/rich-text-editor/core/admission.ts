@@ -132,13 +132,8 @@ export function imageByteLimit(type: ImageKind): number {
 
 /** What a data URL's payload holds, in bytes, or `0` when it is not a base64 URL. */
 function dataUrlByteLength(src: unknown): number {
-  if (typeof src !== "string" || !src.startsWith("data:")) return 0;
-
-  const comma = src.indexOf(",");
-  if (comma === -1 || !src.slice(5, comma).endsWith(";base64")) return 0;
-
-  const payload = src.slice(comma + 1);
-  if (payload === "") return 0;
+  const payload = base64Payload(src);
+  if (payload === null) return 0;
 
   // Base64 packs four characters into three bytes, and the trailing `=` padding
   // is not one of the bytes: without subtracting it every three-image document is
@@ -146,6 +141,105 @@ function dataUrlByteLength(src: unknown): number {
   const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
 
   return Math.floor((payload.length * 3) / 4) - padding;
+}
+
+/**
+ * The base64 payload of a `data:` URL, or `null` when the string is not one.
+ *
+ * `;base64` is required rather than assumed: the URL has to say how its payload is
+ * encoded before it can be decoded, and a `data:` URL without it holds text a size
+ * limit cannot be measured against.
+ */
+function base64Payload(src: unknown): string | null {
+  if (typeof src !== "string" || !src.startsWith("data:")) return null;
+
+  const comma = src.indexOf(",");
+  if (comma === -1) return null;
+  if (!src.slice(5, comma).toLowerCase().endsWith(";base64")) return null;
+
+  const payload = src.slice(comma + 1);
+
+  return payload === "" ? null : payload;
+}
+
+/** The bytes a run of base64 text carries, or `null` when it is not base64 at all. */
+function decodeBase64(text: string): Uint8Array | null {
+  try {
+    const binary = atob(text);
+
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    // `atob` is the browser's and Node's own decoder; a payload it rejects is not
+    // base64, which is the same answer as no data URL at all.
+    return null;
+  }
+}
+
+/**
+ * A data URL read as the file a picker would have handed over (#220).
+ *
+ * An imported document carries its images as `data:` URLs rather than as files, so
+ * the same four limits have to be asked of a string: the head is decoded from the
+ * first characters of the payload and the size is its own decoded length. A source
+ * that is not a base64 `data:` URL answers `null` — there is no file to measure —
+ * and an import turns it into its alt text instead of calling it an image.
+ *
+ * The head is decoded from 24 characters rather than from the 16 the sniff reads:
+ * base64 packs four characters into three bytes, so a 24-character cut is a whole
+ * number of groups and lands on the signature's own first byte. Cutting at 16 would
+ * still decode, but the last group would be a fragment of the next three bytes.
+ */
+export function dataUrlImageProbe(src: unknown): ImageProbe | null {
+  const payload = base64Payload(src);
+  if (payload === null) return null;
+
+  const head = decodeBase64(payload.slice(0, 24));
+  if (head === null) return null;
+
+  return { head, size: dataUrlByteLength(src) };
+}
+
+/**
+ * A whole document's images arriving at once: an import (#220).
+ *
+ * It is the same rule as an insert asked of a batch. The count and the total start
+ * empty because an import replaces the document rather than adding to it, and they
+ * move the way an insert's would: every image after the tenth is refused whatever
+ * its size, and the total is what the admitted images' decoded bytes add up to.
+ *
+ * `refusals` keeps the rule each refused image broke, in the order the images
+ * appeared, so an importer can say the first one. A source this module cannot
+ * measure answers `null` and adds no sentence: there is no file there, which is the
+ * remote-image case, and its alt text is the answer rather than a refusal.
+ */
+export interface ImportAdmission {
+  /** The rule each refused image broke, in the order the images appeared. */
+  readonly refusals: readonly ImageRefusal[];
+  /** Which rule an image source ran into, or `null` for a source that is not a measurable data URL. */
+  admit(src: unknown): AdmissionVerdict | null;
+}
+
+export function importAdmission(): ImportAdmission {
+  let usage: AdmissionState = { count: 0, totalBytes: 0 };
+  const refusals: ImageRefusal[] = [];
+
+  return {
+    refusals,
+    admit(src) {
+      const file = dataUrlImageProbe(src);
+      if (file === null) return null;
+
+      const verdict = admitImage(file, usage);
+
+      if (verdict.kind === "admitted") {
+        usage = { count: usage.count + 1, totalBytes: usage.totalBytes + verdict.size };
+      } else {
+        refusals.push(verdict.refusal);
+      }
+
+      return verdict;
+    },
+  };
 }
 
 /**

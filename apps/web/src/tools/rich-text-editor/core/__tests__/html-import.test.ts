@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { sanitizeHtml } from "@/tools/rich-text-editor/core/html-import";
+import { MAX_IMAGE_BYTES } from "@/tools/rich-text-editor/core/admission";
+import { htmlFromDocument } from "@/tools/rich-text-editor/core/html";
+import { importHtml, sanitizeHtml } from "@/tools/rich-text-editor/core/html-import";
+
+/** A real 1×1 PNG as the data URL an imported file carries. */
+const PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/** A data URL whose payload is `bytes` bytes behind a PNG signature. */
+function dataUrlOf(bytes: number): string {
+  const payload = Buffer.alloc(bytes);
+
+  [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].forEach((byte, index) => {
+    payload[index] = byte;
+  });
+
+  return `data:image/png;base64,${payload.toString("base64")}`;
+}
 
 /**
  * The HTML sanitiser, judged by the fragment it hands to TipTap's parser.
@@ -117,5 +134,132 @@ describe("sanitizeHtml", () => {
     expect(sanitizeHtml("<p>未闭合<div><span")).toContain("未闭合");
     expect(() => sanitizeHtml("</div></p>孤立闭合 < > <!")).not.toThrow();
     expect(() => sanitizeHtml("<ul><li>未闭合")).not.toThrow();
+  });
+});
+
+/**
+ * Tables and images (#220).
+ *
+ * The writer's own markup read the other way: the table survives as a table, with
+ * the `thead`/`tbody` wrapper taken off because the document's table is rows of
+ * cells and its first row is the header; the image survives only when it carries
+ * bytes the document can hold, and a source the page cannot draw leaves the alt text
+ * it was written with. The security cases are the same ones as above: a script or an
+ * event handler inside a cell is dropped by the one rule that drops it anywhere.
+ */
+describe("sanitizeHtml, tables and images", () => {
+  it("keeps a table, with a thead/tbody wrapper taken off", () => {
+    expect(
+      sanitizeHtml(
+        "<table><thead><tr><th>项目</th><th>数量</th></tr></thead>" +
+          "<tbody><tr><td>甲</td><td>1</td></tr></tbody></table>",
+      ),
+    ).toBe("<table><tr><th>项目</th><th>数量</th></tr><tr><td>甲</td><td>1</td></tr></table>");
+  });
+
+  it("keeps a table with no th, and gives an empty cell the paragraph its schema needs", () => {
+    expect(sanitizeHtml("<table><tr><td>甲</td><td></td></tr></table>")).toBe(
+      "<table><tr><td>甲</td><td><p></p></td></tr></table>",
+    );
+  });
+
+  it("drops a script and keeps a data image inside a cell", () => {
+    const source =
+      "<table><tr><td>甲<script>window.__cellPwned = true</script></td>" +
+      `<td><img src="${PNG_DATA_URL}" alt="照片" onerror="alert(1)"></td></tr></table>`;
+
+    expect(sanitizeHtml(source)).toBe(
+      `<table><tr><td>甲</td><td><img src="${PNG_DATA_URL}" alt="照片"></td></tr></table>`,
+    );
+    expect(sanitizeHtml(source)).not.toContain("script");
+    expect(sanitizeHtml(source)).not.toContain("onerror");
+  });
+
+  it("keeps a data image and the percentage width this Tool writes on it", () => {
+    expect(
+      sanitizeHtml(`<p><img src="${PNG_DATA_URL}" alt="照片" style="width: 50%; border: 0"></p>`),
+    ).toBe(`<p><img src="${PNG_DATA_URL}" alt="照片" style="width: 50%"></p>`);
+  });
+
+  it("drops a remote image and leaves its alt text as text", () => {
+    expect(sanitizeHtml('<p>前<img src="https://example.com/x.png" alt="远程照片">后</p>')).toBe(
+      "<p>前远程照片后</p>",
+    );
+    // With no alt there is nothing left of it, which is not an empty node.
+    expect(sanitizeHtml('<p>前<img src="https://example.com/x.png">后</p>')).toBe("<p>前后</p>");
+  });
+
+  it("refuses an image over the per-file limit and answers the rule it broke", () => {
+    const imported = importHtml(
+      `<p>前<img src="${dataUrlOf(MAX_IMAGE_BYTES + 1)}" alt="超大图">后</p>`,
+    );
+
+    expect(imported.html).toBe("<p>前超大图后</p>");
+    expect(imported.refusals).toEqual(["size"]);
+  });
+
+  it("refuses the eleventh image, so the fragment holds ten", () => {
+    const source = Array.from(
+      { length: 11 },
+      (_, index) => `<p><img src="${PNG_DATA_URL}" alt="第${index + 1}张"></p>`,
+    ).join("");
+    const imported = importHtml(source);
+
+    expect((imported.html.match(/<img/gu) ?? []).length).toBe(10);
+    expect(imported.html).toContain("第11张");
+    expect(imported.html).not.toContain('alt="第11张"');
+    expect(imported.refusals).toEqual(["count"]);
+  });
+
+  it("keeps the image and the table the HTML writer wrote, so an exported file imports again", () => {
+    const document = {
+      content: [
+        { attrs: { level: 1 }, content: [{ text: "图文导出", type: "text" }], type: "heading" },
+        { attrs: { alt: "照片", src: PNG_DATA_URL, width: 50 }, type: "image" },
+        {
+          content: [
+            {
+              content: [
+                {
+                  content: [{ content: [{ text: "项目", type: "text" }], type: "paragraph" }],
+                  type: "tableHeader",
+                },
+                {
+                  content: [{ content: [{ text: "数量", type: "text" }], type: "paragraph" }],
+                  type: "tableHeader",
+                },
+              ],
+              type: "tableRow",
+            },
+            {
+              content: [
+                {
+                  content: [{ content: [{ text: "甲", type: "text" }], type: "paragraph" }],
+                  type: "tableCell",
+                },
+                {
+                  content: [{ content: [{ text: "1", type: "text" }], type: "paragraph" }],
+                  type: "tableCell",
+                },
+              ],
+              type: "tableRow",
+            },
+          ],
+          type: "table",
+        },
+      ],
+      type: "doc",
+    };
+    const fragment = sanitizeHtml(htmlFromDocument(document));
+
+    // The writer's own markup comes back as markup: the image with its width, and
+    // the table as rows of cells. The `thead`/`tbody` wrappers are the export's
+    // shape, not the document's — its table is rows, and the reader takes them off.
+    expect(fragment).toContain(`<img src="${PNG_DATA_URL}" alt="照片" style="width: 50%">`);
+    expect(fragment).toContain("<table>");
+    expect(fragment).toContain("<th>项目</th>");
+    expect(fragment).toContain("<tr><td>甲</td><td>1</td></tr>");
+    expect(fragment).not.toContain("<article>");
+    expect(fragment).not.toContain("<thead>");
   });
 });

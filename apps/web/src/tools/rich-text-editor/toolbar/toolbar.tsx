@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import { CommandToggle } from "../command-toggle/command-toggle";
+import type { ImageRefusal } from "../core/admission";
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
 import { HISTORY_DISABLED_REASON, SAVE_RETRY_LABEL, SAVE_STATUS_TEXT } from "../core/copy";
 import type { SaveStatus } from "../core/save";
@@ -59,6 +60,12 @@ export interface EditorToolbarProps {
   readonly onInsertImage: (file: File) => void;
   /** Bumped when the slash menu applies 图片, so the picker opens (#216). */
   readonly imageRequest: number;
+  /**
+   * An imported file's refused images (#220): the surface paints the first rule's
+   * sentence in the same line a refused insert uses, because it is the same rule
+   * saying it. `null` means the import kept everything it read.
+   */
+  readonly onImportRefusal: (refusal: ImageRefusal | null) => void;
 }
 
 /** Commands that read as on/off at the cursor; the rest are one-shot actions. */
@@ -88,6 +95,7 @@ export function EditorToolbar({
   onClear,
   onInsertImage,
   imageRequest,
+  onImportRefusal,
 }: EditorToolbarProps) {
   const [blockOpen, setBlockOpen] = useState(false);
   const state = useEditorCommandState(editor);
@@ -291,7 +299,7 @@ export function EditorToolbar({
           ) : null}
         </div>
 
-        <FileMenu editor={editor} onClear={onClear} />
+        <FileMenu editor={editor} onClear={onClear} onImageRefusal={onImportRefusal} />
       </div>
     </div>
   );
