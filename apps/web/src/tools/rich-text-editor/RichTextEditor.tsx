@@ -1,15 +1,28 @@
 "use client";
 
 import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
-import { useCallback, useState } from "react";
+import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+import type { ImageRefusal } from "./core/admission";
+import { IMAGE_REFUSAL_TEXT } from "./core/copy";
 import { EMPTY_DOCUMENT } from "./core/document";
 import { sanitizeHtml } from "./core/html-import";
 import type { SaveStatus } from "./core/save";
+import { ImageNode } from "./editor/image-extension";
+import {
+  imageFiles,
+  insertImageFile,
+  replaceImageFile,
+  type ImageReplacement,
+} from "./editor/insert-image";
 import { useDraft } from "./hooks/use-draft/use-draft";
+import { ImagePanel } from "./image-panel/image-panel";
 import { SelectionToolbar } from "./selection-toolbar/selection-toolbar";
 import { SlashMenuExtension } from "./slash-menu/slash-menu-extension";
 import { EditorToolbar } from "./toolbar/toolbar";
@@ -52,6 +65,15 @@ const EDITOR_LABEL = "文档内容";
  * `label` with a native checkbox and a `div` of content, so the checked state is the
  * node's own `data-checked` attribute; the line through a finished item is the one
  * piece of the canvas that changes without the visitor typing.
+ *
+ * A table (#217) is the extension's own DOM too: its node view wraps the table in
+ * `.tableWrapper`, so that wrapper is what scrolls sideways rather than the canvas
+ * widening past its 720px measure — a ten-column table is wider than a reading
+ * column, and the measure is a site rule. Cells sit on hairlines with the same
+ * padding as the rest of the canvas and the first row is the secondary surface,
+ * which is how a header row reads without a cell-styling model the spec excludes.
+ * The zero margin on a cell's paragraph is geometry: a cell holds a paragraph, and
+ * the canvas's own `my-2` would otherwise double the cell's padding.
  */
 const EDITOR_CLASS = [
   "min-h-[60vh] outline-none",
@@ -80,7 +102,37 @@ const EDITOR_CLASS = [
   "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
   "[&_hr]:my-8 [&_hr]:border-t [&_hr]:border-border",
   "[&_a]:underline [&_a]:underline-offset-[3px]",
+  "[&_.tableWrapper]:my-4 [&_.tableWrapper]:overflow-x-auto",
+  "[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
+  "[&_th]:border [&_th]:border-border [&_th]:bg-secondary [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+  "[&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
+  "[&_td_p]:my-0 [&_th_p]:my-0",
+  /*
+   * The image rules (#216). An image is a block of the document, not a character
+   * in a line, so it is drawn as a block centred in the measure and never wider
+   * than it: the node writes `width: N%`, and `max-width: 100%` is the second guard
+   * for a document that arrives from elsewhere (#220) with a width the node's clamp
+   * never saw. `height: auto` keeps a percentage width from squashing the picture.
+   *
+   * A selected image draws a ring, and it keeps drawing one now that #218's panel
+   * exists: the panel is placed away from the picture so it never covers it, and a
+   * selected picture with no mark on it would leave the visitor guessing which of
+   * several images the bar belongs to. The ring is the site's focus colour, drawn
+   * outside the picture rather than as a border inside it.
+   */
+  "[&_img]:my-4 [&_img]:block [&_img]:mx-auto [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md",
+  "[&_img.ProseMirror-selectednode]:ring-2 [&_img.ProseMirror-selectednode]:ring-ring [&_img.ProseMirror-selectednode]:ring-offset-2 [&_img.ProseMirror-selectednode]:ring-offset-background",
 ].join(" ");
+
+/**
+ * A drop only happens where a dragover allowed it, so the canvas card has to allow
+ * one (#216): without this a file dropped on the card's padding opens in the browser
+ * instead of joining the document. It captures nothing, which is why it is here
+ * rather than rebuilt on every render.
+ */
+function handleCanvasDragOver(event: DragEvent<HTMLDivElement>) {
+  if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+}
 
 /**
  * The writing surface: the draft, one TipTap editor, the toolbar above it, and the
@@ -169,6 +221,68 @@ function EditorSurface({
    */
   const [linkRequest, setLinkRequest] = useState(0);
 
+  /*
+   * 插入图片 (#216).
+   *
+   * Three paths reach one insert: the toolbar's button and its file input, a drop
+   * on the canvas, and a paste carrying image files. The picker is the toolbar's,
+   * so the slash menu's 图片 row cannot open it itself — it runs no chain, and it
+   * asks for the picker through `imageRequest`, a counter for the same reason the
+   * link's `Mod-K` request is one: the second application must open it again.
+   *
+   * `imageRefusal` is the sentence a refused file shows, and `null` means the last
+   * attempt was kept. It is state rather than a callback because the sentence
+   * belongs between the toolbar and the canvas, where all three insert paths can
+   * reach it — and, since #220, the import as well: an imported file's refused
+   * images are the same rule and therefore the same sentence, handed down from the
+   * file menu rather than painted in a menu that is already closed.
+   */
+  const [imageRequest, setImageRequest] = useState(0);
+  const [imageRefusal, setImageRefusal] = useState<ImageRefusal | null>(null);
+
+  /*
+   * The editor's drop and paste handlers are created with the editor, before
+   * `insertImage` exists in this render, so they reach it through a ref. The ref is
+   * refreshed whenever the editor changes, so a handler can never hold a stale one.
+   *
+   * The function it holds is asynchronous because a drop or a paste can carry more
+   * than one file, and the files have to be admitted and inserted one at a time
+   * (see the handlers below).
+   */
+  const insertImageRef = useRef<(file: File) => Promise<void>>(async () => {});
+
+  const requestImagePicker = useCallback(() => setImageRequest((count) => count + 1), []);
+
+  /*
+   * The one shape all three image paths share (#216): a drop on the editable, a
+   * paste, and a drop on the card around it each ask "did this event carry image
+   * files", stop the browser's own answer to it, and hand the files to the insert.
+   *
+   * Answers whether the event carried any, which is what the callers' guards mean:
+   * `false` leaves the event to ProseMirror's own handling of moved nodes and
+   * pasted markup. `preventDefault` runs only once a file is taken, so a drop of
+   * text or a moved node is not swallowed.
+   *
+   * The files are awaited one at a time, not fired together: admission counts the
+   * images and bytes the document already holds, and two files in one event are two
+   * candidates against one state. Inserting both before either landed would compute
+   * both admissions from the state before the first node exists, so a drop of two
+   * could put the document over the ten-image or 40 MB limit while each file alone
+   * passed it. Awaiting an insert is what makes the next admission see its node.
+   */
+  const takeImageFiles = (data: DataTransfer | null, preventDefault: () => void): boolean => {
+    const files = imageFiles(data);
+    if (files.length === 0) return false;
+
+    preventDefault();
+
+    void (async () => {
+      for (const file of files) await insertImageRef.current(file);
+    })();
+
+    return true;
+  };
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -200,6 +314,20 @@ function EditorSurface({
         },
         nested: true,
       }),
+      /*
+       * Tables (#217). The grid picker and the contextual menu are this Tool's own
+       * React interfaces (`table-control/`); the kit supplies the schema and the
+       * commands those two call. `resizable: false` is the spec's line rather than
+       * a default left alone: no column widths and no free drag-to-resize, so a
+       * table is a fixed grid and the only widths it has are its content's.
+       */
+      TableKit.configure({ table: { resizable: false } }),
+      /*
+       * The image node (#216). `ImageNode` is `@tiptap/extension-image` configured
+       * to accept a `data:` source and to carry a percentage width; `editor/`
+       * `image-extension.ts` explains why both are decisions rather than defaults.
+       */
+      ImageNode,
       Placeholder.configure({
         /*
          * One placeholder function, two sentences: the document's first block says
@@ -228,9 +356,11 @@ function EditorSurface({
       }),
       /*
        * The slash menu. It reads the command table, so it is not a second list of
-       * blocks (#208).
+       * blocks (#208). `onImageRequest` is how its 图片 row reaches the picker that
+       * lives in the toolbar (#216): the row is interface-shaped, so running it
+       * answers `false` and the surface that owns the input opens it.
        */
-      SlashMenuExtension,
+      SlashMenuExtension.configure({ onImageRequest: requestImagePicker }),
       /*
        * No input-rule extension is added here, and that is a finding rather than an
        * omission. Every rule #208 names is StarterKit's own: the heading rule
@@ -278,8 +408,74 @@ function EditorSurface({
         return true;
       },
       transformPastedHTML: (html) => sanitizeHtml(html),
+      /*
+       * The image's other two ways in (#216): a drop and a paste carrying image
+       * files. Both go through the same `insertImage` the toolbar's button uses,
+       * so the admission rules and the insert exist once, and both take the file
+       * list from `takeImageFiles` above — including its one-at-a-time admission,
+       * which is what keeps two files in one paste from being measured against the
+       * same stale document.
+       */
+      handleDrop: (_view, event, _slice, moved) => {
+        if (moved) return false;
+
+        return takeImageFiles(event.dataTransfer, () => event.preventDefault());
+      },
+      handlePaste: (_view, event) =>
+        takeImageFiles(event.clipboardData, () => event.preventDefault()),
     },
   });
+
+  /*
+   * The one insert the three image paths share (#216).
+   *
+   * The rules and the command are `editor/insert-image.ts`'s; what this callback
+   * owns is the answer: a kept file clears any sentence left by the last one, and a
+   * refused one paints the sentence that says which rule it broke.
+   *
+   * It returns a promise because its callers have to be able to wait for the node
+   * to land: a drop of several files admits the second one against a document the
+   * first one has already changed (see the drop and paste handlers above).
+   */
+  const insertImage = useCallback(
+    async (file: File) => {
+      if (editor === null) return;
+
+      /*
+       * A rejected read (a file the browser will not hand back) draws no sentence:
+       * it is not one of the four rules and has nothing the visitor could act on, so
+       * the canvas stays as it was and the previous sentence is cleared.
+       */
+      try {
+        setImageRefusal(await insertImageFile(editor, file));
+      } catch {
+        setImageRefusal(null);
+      }
+    },
+    [editor],
+  );
+
+  useEffect(() => {
+    insertImageRef.current = insertImage;
+  }, [insertImage]);
+
+  /*
+   * 替换 in the image panel (#218).
+   *
+   * The panel's own control, the same read-and-admit path as the insert, and the same
+   * answer: a kept file clears the sentence the last refusal left, a refused one
+   * paints its rule's sentence between the toolbar and the canvas. The difference
+   * from `insertImage` is only which image the file lands on, and that is
+   * `editor/insert-image.ts`'s — this callback owns the answer, not the rule.
+   */
+  const replaceImage = useCallback(
+    (image: ImageReplacement, file: File) => {
+      if (editor === null) return;
+
+      void replaceImageFile(editor, image, file).then(setImageRefusal, () => setImageRefusal(null));
+    },
+    [editor],
+  );
 
   /*
    * 清空 empties the canvas and the stored draft together.
@@ -293,6 +489,21 @@ function EditorSurface({
     editor?.commands.setContent(EMPTY_DOCUMENT, { emitUpdate: false });
     onClear();
   }, [editor, onClear]);
+
+  /*
+   * The drop target's other half (#216). ProseMirror's `handleDrop` takes a drop on
+   * the editable; this takes one on the card around it, because the card's padding
+   * is part of the canvas a visitor aims at, and a browser's default for a file
+   * dropped outside an editable is to navigate to it and leave the document.
+   * `defaultPrevented` is how this half knows the editor already took the event, so
+   * a drop on the text is inserted once rather than twice; the files themselves
+   * are `takeImageFiles`'s, the same call the editor's own handler makes.
+   */
+  const handleCanvasDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return;
+
+    takeImageFiles(event.dataTransfer, () => event.preventDefault());
+  };
 
   return (
     /*
@@ -314,24 +525,46 @@ function EditorSurface({
         <>
           <EditorToolbar
             editor={editor}
+            imageRequest={imageRequest}
             linkRequest={linkRequest}
             onClear={handleClear}
+            onImportRefusal={setImageRefusal}
+            onInsertImage={insertImage}
             onRetry={onRetry}
             saveStatus={saveStatus}
           />
+          {imageRefusal === null ? null : (
+            /*
+             * The refusal sentence sits between the toolbar and the canvas, where
+             * the action that produced it is, and it is an `Alert` because the site
+             * already presents what a file was refused for that way
+             * (image-converter's lists). One line, not a toast: a sentence the
+             * visitor has to dismiss is a modal chore for a file that was not
+             * taken, and the next attempt — which is the visitor's next move —
+             * replaces this one.
+             */
+            <Alert className="mt-3" variant="destructive">
+              <AlertDescription>{IMAGE_REFUSAL_TEXT[imageRefusal]}</AlertDescription>
+            </Alert>
+          )}
           {/*
            * The selection toolbar is a fixed-position row placed from the
            * selection's own rectangle, so its place in this tree is only where it
            * is rendered: nothing about it is drawn between the toolbar and the
-           * canvas.
+           * canvas. The image panel (#218) is the other selection surface: it is
+           * drawn only while the selection is an image, and it is placed from the
+           * picture's own box, so it sits here for the same reason.
            */}
           <SelectionToolbar editor={editor} />
+          <ImagePanel editor={editor} onReplaceImage={replaceImage} />
         </>
       )}
 
       <div
         className="mx-auto mt-6 w-full max-w-[720px] rounded-lg border border-border bg-background p-5 focus-within:border-ring"
         data-slot="rich-text-canvas"
+        onDragOver={handleCanvasDragOver}
+        onDrop={handleCanvasDrop}
       >
         <EditorContent editor={editor} />
       </div>

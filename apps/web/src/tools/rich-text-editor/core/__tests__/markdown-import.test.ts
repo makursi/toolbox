@@ -1,8 +1,13 @@
 import type { JSONContent } from "@tiptap/react";
 import { describe, expect, it } from "vitest";
 
+import { MAX_IMAGE_BYTES } from "@/tools/rich-text-editor/core/admission";
 import { EMPTY_DOCUMENT } from "@/tools/rich-text-editor/core/document";
-import { documentFromMarkdown } from "@/tools/rich-text-editor/core/markdown-import";
+import { markdownFromDocument } from "@/tools/rich-text-editor/core/markdown";
+import {
+  documentFromMarkdown,
+  importMarkdown,
+} from "@/tools/rich-text-editor/core/markdown-import";
 
 /**
  * The Markdown reader, in the same terms as the writer it reverses.
@@ -21,6 +26,36 @@ const paragraph = (...content: JSONContent[]): JSONContent => ({
 const listItem = (...content: JSONContent[]): JSONContent => ({ content, type: "listItem" });
 
 const documentOf = (...content: JSONContent[]): JSONContent => ({ content, type: "doc" });
+
+/** One cell of a table: a header cell or a body cell, holding one paragraph. */
+const cellOf = (type: "tableCell" | "tableHeader", text: string): JSONContent => ({
+  content: [text === "" ? paragraph() : paragraph({ text, type: "text" })],
+  type,
+});
+
+/** A table node from its rows; the first row's cells are the header cells. */
+const tableOf = (...rows: string[][]): JSONContent => ({
+  content: rows.map((cells, row) => ({
+    content: cells.map((cell) => cellOf(row === 0 ? "tableHeader" : "tableCell", cell)),
+    type: "tableRow",
+  })),
+  type: "table",
+});
+
+/** A real 1×1 PNG as the data URL an imported file carries. */
+const PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/** A data URL whose payload is `bytes` bytes behind a PNG signature. */
+function dataUrlOf(bytes: number): string {
+  const payload = Buffer.alloc(bytes);
+
+  [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].forEach((byte, index) => {
+    payload[index] = byte;
+  });
+
+  return `data:image/png;base64,${payload.toString("base64")}`;
+}
 
 /** The text a node holds, joined without separators. */
 function wordsOf(node: JSONContent): string {
@@ -252,10 +287,10 @@ describe("the Markdown reader", () => {
   });
 
   it("keeps what it does not know as text", () => {
-    expect(documentFromMarkdown("| 表头 | 表头 |\n| --- | --- |\n| 单元 | 单元 |")).toEqual(
-      documentOf(
-        paragraph({ text: "| 表头 | 表头 | | --- | --- | | 单元 | 单元 |", type: "text" }),
-      ),
+    // A reference-style link is syntax this reader has no construct for, so the
+    // whole line is the text it was written as.
+    expect(plainText(documentFromMarkdown("[引用式链接][ref]\n\n[ref]: https://example.com"))).toBe(
+      "[引用式链接][ref]\n[ref]: https://example.com",
     );
 
     // The unmatched constructs are literal, not a refusal and not a crash.
@@ -268,5 +303,171 @@ describe("the Markdown reader", () => {
     expect(() => documentFromMarkdown("```\n未闭合的围栏")).not.toThrow();
     expect(() => documentFromMarkdown("<>>>***___~~~[[[(((")).not.toThrow();
     expect(() => documentFromMarkdown("\u0000\uFEFF\r\n\r###")).not.toThrow();
+  });
+});
+
+/**
+ * GFM pipe tables (#220).
+ *
+ * The text is the format the writer emits, read the other way: a header row, the
+ * delimiter row under it, then one row per line. Alignment markers are dropped
+ * because the document has no column alignment to carry them in, and a row that is
+ * the wrong width is padded or cut to the header's, which is what GFM itself says a
+ * reader does with one.
+ */
+describe("the Markdown reader's tables", () => {
+  it("reads a header row and its body rows, with the delimiter row dropped", () => {
+    expect(documentFromMarkdown("| 项目 | 数量 |\n| --- | ---: |\n| 甲 | 1 |\n| 乙 | 2 |")).toEqual(
+      documentOf(tableOf(["项目", "数量"], ["甲", "1"], ["乙", "2"])),
+    );
+  });
+
+  it("reads a table in the middle of prose as its own block", () => {
+    expect(
+      documentFromMarkdown("上面一段。\n| 项目 | 数量 |\n| --- | --- |\n| 甲 | 1 |\n下面一段。"),
+    ).toEqual(
+      documentOf(
+        paragraph({ text: "上面一段。", type: "text" }),
+        tableOf(["项目", "数量"], ["甲", "1"]),
+        paragraph({ text: "下面一段。", type: "text" }),
+      ),
+    );
+  });
+
+  it("pads a short row and drops the cells past the header's width", () => {
+    expect(
+      documentFromMarkdown("| 甲 | 乙 | 丙 |\n| --- | --- | --- |\n| 1 |\n| 2 | 3 | 4 | 5 |"),
+    ).toEqual(documentOf(tableOf(["甲", "乙", "丙"], ["1", "", ""], ["2", "3", "4"])));
+  });
+
+  it("reads a cell's inline marks and its escaped pipe", () => {
+    expect(documentFromMarkdown("| **加粗** | a \\| b |\n| --- | --- |\n| `x` | 链接 |")).toEqual(
+      documentOf({
+        content: [
+          {
+            content: [
+              {
+                content: [paragraph({ marks: [{ type: "bold" }], text: "加粗", type: "text" })],
+                type: "tableHeader",
+              },
+              { content: [paragraph({ text: "a | b", type: "text" })], type: "tableHeader" },
+            ],
+            type: "tableRow",
+          },
+          {
+            content: [
+              {
+                content: [paragraph({ marks: [{ type: "code" }], text: "x", type: "text" })],
+                type: "tableCell",
+              },
+              { content: [paragraph({ text: "链接", type: "text" })], type: "tableCell" },
+            ],
+            type: "tableRow",
+          },
+        ],
+        type: "table",
+      }),
+    );
+  });
+
+  it("needs a delimiter row: pipes alone stay a paragraph", () => {
+    expect(documentFromMarkdown("| 只是 | 一段文字 |")).toEqual(
+      documentOf(paragraph({ text: "| 只是 | 一段文字 |", type: "text" })),
+    );
+  });
+
+  it("keeps a row's escaped pipe at its end as a cell, not as the row's edge", () => {
+    expect(documentFromMarkdown("| 甲 | 乙 |\n| --- | --- |\n| a \\|")).toEqual(
+      documentOf(tableOf(["甲", "乙"], ["a |", ""])),
+    );
+  });
+});
+
+/**
+ * Images (#220).
+ *
+ * An image is a block node of this document, while GFM writes it inline, so a data
+ * image becomes a block of its own and the words around it keep theirs. A source
+ * the document cannot draw — a remote URL, or a data URL that is not base64 — is not
+ * an image at all here: its alt text is the text that remains, which is the same
+ * answer an over-limit image gets from admission.
+ */
+describe("the Markdown reader's images", () => {
+  it("reads a data image as an image block", () => {
+    expect(documentFromMarkdown(`![照片](${PNG_DATA_URL})`)).toEqual(
+      documentOf({ attrs: { alt: "照片", src: PNG_DATA_URL }, type: "image" }),
+    );
+  });
+
+  it("lifts an image out of the words around it, in the order they were written", () => {
+    expect(documentFromMarkdown(`前文\n\n![照片](${PNG_DATA_URL})\n\n后文`)).toEqual(
+      documentOf(
+        paragraph({ text: "前文", type: "text" }),
+        { attrs: { alt: "照片", src: PNG_DATA_URL }, type: "image" },
+        paragraph({ text: "后文", type: "text" }),
+      ),
+    );
+  });
+
+  it("keeps a remote image's alt text as text, and no image", () => {
+    expect(documentFromMarkdown("![远程照片](https://example.com/photo.png)")).toEqual(
+      documentOf(paragraph({ text: "远程照片", type: "text" })),
+    );
+    // Inside a sentence the alt stays where the image was.
+    expect(documentFromMarkdown("前文 ![远程照片](https://example.com/x.png) 后文")).toEqual(
+      documentOf(paragraph({ text: "前文 远程照片 后文", type: "text" })),
+    );
+  });
+
+  it("drops an image whose data URL cannot be measured to its alt text", () => {
+    // A `data:` URL that is not base64 is not a file this Tool can ask the limits
+    // about; the alt text is what remains.
+    expect(documentFromMarkdown("![图](data:image/png,not-base64)")).toEqual(
+      documentOf(paragraph({ text: "图", type: "text" })),
+    );
+  });
+
+  it("refuses an image over the per-file limit and keeps its alt text", () => {
+    const imported = importMarkdown(`![超大图](${dataUrlOf(MAX_IMAGE_BYTES + 1)})`);
+
+    expect(imported.document).toEqual(documentOf(paragraph({ text: "超大图", type: "text" })));
+    expect(imported.refusals).toEqual(["size"]);
+  });
+
+  it("refuses the eleventh image and keeps its alt text, so the document holds ten", () => {
+    const lines = Array.from({ length: 11 }, (_, index) => `![第${index + 1}张](${PNG_DATA_URL})`);
+    const imported = importMarkdown(lines.join("\n\n"));
+    const content = imported.document.content ?? [];
+
+    expect(imported.refusals).toEqual(["count"]);
+    expect(content.filter((node) => node.type === "image")).toHaveLength(10);
+    expect(content[content.length - 1]).toEqual(paragraph({ text: "第11张", type: "text" }));
+  });
+
+  it("imports a document with an image and a table back from the writer's own Markdown", () => {
+    const document = documentOf(
+      { attrs: { level: 1 }, content: [{ text: "图文导出", type: "text" }], type: "heading" },
+      { attrs: { alt: "照片", src: PNG_DATA_URL }, type: "image" },
+      tableOf(["项目", "数量"], ["甲", "1"], ["乙", "2"]),
+    );
+
+    expect(importMarkdown(markdownFromDocument(document))).toEqual({
+      document,
+      refusals: [],
+    });
+  });
+
+  it("loses an image's width and nothing else, which is Markdown's one degradation", () => {
+    const document = documentOf({
+      attrs: { alt: "照片", src: PNG_DATA_URL, width: 50 },
+      type: "image",
+    });
+    const imported = importMarkdown(markdownFromDocument(document));
+
+    // GFM has no width syntax, so the file cannot carry it; the node takes its own
+    // default when the editor reads it.
+    expect(imported.document).toEqual(
+      documentOf({ attrs: { alt: "照片", src: PNG_DATA_URL }, type: "image" }),
+    );
   });
 });

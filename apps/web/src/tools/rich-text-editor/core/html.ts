@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 
 import { codeText, documentTitle, headingLevel } from "./document";
+import { DEFAULT_IMAGE_WIDTH, asImageWidth } from "./image";
 
 /**
  * The document as a complete, standalone HTML file (#210).
@@ -15,6 +16,11 @@ import { codeText, documentTitle, headingLevel } from "./document";
  * The markup is the document's own: every block and mark ProseMirror holds is
  * rendered as the element with that meaning, and every text run is escaped, so a
  * document that contains `<script>` is a document about `<script>`.
+ *
+ * An image embeds its bytes as `<img src="data:…">` and keeps the width the
+ * document carries as the inline style the node stores (#219); a table becomes a
+ * semantic `<table>` with a header row and a body. Neither asks the file to fetch
+ * anything, so the export keeps the same rule the page does.
  */
 
 /** The marks with a plain element, applied innermost first. */
@@ -41,6 +47,11 @@ const STYLESHEET = [
   "ul, ol { margin: 0.75em 0; padding-left: 1.6em; }",
   "li { margin: 0.3em 0; }",
   "li > p { margin: 0; }",
+  "img { display: block; max-width: 100%; height: auto; margin: 1.5em 0; }",
+  "table { width: 100%; margin: 1.5em 0; border-collapse: collapse; }",
+  "th, td { padding: 0.5em 0.75em; border: 1px solid #d6d1c7; text-align: left; vertical-align: top; }",
+  "th { background: #f1efeb; font-weight: 600; }",
+  "th p, td p { margin: 0; }",
   "blockquote { margin: 1.25em 0; padding-left: 1em; border-left: 3px solid #d6d1c7; color: #57534b; }",
   "hr { margin: 2em 0; border: 0; border-top: 1px solid #d6d1c7; }",
   "a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }",
@@ -54,6 +65,8 @@ const STYLESHEET = [
   "  body { background: #1c1b19; color: #f2efe8; }",
   "  blockquote { border-left-color: #4a463f; color: #b8b2a7; }",
   "  hr { border-top-color: #4a463f; }",
+  "  th, td { border-color: #4a463f; }",
+  "  th { background: #2b2926; }",
   "  code, pre { background: #2b2926; }",
   "}",
 ].join("\n");
@@ -168,6 +181,86 @@ function renderList(node: JSONContent): string {
   return `<ul>\n${items.join("\n")}\n</ul>`;
 }
 
+/**
+ * An image's width as a percentage of the reading measure.
+ *
+ * The rule is `core/image.ts`'s, shared with the node: this writer is handed JSON
+ * rather than a node, and a draft can be hand-edited, so the two entry points must
+ * clamp and default the same way. Past the measure the picture would be the one
+ * thing that overflows the column the width exists to keep it inside.
+ */
+function imageWidth(node: JSONContent): number {
+  return asImageWidth(node.attrs?.width) ?? DEFAULT_IMAGE_WIDTH;
+}
+
+/**
+ * An image as `<img>`: its bytes, its alt text and the width the Markdown writer
+ * has to drop.
+ *
+ * Both attributes are escaped, so an alt with a `"` cannot end the attribute and a
+ * source with an `&` stays one value. An image with no source has nothing to
+ * paint; its alt text is what remains of it, which is the same answer the import
+ * gives an image it cannot draw.
+ */
+function renderImage(node: JSONContent): string {
+  const src = typeof node.attrs?.src === "string" ? node.attrs.src : "";
+  const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt : "";
+
+  if (src === "") return escapeHtml(alt);
+
+  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" style="width: ${imageWidth(node)}%">`;
+}
+
+/**
+ * One cell: its first paragraph inline and any further block under it, the shape
+ * `<li>` already uses. The usual cell is what the editor makes, a single
+ * paragraph, so it reads as `<td>text</td>` rather than a box around a paragraph.
+ */
+function renderCell(cell: JSONContent): string {
+  const children = cell.content ?? [];
+  const first = children[0];
+  const firstParagraph = first?.type === "paragraph" ? first : undefined;
+  const head = firstParagraph === undefined ? "" : renderInline(firstParagraph.content);
+  const rest = firstParagraph === undefined ? children : children.slice(1);
+  const blocks = rest.map(renderBlock).filter((block) => block !== "");
+
+  return `${head}${blocks.length === 0 ? "" : `\n${blocks.join("\n")}`}`;
+}
+
+/**
+ * A table as a semantic `<table>` (#219): the first row in `<thead>` with `<th>`
+ * cells, the rest in `<tbody>` with `<td>` cells.
+ *
+ * The split is by row rather than by the cell node the document carries, so a
+ * first row of `tableCell`s is still the header: both writers treat the first row
+ * as the header, and a reader that gets two different answers from one document
+ * would be reading two documents. A table with no cells says nothing.
+ */
+function renderTable(node: JSONContent): string {
+  const rows = (node.content ?? []).filter((child) => child.type === "tableRow");
+  const [first, ...rest] = rows;
+
+  if (first === undefined) return "";
+
+  const renderRow = (row: JSONContent, header: boolean): string => {
+    const element = header ? "th" : "td";
+    const cells = (row.content ?? [])
+      .filter((child) => child.type === "tableCell" || child.type === "tableHeader")
+      .map((cell) => `<${element}>${renderCell(cell)}</${element}>`);
+
+    return cells.length === 0 ? "" : `<tr>\n${cells.join("\n")}\n</tr>`;
+  };
+
+  const head = renderRow(first, true);
+  if (head === "") return "";
+
+  const body = rest.map((row) => renderRow(row, false)).filter((row) => row !== "");
+  const sections = [`<thead>\n${head}\n</thead>`];
+  if (body.length > 0) sections.push(`<tbody>\n${body.join("\n")}\n</tbody>`);
+
+  return `<table>\n${sections.join("\n")}\n</table>`;
+}
+
 /** One block as HTML; `""` means it says nothing. */
 function renderBlock(node: JSONContent): string {
   switch (node.type) {
@@ -184,6 +277,12 @@ function renderBlock(node: JSONContent): string {
 
       return inline === "" ? "" : `<p>${inline}</p>`;
     }
+
+    case "image":
+      return renderImage(node);
+
+    case "table":
+      return renderTable(node);
 
     case "blockquote": {
       const inner = (node.content ?? [])

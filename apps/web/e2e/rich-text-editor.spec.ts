@@ -5,33 +5,56 @@ import { expect, test, type Download } from "@playwright/test";
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
+  altField,
   answerImportDialog,
   blockTrigger,
   bodyParagraph,
   canvas,
   clearDocument,
+  deleteImage,
   downloadFromFileMenu,
+  dropImage,
+  dropImages,
   editor,
   fileTrigger,
   hidePage,
+  imagePanel,
+  imagePanelControl,
+  imagesInCanvas,
   importDialog,
   importFromFileMenu,
+  insertImageFromToolbar,
+  insertTableOfSize,
   linkField,
+  notAnImage,
   open,
+  openAltPopover,
+  oversizedPng,
   paintedPlaceholder,
+  pasteImage,
+  pngFile,
   pressAt,
+  pressTableMenuItem,
+  refusalNotice,
+  replaceImage,
+  replacementPng,
   retrySave,
   saveStatus,
   selectBodyText,
+  selectImage,
   selectionControl,
   selectionToolbar,
   slashItem,
   slashMenu,
   slashMenuItems,
   storedDraft,
+  tableMenu,
+  tableMenuItem,
+  tableTrigger,
   textOf,
   titleBlock,
   toolbarControl,
+  widthPreset,
   writeInBody,
   writeInTitle,
 } from "./rich-text-editor-page";
@@ -39,8 +62,9 @@ import {
 /**
  * The Rich Text Editor: the page and its placeholders (#206), the toolbar and the
  * command table (#207), the three ways to write without leaving the keyboard (#208),
- * the two exports (#210), the local draft with its save status (#209), and the
- * import (#211).
+ * the two exports (#210), the local draft with its save status (#209), the import
+ * (#211), the images and tables that travel with the document (#216, #217), the
+ * two formats that carry them (#219), and the same two formats read back (#220).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -151,6 +175,43 @@ const HTML_FIXTURE = [
   "<blockquote>引用一句。</blockquote>",
   '<pre><code class="language-js">const answer = 42;</code></pre>',
   "<hr>",
+  "</article></body></html>",
+].join("");
+
+/**
+ * The image and the table as an imported file carries them (#220).
+ *
+ * The PNG is the same file the insert tests hand the page, encoded the way a
+ * document carries a picture: there is no upload service, so the bytes travel in
+ * the file itself. The fixtures are a table and an image in each of the two
+ * formats, which is also what makes "the imported document exports back" a claim
+ * about both writers rather than about one.
+ */
+const PNG_DATA_URL = `data:image/png;base64,${pngFile().buffer.toString("base64")}`;
+
+const MARKDOWN_BLOCKS_FIXTURE = [
+  "# 图文导入",
+  "",
+  "| 项目 | 数量 |",
+  "| --- | --- |",
+  "| 甲 | 1 |",
+  "| 乙 | 2 |",
+  "",
+  `![照片](${PNG_DATA_URL})`,
+  "",
+].join("\n");
+
+const HTML_BLOCKS_FIXTURE = [
+  "<!doctype html>",
+  '<html lang="zh-CN"><head>',
+  "<title>忽略的标题</title>",
+  "<style>table { color: red }</style>",
+  "<script>window.__htmlBlocksPwned = true</script>",
+  "</head><body><article>",
+  "<h1>图文导入</h1>",
+  "<table><thead><tr><th>项目</th><th>数量</th></tr></thead>",
+  "<tbody><tr><td>甲</td><td>1</td></tr><tr><td>乙</td><td>2</td></tr></tbody></table>",
+  `<p><img src="${PNG_DATA_URL}" alt="照片" onerror="alert(1)" style="width: 50%"></p>`,
   "</article></body></html>",
 ].join("");
 
@@ -412,8 +473,8 @@ test("the keyboard shortcuts reach a mark, a heading, a list and the link action
  * The rows are the command table's block commands, so the count and the first row
  * are asserted against what a visitor sees rather than against the table: a table
  * that grew an extra row without the menu drawing it would be invisible here, which
- * is why the count is spelled out (ten: 正文, three headings, three lists, 引用,
- * 代码块 and 分隔线).
+ * is why the count is spelled out (twelve: 正文, three headings, three lists, 引用,
+ * 代码块, 分隔线, 图片 and 表格).
  */
 test("the slash menu filters by typing, moves with the arrow keys and applies with Enter", async ({
   page,
@@ -423,7 +484,7 @@ test("the slash menu filters by typing, moves with the arrow keys and applies wi
   await page.keyboard.type("/");
 
   await expect(slashMenu(page)).toBeVisible();
-  await expect(slashMenuItems(page)).toHaveCount(10);
+  await expect(slashMenuItems(page)).toHaveCount(12);
   await expect(slashMenuItems(page).first()).toHaveText("正文");
 
   await page.keyboard.type("标题");
@@ -454,6 +515,154 @@ test("Escape closes the slash menu, and the slash it opened on stays text", asyn
   await expect(slashMenu(page)).toBeHidden();
   await expect(bodyParagraph(page)).toHaveText("/");
   await expect(canvas(page).locator("h1")).toHaveCount(1);
+});
+
+/**
+ * Tables (#217), driven the way a visitor drives them.
+ *
+ * The picker and the contextual menu are transient surfaces the hit-area instrument
+ * deliberately does not declare; the gate opens them through the toolbar's own 表格
+ * button and presses their cells and rows at their coordinates. What is asserted is
+ * the table the canvas then holds — rows, header cells, cells and their text — not
+ * TipTap's state, so a picker that opened a 3 × 3 for every cell would fail here.
+ */
+test("the grid picker inserts the rows and columns it was given", async ({ page }) => {
+  await open(page);
+
+  // Outside a table the button opens the picker, so it is not a menu trigger.
+  await expect(tableTrigger(page)).not.toHaveAttribute("aria-haspopup");
+
+  await insertTableOfSize(page, 2, 3);
+
+  const table = canvas(page).locator("table");
+  await expect(table).toHaveCount(1);
+  await expect(table.locator("tr")).toHaveCount(2);
+  await expect(table.locator("tr").first().locator("th")).toHaveCount(3);
+  await expect(table.locator("td")).toHaveCount(3);
+
+  // Inside the table the same button is the contextual menu's trigger.
+  await expect(tableTrigger(page)).toHaveAttribute("aria-haspopup", "menu");
+});
+
+test("typing in a cell edits that cell", async ({ page }) => {
+  await open(page);
+  await insertTableOfSize(page, 2, 2);
+
+  const cell = canvas(page).locator("table th").nth(1);
+  await cell.click();
+  await page.keyboard.type("单元格内容");
+
+  await expect(cell).toHaveText("单元格内容");
+});
+
+test("inside a table the trigger becomes 表格 and each row and column action does what it says", async ({
+  page,
+}) => {
+  await open(page);
+  await insertTableOfSize(page, 2, 3);
+
+  const table = canvas(page).locator("table");
+  const rows = table.locator("tr");
+  const firstRowCells = table.locator("tr").first().locator("th, td");
+
+  await pressAt(page, tableTrigger(page));
+  await expect(tableMenu(page)).toBeVisible();
+  await expect(tableMenu(page).getByRole("menuitem")).toHaveCount(7);
+
+  // The menu is already open, so its first row is pressed where it stands; every
+  // later action reopens it, because choosing a row closes it.
+  await pressAt(page, tableMenuItem(page, "上方插入行"));
+  await expect(rows).toHaveCount(3);
+
+  await pressTableMenuItem(page, "下方插入行");
+  await expect(rows).toHaveCount(4);
+
+  await pressTableMenuItem(page, "左侧插入列");
+  await expect(firstRowCells).toHaveCount(4);
+
+  await pressTableMenuItem(page, "右侧插入列");
+  await expect(firstRowCells).toHaveCount(5);
+
+  await pressTableMenuItem(page, "删除行");
+  await expect(rows).toHaveCount(3);
+
+  await pressTableMenuItem(page, "删除列");
+  await expect(firstRowCells).toHaveCount(4);
+
+  /*
+   * 删除表格 is the one action that ends the table's existence, and the paragraph
+   * is part of it: a document that was the title and one table must not end with no
+   * block to type into. The keystroke after the deletion is what proves the caret
+   * is in that paragraph rather than in the title block.
+   */
+  await pressTableMenuItem(page, "删除表格");
+  await expect(table).toHaveCount(0);
+  await expect(tableTrigger(page)).not.toHaveAttribute("aria-haspopup");
+
+  await expect(bodyParagraph(page)).toHaveText("");
+  await page.keyboard.type("删除表格后继续写。");
+  await expect(bodyParagraph(page)).toHaveText("删除表格后继续写。");
+});
+
+/**
+ * The slash menu's half of the table insert: it has no second step, so 表格 applies
+ * the documented 3 × 3 (`TABLE_DEFAULT_SIZE`) rather than opening the picker.
+ *
+ * It also deletes the table it just made, so the contract is read after the action
+ * rather than only as an insert assertion: after 删除表格 exactly one empty paragraph
+ * is left and the caret types into it. The table lands beside the empty body paragraph
+ * rather than over it, so this is not `deleteTableLeavingParagraph`'s no-paragraph
+ * branch (the note below says why that shape cannot rest in this editor); it is the
+ * outcome the ticket promises, asserted on the document the insert produced.
+ */
+test("the slash menu lists 表格, inserts a 3 × 3 table, and 删除表格 leaves one paragraph", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/");
+
+  await expect(slashItem(page, "表格")).toHaveCount(1);
+
+  await page.keyboard.type("表格");
+  await expect(slashMenuItems(page)).toHaveCount(1);
+  await expect(slashItem(page, "表格")).toHaveAttribute("aria-current", "true");
+
+  await page.keyboard.press("Enter");
+
+  await expect(slashMenu(page)).toBeHidden();
+  const table = canvas(page).locator("table");
+  await expect(table).toHaveCount(1);
+  await expect(table.locator("tr")).toHaveCount(3);
+  await expect(table.locator("tr").first().locator("th")).toHaveCount(3);
+  await expect(table.locator("td")).toHaveCount(6);
+
+  /*
+   * The caret is put into the table before the menu opens, the way the delete case
+   * above does it: 表格 is one button in two states, and which state it opens is the
+   * selection's (`useEditorCommandState`'s `inTable`), not a second flag.
+   *
+   * What is asserted after 删除表格 is the outcome, not which code produced it. The
+   * empty body paragraph the slash menu typed into is still in the document — the
+   * table goes in beside it, not over it — so this case does not reach
+   * `deleteTableLeavingParagraph`'s "no paragraph at all" branch either. A document
+   * cannot rest in that shape: StarterKit's trailing-node plugin keeps an empty
+   * paragraph at the end, and ProseMirror puts the block beside an empty text block
+   * rather than replacing it. The outcome is what the ticket promises, though: exactly
+   * one empty paragraph, and the caret types into it. A repair that mistook this for a
+   * document without a paragraph would leave a second one behind, and a caret left in
+   * the title would lose the first keystroke.
+   */
+  const paragraphs = editor(page).locator(":scope > p");
+
+  await table.locator("th").first().click();
+  await pressTableMenuItem(page, "删除表格");
+
+  await expect(table).toHaveCount(0);
+  await expect(paragraphs).toHaveCount(1);
+  await expect(bodyParagraph(page)).toHaveText("");
+  await page.keyboard.type("删除表格后继续写。");
+  await expect(bodyParagraph(page)).toHaveText("删除表格后继续写。");
 });
 
 test("each Markdown block rule makes its block", async ({ page }) => {
@@ -649,6 +858,110 @@ test("an untitled document exports under the dated fallback name", async ({ page
 });
 
 /**
+ * The export of a document that is not text (#219).
+ *
+ * An image and a table are inserted through the page's own controls, and the two
+ * files are downloaded through the file menu and read back as bytes. The image's
+ * width is the one difference between the formats: the HTML file carries it as the
+ * node's inline style, while GFM has no syntax for it, so it is dropped in the
+ * Markdown file and only there.
+ */
+test("an image and a table export in both formats, with the width only in the HTML", async ({
+  page,
+}) => {
+  await open(page);
+  await writeInTitle(page, "图文导出");
+  await writeInBody(page, "一段正文。");
+
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  await insertTableOfSize(page, 2, 2);
+  const table = canvas(page).locator("table");
+  await expect(table).toHaveCount(1);
+
+  // The table is written through its own cells, so the exported rows carry words
+  // rather than an empty grid that would satisfy a shape-only assertion.
+  const header = table.locator("th");
+  await header.nth(0).click();
+  await page.keyboard.type("项目");
+  await header.nth(1).click();
+  await page.keyboard.type("数量");
+
+  const body = table.locator("td");
+  await body.nth(0).click();
+  await page.keyboard.type("甲");
+  await body.nth(1).click();
+  await page.keyboard.type("1");
+
+  const markdown = await downloadFromFileMenu(page, "导出 Markdown");
+  expect(markdown.suggestedFilename()).toBe(`图文导出-${todayStamp()}.md`);
+
+  const markdownBytes = await readDownload(markdown);
+  expect(markdownBytes).toContain("![照片](data:image/png;base64,");
+  expect(markdownBytes).toContain("| 项目 | 数量 |");
+  expect(markdownBytes).toContain("| --- | --- |");
+  expect(markdownBytes).toContain("| 甲 | 1 |");
+  // The documented degradation: GFM has no width, so the Markdown file cannot be
+  // mistaken for one that kept it.
+  expect(markdownBytes).not.toContain("width");
+  expect(markdownBytes).not.toContain("<img");
+
+  const html = await downloadFromFileMenu(page, "导出 HTML");
+  expect(html.suggestedFilename()).toBe(`图文导出-${todayStamp()}.html`);
+
+  const standalone = await readDownload(html);
+  expect(standalone).toContain('<img src="data:image/png;base64,');
+  expect(standalone).toContain('alt="照片"');
+  expect(standalone).toContain('style="width: 100%"');
+  expect(standalone).toContain("<thead>");
+  expect(standalone).toContain("<tbody>");
+  expect(standalone).toContain("<th>项目</th>");
+  expect(standalone).toContain("<th>数量</th>");
+  expect(standalone).toContain("<td>甲</td>");
+  expect(standalone).toContain("<td>1</td>");
+});
+
+/**
+ * A table picked while the image is still selected keeps the image (#216/#217).
+ *
+ * The image insert deliberately leaves a `NodeSelection` on the picture — that is how
+ * a second insert appends — and the table insert used to run the plain command, which
+ * treats that selection as content to replace: the picture vanished and the export
+ * carried nothing but the grid. So this case presses nothing on the canvas between
+ * the two inserts, and reads the document back through both exports: the blocks
+ * survive on screen, and the files prove they are the same document.
+ *
+ * It is the small, direct version of the export case above; that one is about the two
+ * writers, and this one is about the selection the picker inherits.
+ */
+test("a table inserted while the image is still selected keeps both blocks", async ({ page }) => {
+  await open(page);
+  await writeInTitle(page, "图文并存");
+  await writeInBody(page, "一段正文。");
+
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  // No press between the insert and the picker: the picture is still the selection,
+  // which is the state in which the table insert used to replace it.
+  await insertTableOfSize(page, 2, 2);
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(canvas(page).locator("table")).toHaveCount(1);
+
+  const markdown = await readDownload(await downloadFromFileMenu(page, "导出 Markdown"));
+  expect(markdown).toContain("![照片](data:image/png;base64,");
+  expect(markdown).toContain("|  |  |");
+  expect(markdown).toContain("| --- | --- |");
+
+  const standalone = await readDownload(await downloadFromFileMenu(page, "导出 HTML"));
+  expect(standalone).toContain('<img src="data:image/png;base64,');
+  expect(standalone).toContain('alt="照片"');
+  expect(standalone).toContain("<table>");
+  expect(standalone).toContain("<thead>");
+});
+
+/**
  * The import, driven the way a visitor drives it (#211).
  *
  * The file goes in through the file menu's 导入 row, and the document is judged
@@ -743,6 +1056,141 @@ test("the file menu imports an HTML file, and its head, script and style do not 
 });
 
 /**
+ * The image and the table through the import (#220), in both formats.
+ *
+ * The file goes in through the file menu's own 导入 row, and the document is judged
+ * by the blocks the canvas renders: a real table with a header row and body rows, a
+ * real image whose `src` is the document's own bytes. The round trip is the last
+ * step of each case — the imported document is exported again and the bytes have to
+ * still carry the table and the picture, which is the claim that the two parsers and
+ * the two writers agree.
+ */
+test("a Markdown file with a table and a data image imports as those blocks, and re-exports", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(page, fileOf("图文.md", "text/markdown", MARKDOWN_BLOCKS_FIXTURE));
+
+  const table = canvas(page).locator("table");
+  await expect(table).toBeVisible();
+  await expect(table.locator("tr")).toHaveCount(3);
+  await expect(table.locator("th")).toHaveCount(2);
+  await expect(table.locator("th").first()).toHaveText("项目");
+  await expect(table.locator("td")).toHaveCount(4);
+  await expect(table.locator("td").first()).toHaveText("甲");
+  await expect(table.locator("td").last()).toHaveText("2");
+
+  const image = imagesInCanvas(page);
+  await expect(image).toHaveCount(1);
+  expect(await image.getAttribute("src")).toBe(PNG_DATA_URL);
+  expect(await image.getAttribute("alt")).toBe("照片");
+
+  // The imported document exports again with the same structure: the table as GFM
+  // and the picture as the one line GFM has for it.
+  const exported = await downloadFromFileMenu(page, "导出 Markdown");
+  const bytes = await readDownload(exported);
+
+  expect(bytes).toContain("| 项目 | 数量 |");
+  expect(bytes).toContain("| --- | --- |");
+  expect(bytes).toContain("| 甲 | 1 |");
+  expect(bytes).toContain(`![照片](${PNG_DATA_URL})`);
+});
+
+test("an HTML file with a table and a data image imports as those blocks, and re-exports", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(page, fileOf("图文.html", "text/html", HTML_BLOCKS_FIXTURE));
+
+  const table = canvas(page).locator("table");
+  await expect(table).toBeVisible();
+  await expect(table.locator("th")).toHaveCount(2);
+  await expect(table.locator("th").first()).toHaveText("项目");
+  await expect(table.locator("td")).toHaveCount(4);
+  await expect(table.locator("td").first()).toHaveText("甲");
+
+  const image = imagesInCanvas(page);
+  await expect(image).toHaveCount(1);
+  expect(await image.getAttribute("src")).toBe(PNG_DATA_URL);
+  expect(await image.getAttribute("alt")).toBe("照片");
+  // The width is part of the document, and the HTML export carries it; the
+  // sanitiser's whitelist is what lets that one value through and nothing else.
+  expect(await image.getAttribute("style")).toContain("width: 50%");
+  expect(await image.getAttribute("onerror"), "an event handler is not carried").toBeNull();
+
+  expect(await page.evaluate("window.__htmlBlocksPwned")).toBeUndefined();
+
+  const exported = await downloadFromFileMenu(page, "导出 HTML");
+  const standalone = await readDownload(exported);
+
+  expect(standalone).toContain("<table>");
+  expect(standalone).toContain("<th>项目</th>");
+  expect(standalone).toContain("<td>甲</td>");
+  expect(standalone).toContain(`<img src="${PNG_DATA_URL}" alt="照片" style="width: 50%">`);
+});
+
+/**
+ * A remote image is not a picture this page can draw (#215, #220): the CSP allows
+ * `img-src 'self'` and there is no upload service, so the file is read and the alt
+ * text is the text that remains — in both formats, and without failing the import.
+ */
+test("a remote image in an imported file is dropped and its alt text stays as text", async ({
+  page,
+}) => {
+  await open(page);
+  await importFromFileMenu(
+    page,
+    fileOf(
+      "远程.md",
+      "text/markdown",
+      ["# 远程图片", "", "前文 ![远程照片](https://example.com/photo.png) 后文"].join("\n"),
+    ),
+  );
+
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+  await expect(canvas(page).locator("p").first()).toContainText("远程照片");
+
+  await importFromFileMenu(
+    page,
+    fileOf(
+      "远程.html",
+      "text/html",
+      '<h1>远程图片</h1><p>前文<img src="https://example.com/photo.png" alt="远程照片">后文</p>',
+    ),
+  );
+  await expect(importDialog(page)).toBeVisible();
+  await answerImportDialog(page, "替换");
+
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+  await expect(canvas(page).locator("p").first()).toContainText("远程照片");
+});
+
+/**
+ * The admission an imported data image meets is the one an inserted file meets
+ * (#220): the eleventh image is refused with the sentence a visitor already knows,
+ * and its alt text is what the document keeps in its place. The document never
+ * holds more than ten, because the import does not get to keep what an insert could
+ * not have put there.
+ */
+test("an import over ten images keeps ten and says the count's sentence", async ({ page }) => {
+  await open(page);
+
+  const fixture = [
+    "# 十一张",
+    "",
+    ...Array.from({ length: 11 }, (_, index) => `![第${index + 1}张](${PNG_DATA_URL})`),
+  ].join("\n\n");
+
+  await importFromFileMenu(page, fileOf("十一张.md", "text/markdown", fixture));
+
+  await expect(imagesInCanvas(page)).toHaveCount(10);
+  await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
+  // The refused image's alt text is where the picture would have been.
+  await expect(canvas(page)).toContainText("第11张");
+  await expect(canvas(page).locator('img[alt="第11张"]')).toHaveCount(0);
+});
+
+/**
  * The confirmation, both ways: cancelling leaves the draft exactly as it was, and
  * confirming replaces it. The draft is written through the page's own controls, so
  * "untouched" means the same blocks the visitor typed, not a JSON comparison.
@@ -802,6 +1250,350 @@ test("pasted HTML is sanitised, so a script in it does not survive", async ({ pa
   await expect(bodyParagraph(page).locator("strong")).toHaveText("内容");
   expect(await page.evaluate("window.__pastePwned")).toBeUndefined();
   await expect(canvas(page).locator("script")).toHaveCount(0);
+});
+
+/**
+ * Images (#216): the three ways in, the node they produce, the measure it fits,
+ * and the sentence a refused file is shown.
+ *
+ * The files are real — a 1×1 PNG's own bytes go in through the page's controls —
+ * and the node is read back off the canvas: a `data:` URL in `src`, the file's name
+ * in `alt`, and a percentage in the inline style. The load-bearing claim is the
+ * data URL: there is no upload service and the CSP allows `img-src 'self'`, so an
+ * image that is not carried by the document could not be drawn at all, and a
+ * reload is what proves the bytes are in the draft rather than in this page's
+ * memory.
+ */
+test("the toolbar's 插入图片 inserts an image the draft and a reload both keep", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+
+  const image = imagesInCanvas(page).first();
+  await expect(image).toBeVisible();
+
+  const src = await image.getAttribute("src");
+  expect(src, "the image's source is the document's own data URL").toMatch(
+    /^data:image\/png;base64,/,
+  );
+  expect(await image.getAttribute("alt")).toBe("照片");
+  expect(await image.getAttribute("style")).toContain("width: 100%");
+
+  // The measure is the 720px canvas; the picture fills it and stays inside it.
+  const box = await image.boundingBox();
+  const measure = await canvas(page).boundingBox();
+  if (box === null || measure === null) throw new Error("the image or the canvas has no geometry");
+
+  expect(box.width).toBeLessThanOrEqual(measure.width);
+  expect(box.width).toBeGreaterThan(measure.width * 0.8);
+
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  const stored = await storedDraft(page);
+  const document = JSON.stringify(stored?.document);
+  expect(document, "the node is in the draft's JSON").toContain('"type":"image"');
+  expect(document).toContain("data:image/png;base64,");
+  expect(document).toContain('"width":100');
+  expect(document).toContain('"alt":"照片"');
+
+  await page.reload();
+  await expect(editor(page)).toBeVisible();
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toBe(src);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("照片");
+});
+
+test("a dropped image is inserted, and its file name becomes the alt text", async ({ page }) => {
+  await open(page);
+  // The drop carries bytes, not a caret, so the caret is where a visitor's would be
+  // when they drag a file into a document they are writing.
+  await bodyParagraph(page).click();
+  await dropImage(page, pngFile("拖进来的.png"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toMatch(
+    /^data:image\/png;base64,/,
+  );
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("拖进来的");
+});
+
+test("a pasted image file is inserted", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await pasteImage(page, pngFile("截图.png"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toMatch(
+    /^data:image\/png;base64,/,
+  );
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("截图");
+});
+
+/**
+ * Two of the four refusals, each with the sentence its own rule owns.
+ *
+ * The other two are the document's: the eleventh image and a document over 40 MB
+ * are held by the admission unit tests and by the count case below, because the
+ * total case would have to put more than forty megabytes of pictures through the
+ * page to reach a sentence that the count case already proves is displayed.
+ */
+test("a wrong type and an oversize file are each refused with their own sentence", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+
+  await insertImageFromToolbar(page, notAnImage());
+  await expect(refusalNotice(page)).toHaveText("只支持 JPEG、PNG、WebP 和 GIF 图片。");
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+
+  await insertImageFromToolbar(page, oversizedPng());
+  await expect(refusalNotice(page)).toHaveText(
+    "图片太大了：JPEG、PNG、WebP 不超过 5 MB，GIF 不超过 2 MB。",
+  );
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+
+  // A file the rules take clears the sentence the previous one left.
+  await insertImageFromToolbar(page, pngFile("可以.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(refusalNotice(page)).toHaveCount(0);
+});
+
+test("the eleventh image is refused with the document's own sentence", async ({ page }) => {
+  await open(page);
+
+  for (let index = 0; index < 10; index += 1) {
+    await dropImage(page, pngFile(`第${index + 1}张.png`));
+    await expect(imagesInCanvas(page)).toHaveCount(index + 1);
+  }
+
+  await insertImageFromToolbar(page, pngFile("第十一张.png"));
+
+  await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
+  await expect(imagesInCanvas(page)).toHaveCount(10);
+});
+
+/**
+ * One drop carrying two files (#216's admission, #215's fix).
+ *
+ * The two are admitted one after the other, so the second file's admission reads
+ * the document the first one changed: nine images in the document, a drop of two,
+ * and the tenth is taken while the eleventh is refused. Both admissions computed
+ * before either insert would have seen nine, let both files through, and left the
+ * document holding eleven — which is the state this case would find, not the
+ * count below.
+ */
+test("two files dropped together are admitted one after the other", async ({ page }) => {
+  await open(page);
+
+  for (let index = 0; index < 9; index += 1) {
+    await dropImage(page, pngFile(`第${index + 1}张.png`));
+    await expect(imagesInCanvas(page)).toHaveCount(index + 1);
+  }
+
+  await dropImages(page, [pngFile("第十张.png"), pngFile("第十一张.png")]);
+
+  await expect(refusalNotice(page)).toHaveText("一份文档最多放十张图片。");
+  await expect(imagesInCanvas(page)).toHaveCount(10);
+});
+
+/**
+ * The slash menu's 图片 row, and the two-step it takes to run.
+ *
+ * 图片 is interface-shaped like the link: it has no TipTap chain, so `runCommand`
+ * answers `false` and the surface that owns the file input opens it. The proof is
+ * the chooser the menu's Enter raises and the node that arrives from it; the typed
+ * `/图片` is the filter, so it must not be left in the document.
+ */
+test("the slash menu lists 图片, and applying it opens the same insert", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await page.keyboard.type("/图片");
+
+  await expect(slashMenuItems(page)).toHaveCount(1);
+  await expect(slashItem(page, "图片")).toHaveAttribute("aria-current", "true");
+
+  const chooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Enter");
+  await (await chooser).setFiles(pngFile("菜单.png"));
+
+  await expect(slashMenu(page)).toBeHidden();
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("菜单");
+  await expect(canvas(page)).not.toContainText("/图片");
+});
+
+/**
+ * The image panel (#218): the four controls an image gets while it is selected.
+ *
+ * The panel exists only while the selection is an image, and the insert is itself a
+ * way into that state: the insert leaves the picture selected (#216's transaction,
+ * deliberately, so a second insert appends), so the first case starts on the panel
+ * the visitor is already looking at and then takes the selection away. The other
+ * cases press the picture, because that is how a visitor selects one later. What is
+ * asserted is the document's own answer — the `style` the image is drawn with, the
+ * `alt` a screen reader reads, whether the node is still there, and the JSON the
+ * draft stores — never the panel's internals. The panel is transient, so the hit-area
+ * Instrument does not declare it; these presses at coordinates are what proves its
+ * controls are reachable.
+ */
+test("selecting an image shows the panel, and a text selection hides it", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("面板.png"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  // The insert leaves the picture selected, so the panel is already the state the
+  // visitor is in. Asserting that is the honest premise: the picture on screen is the
+  // one the panel is drawn for, and a case that waited for it to be hidden here would
+  // be asserting a state the page never reaches.
+  await expect(imagePanel(page)).toBeVisible();
+
+  // A caret somewhere else is no longer an image selection, and the panel is gone
+  // rather than hidden: a row of invisible buttons is a row of targets that answer
+  // nowhere.
+  await titleBlock(page).click();
+  await expect(imagePanel(page)).toHaveCount(0);
+
+  // Pressing the picture again is how a visitor selects one, and the panel comes back
+  // with each control and the width the document holds.
+  await selectImage(page);
+
+  await expect(imagePanel(page)).toBeVisible();
+  await expect(imagePanelControl(page, "替换")).toBeVisible();
+  await expect(imagePanelControl(page, "替代文本")).toBeVisible();
+  await expect(imagePanelControl(page, "删除")).toBeVisible();
+  for (const percent of [25, 50, 75]) {
+    await expect(widthPreset(page, percent)).toBeVisible();
+  }
+  // 100 % is the width a fresh image already has, so its preset says so.
+  await expect(widthPreset(page, 100)).toHaveAttribute("aria-pressed", "true");
+});
+
+test("each width preset writes the image's own style and the stored width", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("宽度.png"));
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  await selectImage(page);
+  await expect(imagePanel(page)).toBeVisible();
+
+  const image = imagesInCanvas(page).first();
+
+  for (const percent of [50, 25, 75]) {
+    await pressAt(page, widthPreset(page, percent));
+
+    /*
+     * The style is read as a substring rather than compared whole: ProseMirror
+     * writes it through `style.cssText`, so the browser serialises it back with its
+     * own spacing and a trailing semicolon. The percentage is the claim; the
+     * serialisation is the browser's.
+     *
+     * What the picture's box is at that percentage is not read here: how a share of
+     * the measure becomes pixels is geometry, and geometry lives in the hit-area
+     * Instrument (`docs/adr/0012-playwright-for-the-browser-gate.md`). The gate
+     * proves what the document carries — the style the node renders and the draft's
+     * `width`.
+     */
+    expect(await image.getAttribute("style")).toContain(`width: ${percent}%`);
+    await expect(widthPreset(page, percent)).toHaveAttribute("aria-pressed", "true");
+  }
+
+  // The node's attribute is document content, so the draft carries the last preset.
+  await expect(saveStatus(page)).toHaveText("未保存");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+  expect(JSON.stringify((await storedDraft(page))?.document)).toContain('"width":75');
+
+  await page.reload();
+  expect(await imagesInCanvas(page).first().getAttribute("style")).toContain("width: 75%");
+});
+
+test("替代文本 sets the alt, and a reload keeps it", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("照片.png"));
+  await expect(imagesInCanvas(page).first()).toHaveAttribute("alt", "照片");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+
+  await selectImage(page);
+  await openAltPopover(page);
+
+  // The field opens holding what the document says now, so reopening is an edit.
+  await expect(altField(page)).toHaveValue("照片");
+
+  await altField(page).fill("一只在海边的猫");
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+
+  await expect(imagesInCanvas(page).first()).toHaveAttribute("alt", "一只在海边的猫");
+
+  await expect(saveStatus(page)).toHaveText("未保存");
+  await expect(saveStatus(page)).toHaveText("已保存到本机");
+  expect(JSON.stringify((await storedDraft(page))?.document)).toContain('"alt":"一只在海边的猫"');
+
+  await page.reload();
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  await expect(imagesInCanvas(page).first()).toHaveAttribute("alt", "一只在海边的猫");
+});
+
+test("删除 removes the image, and undo brings it back", async ({ page }) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("要删掉的.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  await selectImage(page);
+  await deleteImage(page);
+
+  await expect(imagesInCanvas(page)).toHaveCount(0);
+  await expect(imagePanel(page)).toHaveCount(0);
+
+  await pressAt(page, toolbarControl(page, "撤销"));
+
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("要删掉的");
+  expect(await imagesInCanvas(page).first().getAttribute("style")).toContain("width: 100%");
+});
+
+test("替换 swaps the bytes, and a refused replacement leaves the image unchanged", async ({
+  page,
+}) => {
+  await open(page);
+  await bodyParagraph(page).click();
+  await insertImageFromToolbar(page, pngFile("第一张.png"));
+  await expect(imagesInCanvas(page)).toHaveCount(1);
+
+  const before = await imagesInCanvas(page).first().getAttribute("src");
+
+  await selectImage(page);
+
+  // A file the rules refuse: the sentence says which rule, and the picture keeps
+  // every byte it had, including the alt text the visitor can still edit.
+  await replaceImage(page, notAnImage());
+
+  await expect(refusalNotice(page)).toHaveText("只支持 JPEG、PNG、WebP 和 GIF 图片。");
+  expect(await imagesInCanvas(page).first().getAttribute("src")).toBe(before);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("第一张");
+
+  // A file they take: the bytes are the new file's, and the alt and the width are
+  // the ones the document already held, because replacing a picture is not editing
+  // the visitor's description of it.
+  await replaceImage(page, replacementPng());
+
+  const after = await imagesInCanvas(page).first().getAttribute("src");
+  expect(after, "the source is the new file's own data URL").not.toBe(before);
+  expect(after).toMatch(/^data:image\/png;base64,/);
+  expect(await imagesInCanvas(page).first().getAttribute("alt")).toBe("第一张");
+  expect(await imagesInCanvas(page).first().getAttribute("style")).toContain("width: 100%");
+  // A file the rules take clears the sentence the refused one left.
+  await expect(refusalNotice(page)).toHaveCount(0);
+  // One image, not two: a replacement is not an insert.
+  await expect(imagesInCanvas(page)).toHaveCount(1);
 });
 
 /**
@@ -961,6 +1753,28 @@ test.describe("at 390px", () => {
     await expect(page.getByRole("button", { name: "导出 Markdown", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "导出 HTML", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "清空", exact: true })).toBeVisible();
+  });
+
+  /*
+   * The image panel at 390px (#218).
+   *
+   * The bar's geometry — inside the viewport, off the picture it edits — moved to
+   * the hit-area Instrument (`image-panel-clearance`, #215 review): it reaches the
+   * state through the page's own 插入图片 input, which leaves the picture selected,
+   * and reads the panel's and the picture's boxes against the viewport. What is
+   * left here is the phone's behaviour: pressing the picture still opens the panel,
+   * and its controls are there to press.
+   */
+  test("the image panel opens for a selected image at 390px", async ({ page }) => {
+    await open(page);
+    await bodyParagraph(page).click();
+    await insertImageFromToolbar(page, pngFile("窄屏.png"));
+    await selectImage(page);
+
+    await expect(imagePanel(page)).toBeVisible();
+    for (const name of ["替换", "替代文本", "删除"]) {
+      await expect(imagePanelControl(page, name)).toBeVisible();
+    }
   });
 });
 

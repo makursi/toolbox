@@ -46,6 +46,10 @@ export function isEmptyDocument(document: JSONContent): boolean {
 function hasContent(node: JSONContent): boolean {
   if (typeof node.text === "string" && node.text.trim() !== "") return true;
   if (node.type === "horizontalRule") return true;
+  // An image is content even though it holds no words (#216): a picture the visitor
+  // placed is exactly what an import would silently replace, and it is a leaf, so
+  // no walk below would find anything to count.
+  if (node.type === "image") return true;
 
   return (node.content ?? []).some(hasContent);
 }

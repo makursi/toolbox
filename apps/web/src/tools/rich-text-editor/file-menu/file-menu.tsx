@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
+import type { ImageRefusal } from "../core/admission";
 import {
   IMPORT_CANCEL_LABEL,
   IMPORT_CONFIRM_LABEL,
@@ -24,10 +25,10 @@ import {
 } from "../core/copy";
 import { EMPTY_DOCUMENT, isEmptyDocument } from "../core/document";
 import { htmlFromDocument } from "../core/html";
-import { sanitizeHtml } from "../core/html-import";
+import { importHtml } from "../core/html-import";
 import { IMPORT_ACCEPT, importFormatOf, type ImportFormat } from "../core/import";
 import { markdownFromDocument } from "../core/markdown";
-import { documentFromMarkdown } from "../core/markdown-import";
+import { importMarkdown } from "../core/markdown-import";
 import { exportFileName, type ExportFormat } from "../core/naming";
 
 /**
@@ -66,9 +67,19 @@ export interface FileMenuProps {
   readonly editor: Editor;
   /** 清空, which the writing surface routes through the draft store. */
   readonly onClear: () => void;
+  /**
+   * An imported file's refused images, or `null` when it kept everything (#220).
+   *
+   * The sentence belongs beside the canvas rather than in this menu: the popover is
+   * closed by the time the import lands, and the line a refused insert paints is
+   * already there. An import is a whole document, so this is the first rule its
+   * images broke, and `core/copy.ts`'s sentence for that rule is the one a visitor
+   * already knows.
+   */
+  readonly onImageRefusal: (refusal: ImageRefusal | null) => void;
 }
 
-export function FileMenu({ editor, onClear }: FileMenuProps) {
+export function FileMenu({ editor, onClear, onImageRefusal }: FileMenuProps) {
   const [fileOpen, setFileOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -85,15 +96,25 @@ export function FileMenu({ editor, onClear }: FileMenuProps) {
    * nothing is the empty document, so a file of only a `<script>` leaves the
    * same two placeholders a fresh page shows.
    *
+   * Each parser hands back the rules its images broke (#220), and the first one is
+   * painted in the line a refused insert uses: an image over a limit is refused on
+   * the way in with the sentence the visitor already knows, and its alt text is
+   * what the document keeps in its place. A clean import clears that line.
+   *
    * `setContent` emits an update (its default), so the import is written to the
    * local draft by the same path every other change takes (#209).
    */
   const applyImport = (format: ImportFormat, contents: string) => {
     if (format === "markdown") {
-      editor.commands.setContent(documentFromMarkdown(contents));
+      const imported = importMarkdown(contents);
+
+      editor.commands.setContent(imported.document);
+      onImageRefusal(imported.refusals[0] ?? null);
     } else {
-      const sanitized = sanitizeHtml(contents);
-      editor.commands.setContent(sanitized === "" ? EMPTY_DOCUMENT : sanitized);
+      const imported = importHtml(contents);
+
+      editor.commands.setContent(imported.html === "" ? EMPTY_DOCUMENT : imported.html);
+      onImageRefusal(imported.refusals[0] ?? null);
     }
 
     editor.commands.focus("start");

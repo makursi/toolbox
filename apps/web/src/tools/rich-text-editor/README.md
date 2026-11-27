@@ -11,8 +11,29 @@ schedules a write 800ms after the last change, and hiding the page writes
 immediately instead of waiting; the toolbar's right end reports 未保存, 保存中,
 已保存到本机, or 保存失败 with a retry. A returning visit opens the stored document
 silently, with no prompt, and 清空 in the file menu empties the canvas and removes
-the stored record. There is no document size limit: a browser refusal to write is
-the only failure.
+the stored record. Text has no size limit: a browser refusal to write is the only
+failure. Images carry their own admission rules (#216), below.
+
+This slice (#216) adds images. 插入图片 in the insert group opens a file picker, and
+a file can also be dropped on the canvas or pasted from the clipboard; all three
+paths go through one admission and one insert. An image is kept as a `data:` URL in
+the document itself — there is no upload service and the CSP draws nothing from
+another origin — so it survives a reload with the draft. JPEG, PNG and WebP up to
+5 MB, GIF up to 2 MB, at most ten images and 40 MB of image bytes per document; a
+file outside those rules is refused with the sentence for the rule it broke. The
+node carries the file's name as its alt text and a percentage width, so the picture
+fills the 720px measure without leaving it. The slash menu lists 图片 and inserts
+through the same path.
+
+This slice (#218) adds the panel an image gets while it is selected. Pressing a
+picture selects the node, and a bar appears above it (below it when there is no room
+above, and never on it) with four things: 替换, which reads a file through the same
+admission and leaves the picture exactly as it was if the file is refused; 替代文本,
+a one-field popover that sets the alt text; 删除, which takes the node out and is
+undone like any other change; and the width presets 25 / 50 / 75 / 100 %. The alt
+and the width are the node's own attributes, so the draft keeps them, a reload
+brings them back, and both exports carry them: the HTML file keeps the width, and
+the Markdown file inlines the picture and drops only the width (#219).
 
 This slice (#208) adds the three ways to write without leaving the keyboard. Typing
 `/` at the start of a paragraph opens a menu of the block commands; typing after the
@@ -35,6 +56,16 @@ draft untouched. The same HTML sanitiser runs on the editor's paste path, so
 pasted markup loses its scripts, styles and head material by the same rule. The
 confirmed import is a document change like any other, so the draft saves it.
 
+This slice (#220) makes the import read back what the two exports write. The
+Markdown reader learns GFM pipe tables and `![alt](data:…)` images; the HTML
+sanitiser learns `<table>` with its rows and cells and `data:` images while keeping
+the same whitelist, so a remote source or an event handler is dropped by the rule
+that already dropped them. An imported image meets the same admission an inserted
+file does — the same limits, the same sentence, and its alt text where a refused
+picture would have been — so a file with a tenth picture too many is cut to ten
+rather than imported whole. Both parsers and both writers now disagree about
+nothing but the image's width, which is the one thing Markdown cannot carry.
+
 The toolbar (#207) is what the document is written with. A visitor can start
 writing, turn a paragraph into 标题 1–3 and back, mark a selection bold, italic,
 underlined, struck through or inline code, make bulleted, numbered and task lists
@@ -49,19 +80,24 @@ underline as the one inline HTML construct, or a complete standalone HTML docume
 with a doctype, a charset, the document's title and an embedded stylesheet. The file
 is named from the sanitised title and today's date, falling back to 文档-YYYY-MM-DD
 when the document has no title. There is no filename field: the document names
-itself.
+itself. Since #219 both formats also carry an image and a table: Markdown writes
+`![alt](data:…)` and a GFM pipe table, HTML writes `<img src="data:…">` with the
+width and a semantic `<table>`, and the image's width is the one thing only Markdown
+has to drop.
 
 Everything the three surfaces can do comes from one table in the Tool's pure core
 (`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
 marks plus the link, and the pinned toolbar all of them. What each command _does_ is
 one executor in `editor/execute.ts`, and that map is typed
-`Record<Exclude<CommandId, "link">, …>`, so a command in the table with no handler is
-a `tsc` error rather than a dead button. 链接 is the one command that is an interface
-rather than a chain: the pinned toolbar and the floating toolbar both open the same
-`link-control/link-control.tsx`. The file menu is the one surface **not** rendered from
-that table and has no rows in it: 导入, the two exports and 清空 are file I/O around
-the document rather than editor commands, and `file-menu/file-menu.tsx` is their one
-home.
+`Record<Exclude<CommandId, "link" | "image" | "table">, …>`, so a command in the
+table with no handler is a `tsc` error rather than a dead button. 链接, 图片 and
+表格 are the three commands that are an interface rather than a chain: the pinned
+toolbar and the floating toolbar both open the same `link-control/link-control.tsx`,
+插入图片 opens the file input beside it, and 表格 opens the grid picker outside a
+table and the contextual row/column menu inside one. The file menu is the one
+surface **not** rendered from that table and has no rows in it: 导入, the two
+exports and 清空 are file I/O around the document rather than editor commands, and
+`file-menu/file-menu.tsx` is their one home.
 
 The Markdown input rules add no extension at all, and that is a checked conclusion
 rather than an omission: every rule #208 names ships with StarterKit, which the Tool
@@ -90,13 +126,23 @@ slash-menu/slash-menu.tsx                the menu itself: rows, arrow keys, Ente
 selection-toolbar/selection-toolbar.tsx  the row that follows a selection: the marks and the link, placed clear of the words
 command-toggle/command-toggle.tsx        one command as a toggle, the pressed state's one appearance and hit area
 link-control/link-control.tsx            the link action's trigger, field, 应用 and 移除
-editor/execute.ts                        what each command does: one executor for all three surfaces
+image-insert/image-insert.tsx            插入图片: the button and the hidden file input it opens
+image-panel/image-panel.tsx              the panel an image gets while selected: 替换, 替代文本, 删除, and the four width presets
+table-control/table-control.tsx          the 表格 button: the grid picker outside a table, the contextual row/column menu inside one
+editor/execute.ts                        what each command does: one executor for all three surfaces, plus the table's own operations
+editor/image-extension.ts                the image node: base64 allowed, width as a percentage, clamped to the measure
+editor/insert-image.ts                   the one insert the toolbar, a drop and a paste share, and the one replacement 替换 uses
 hooks/use-editor-command-state/…         the state at the cursor, read through TipTap's selector
+hooks/use-selected-image/…               the image the selection is on, as the panel needs it
+hooks/use-viewport-reposition/…          the one-per-frame redraw a fixed-position row needs on scroll and resize
 core/commands.ts                         the one command table, its filters, and the slash menu's subset
+core/table.ts                            the table's rules: the grid's extent, the one-click default, and the seven actions' words
+core/image-panel.ts                      the panel's rules: the four presets, the four controls' words, and where the bar sits
+core/admission.ts                        what an image may be: the sniffed type, the two per-file limits, the count and the total, and what a replacement is measured against
 core/document.ts                         what an empty document is, whether it says anything, where its title comes from, and the two readers both writers share (code text and heading level)
 core/draft.ts                            the stored record's shape, its schema version and the guard that reads it back
 core/save.ts                             the save-state machine: the 800ms debounce, the flush, the retry and old-revision rejection
-core/copy.ts                             the save-state sentences, the retry label, the disabled history reasons, the two menus' sentences and the import confirmation's
+core/copy.ts                             the save-state sentences, the retry label, the disabled history reasons, the two menus' sentences, the import confirmation's and the four image refusals
 core/markdown.ts                         ProseMirror JSON to GFM
 core/markdown-import.ts                  GFM to ProseMirror JSON
 core/html.ts                             ProseMirror JSON to a complete standalone HTML document
@@ -106,6 +152,9 @@ core/naming.ts                           the export filename rule: sanitised tit
 draft/draft-store.ts                     the hand-written IndexedDB store: open, read, write, remove
 hooks/use-draft/use-draft.ts             the timer, the store and React: silent restore, debounce, flush, retry, clear
 core/__tests__/commands.test.ts          the table's contract in Vitest
+core/__tests__/admission.test.ts         the image rules: each sniff, each limit, the document's count and total
+core/__tests__/table.test.ts             the table's rules: the grid, the default size, the seven actions
+core/__tests__/image-panel.test.ts       the panel's rules: the four presets, its words, and where the bar goes
 core/__tests__/save.test.ts              the state machine's transitions in Vitest
 core/__tests__/copy.test.ts              the save status's wording, the menu sentences and the punctuation in Vitest
 core/__tests__/draft.test.ts             the stored record's guard in Vitest
@@ -128,8 +177,10 @@ apps/web/e2e/
 ```
 
 The page entry the instruments carry is not a file: one line in
-`apps/web/scripts/touch-targets.mjs` names this page and its always-visible controls,
-and one line in `apps/web/scripts/ui-fingerprint.mjs` declares its anchors, including
+`apps/web/scripts/touch-targets.mjs` names this page, its always-visible controls, and
+the three states its claims reach (a selected run of text, the toolbar scrolled to its
+end, and an image selected with the panel drawn); one line in
+`apps/web/scripts/ui-fingerprint.mjs` declares its anchors, including
 `rich-text-save-status`. The fingerprint's baseline is a local file, not a repository
 one.
 
@@ -200,10 +251,14 @@ one.
 12. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
     is read as text and its format is decided by `core/import.ts` from the extension
     (falling back to the content when the name says nothing). Markdown goes through
-    `documentFromMarkdown` to JSON; HTML goes through `sanitizeHtml` and then through
-    TipTap's `setContent`, whose DOMParser is the final word on the document either
-    way. If the draft says anything (`isEmptyDocument`), an alert dialog asks first:
-    cancelling closes it and changes nothing, confirming replaces the document. The
+    `importMarkdown` to JSON — the reader for the writer, tables and images included
+    (#220) — and its images then meet the same admission an inserted file does; HTML
+    goes through `importHtml` and then through TipTap's `setContent`, whose DOMParser
+    is the final word on the document either way. An image that breaks a rule is
+    replaced by its alt text and the first rule's sentence is painted above the
+    canvas, where a refused insert says the same thing. If the draft says anything
+    (`isEmptyDocument`), an alert dialog asks first: cancelling closes it and changes
+    nothing, confirming replaces the document. The
     confirmed replacement is a `setContent` that emits an update, so #209 saves it
     like any other change. The input's value is cleared after every choice, so
     importing the same file twice works. A file that sanitises to nothing leaves the
@@ -253,7 +308,7 @@ browser and covers the items marked **▣**:
   document and brings the body placeholder back.
 - ▣ The link action sets a link on selected text, reopens with its address prefilled,
   edits it, and removes it.
-- ▣ `/` opens the slash menu with the ten block commands in the table's order, `标题`
+- ▣ `/` opens the slash menu with the twelve block commands in the table's order, `标题`
   filters it to the three headings, the arrow keys move the highlight and Enter
   applies 标题 2, leaves no `/标题` in the document and closes the menu.
 - ▣ Escape closes the slash menu and leaves the slash it opened on as text.
@@ -313,7 +368,7 @@ browser and covers the items marked **▣**:
 `pnpm test` covers the pure layers. The command table: ids are unique, every command
 has a label and keywords, `commandsInGroup` keeps the table's order, `filterCommands`
 matches by keyword and returns the table's order, an empty query returns the whole
-table, and `slashCommands` offers exactly the ten block commands — filtering by the
+table, and `slashCommands` offers exactly the twelve block commands — filtering by the
 same keywords and never reaching a mark, the link or a whole-document command. **The
 table's data is all a unit test can hold**: applying a command is a TipTap chain, and
 TipTap needs a DOM the Node tier does not have, so "the command in force produces this
@@ -326,9 +381,11 @@ record: the schema version, the timestamp and the ProseMirror document, with mal
 values refused. The Markdown writer: headings, both kinds of list and their nesting,
 task items and their checked state, quotes, fenced code with its language and backtick
 growth, rules, every mark with underline as inline HTML, links, hard breaks, escaping,
-and the empty document's empty string. The standalone-HTML writer: doctype, charset,
-title, embedded stylesheet, every block and mark, escaping, and both fallbacks. The
-filename rule: title, date padding, invalid characters, the 40-character cap and the
+an image as `![alt](data:…)` with its width dropped, a GFM pipe table with its header
+row and its pipe-escaping, and the empty document's empty string. The standalone-HTML
+writer: doctype, charset, title, embedded stylesheet, every block and mark, escaping,
+both fallbacks, and an image that carries its width and a semantic table. The filename
+rule: title, date padding, invalid characters, the 40-character cap and the
 empty-title fallback. The document's title and emptiness: the first heading wins, and
 the import's question counts text and a rule but not empty blocks or whitespace. The
 import format rule: the two extensions, the extension beating the content, the
@@ -356,9 +413,9 @@ canvas's line becoming ink while the editing surface holds the focus; the draft
 surviving a real tab close rather than a Playwright reload; a browser that refuses the
 write for quota rather than the gate's injected refusal; and the whole page at 360,
 375, 390, 768 and 1024 px still reading as a page whose canvas keeps its measure (the
-overflow, the toolbar's scrolling and pinned end, the hit areas and the selection row's
-clearance are printed by the hit-area instrument, which a person reads rather than
-re-measures).
+overflow, the toolbar's scrolling and pinned end, the hit areas, the selection row's
+clearance and the image panel's clearance are printed by the hit-area instrument,
+which a person reads rather than re-measures).
 
 ## Manual QA checklist
 
@@ -397,10 +454,39 @@ here re-runs it.
 - [ ] **▣** A refused write shows 保存失败，草稿还在页面上。 with a visible 重试, and
       pressing 重试 writes the document that failed.
 - [ ] **▣** 链接 sets, edits and removes a link on selected text.
+- [ ] **▣** 插入图片 opens the file picker; the chosen PNG becomes an image node whose
+      `src` is a `data:` URL, whose alt is the file's name, and that fills the
+      measure without overflowing it; a reload brings the same picture back.
+- [ ] **▣** A dropped image and a pasted image file each insert through the same
+      admission and the same insert.
+- [ ] **▣** A file that is not an image, one byte over 5 MB, and an eleventh image
+      are each refused with their own sentence between the toolbar and the canvas,
+      and a file the rules take clears it.
+- [ ] **▣** `/图片` lists 图片 in the slash menu, and Enter opens the same picker.
+- [ ] **▣** Pressing an image shows the panel, and a caret in the title takes it away;
+      its four controls are 替换, 替代文本, 删除 and 宽度 25 % / 50 % / 75 % / 100 %.
+- [ ] **▣** Each width preset writes the image's own `style` width and the `width` in
+      the stored draft, and a reload draws the same share of the measure.
+- [ ] **▣** 替代文本 opens holding the current alt, sets it, and both the draft and a
+      reload keep the new sentence.
+- [ ] **▣** 删除 removes the node and 撤销 brings it back with its bytes and its alt.
+- [ ] **▣** 替换 swaps the bytes and keeps the alt and the width; a refused
+      replacement shows its rule's sentence and changes nothing, and the document
+      still holds one image.
+- [ ] **▣** At 390px pressing an image still opens the panel and its three actions are
+      reachable; that it is drawn inside the viewport and clear of the picture is the
+      hit-area instrument's `image-panel-clearance`.
+- [ ] **▣** 表格 opens the grid picker; choosing 2 rows × 3 columns inserts a 2 × 3
+      table with a header row, and typing in a cell edits that cell.
+- [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each
+      action adds or removes the row, column or table it names; 删除表格 leaves a
+      paragraph to type in.
+- [ ] **▣** `/表格` inserts the documented 3 × 3 table; deleting it with 删除表格
+      leaves exactly one empty paragraph, and the caret types into it.
 - [ ] **▣** 撤销 and 重做 work from the toolbar and from the keyboard; a mark
       (`Control+B`), the link (`Control+K`), a heading (`Control+Alt+1`) and a list
       (`Control+Shift+8`) also work from the keyboard.
-- [ ] **▣** `/` opens the slash menu with the ten block commands in the table's
+- [ ] **▣** `/` opens the slash menu with the twelve block commands in the table's
       order; `标题` filters it to three; the arrow keys move the highlighted row and
       Enter applies 标题 2, closes the menu and leaves no `/标题` in the document.
 - [ ] **▣** Escape closes the slash menu and leaves the slash it opened on as text.
@@ -421,12 +507,24 @@ here re-runs it.
       `<title>-YYYY-MM-DD.html`.
 - [ ] **▣** An untitled document's exports are named `文档-YYYY-MM-DD.<ext>`, and the
       HTML file's `<title>` is 无标题.
+- [ ] **▣** A document holding an image and a table exports in both formats: the
+      Markdown file inlines the image and writes the table as GFM pipes, the HTML
+      file carries the image's width and a semantic `<table>`, and the width is the
+      one thing the Markdown file drops.
 - [ ] **▣** 导入 a Markdown file through the file menu produces the fixture's
       headings, paragraph and its marks, nested lists, checked and unchecked task
       items, quote, fenced code with its language, link and rule; the imported
       document is editable, and exporting it again carries the added words.
 - [ ] **▣** 导入 an HTML file produces the same blocks, and its `<head>`, stylesheet
       and script do not survive.
+- [ ] **▣** 导入 a Markdown file with a GFM pipe table and a `data:` image produces
+      the table's header and body rows and the picture, and exporting it again writes
+      the same table and the same image line.
+- [ ] **▣** 导入 an HTML file with a `<table>` and a `data:` `<img>` produces the
+      same blocks; the image keeps its percentage width, and its `onerror` does not
+      survive. An image over the limits is refused with the insert path's sentence,
+      and its alt text stays as text; a remote image leaves its alt text and no
+      picture.
 - [ ] **▣** A non-empty draft asks 替换当前文档？ before the import; 取消 leaves the
       title and the body untouched, and 替换 replaces them.
 - [ ] **▣** Pasted HTML is sanitised by the editor's own paste path: a pasted

@@ -1,22 +1,34 @@
 import type { JSONContent } from "@tiptap/react";
 
+import {
+  dataUrlImageProbe,
+  importAdmission,
+  type ImageRefusal,
+  type ImportAdmission,
+} from "./admission";
 import { EMPTY_DOCUMENT } from "./document";
+import { imageAltText } from "./image";
 
 /**
- * GitHub Flavored Markdown to ProseMirror JSON (#211).
+ * GitHub Flavored Markdown to ProseMirror JSON (#211, tables and images #220).
  *
  * This is the reader for the writer in `core/markdown.ts`: it accepts the GFM
  * this Tool exports and turns it back into the document the editor holds, so a
  * file written here (or anywhere else) can be continued here. It targets the
  * constructs the editor has a node or mark for (headings, paragraphs, nested
  * bulleted/ordered/task lists, quotes, fenced code with a language, rules, links,
- * emphasis, strike, inline code) and the export's one inline HTML construct,
- * underline written as `<u>…</u>`.
+ * emphasis, strike, inline code, pipe tables and images) and the export's one
+ * inline HTML construct, underline written as `<u>…</u>`.
  *
  * It is forgiving on purpose: anything it does not recognise stays literal text,
  * and no input makes it throw. That is the opposite of a validator, and the right
- * shape for an import: a table or a reference-style link arrives as the words
- * that were there rather than as a refusal.
+ * shape for an import: a reference-style link arrives as the words that were there
+ * rather than as a refusal.
+ *
+ * Two shapes of this document are not GFM's. An image is a block node, so a data
+ * image becomes a block of its own and the words around it keep their paragraphs;
+ * and a table's first row is its header row, so the reader makes that row's cells
+ * `tableHeader` and the rest `tableCell`. Both are what the writer reads back into.
  *
  * The return value is plain JSON, with no DOM in sight: the editor hands it to
  * TipTap's own `setContent`, so the final document and its schema are TipTap's.
@@ -54,6 +66,9 @@ const ORDERED = /^([ \t]*)(\d{1,9})([.)])([ \t]+|$)(.*)$/u;
 
 /** The GFM task marker at the start of a list item's content. */
 const TASK = /^\[([ xX])\](?:[ \t]+|$)(.*)$/u;
+
+/** One delimiter-row cell: dashes with an optional alignment colon on either side. */
+const DELIMITER_CELL = /^:?-+:?$/u;
 
 /** One list item's marker, read from the line it starts. */
 interface Marker {
@@ -97,21 +112,171 @@ const EMPHASIS: readonly EmphasisRule[] = [
 ];
 
 /**
+ * What a Markdown file imports as: the document, and the images it could not keep.
+ *
+ * The two travel together because the import has something to say about a refused
+ * image — the same sentence an inserted file is refused with (`core/copy.ts`) — and
+ * the document alone cannot carry it. `documentFromMarkdown` is the same read for a
+ * caller with nothing to say.
+ */
+export interface MarkdownImport {
+  readonly document: JSONContent;
+  readonly refusals: readonly ImageRefusal[];
+}
+
+/**
  * The document a Markdown file describes.
  *
  * An empty (or whitespace-only) file is the empty document rather than a `doc`
  * with no blocks: the editor's starting document is the definition of "nothing",
  * and importing a blank file should leave the same two placeholders a fresh page
  * shows. Every other file is its parsed blocks, in order.
+ *
+ * The images are then put through the same admission an inserted file meets
+ * (#220): an import is a whole document, so the count and the total start empty,
+ * and an image that breaks a rule becomes its alt text — the same answer a remote
+ * source gets — rather than a picture the document could not have held.
  */
-export function documentFromMarkdown(source: string): JSONContent {
+export function importMarkdown(source: string): MarkdownImport {
   const lines = source
     .replace(/^\uFEFF/u, "")
     .replace(/\r\n?/gu, "\n")
     .split("\n");
-  const content = parseBlocks(lines);
+  const admission = importAdmission();
+  const blocks = admitImages(parseBlocks(lines), admission);
 
-  return content.length === 0 ? EMPTY_DOCUMENT : { content, type: "doc" };
+  return {
+    document: blocks.length === 0 ? EMPTY_DOCUMENT : { content: blocks, type: "doc" },
+    refusals: admission.refusals,
+  };
+}
+
+/** The document alone, for a caller that has no use for the refusal sentences. */
+export function documentFromMarkdown(source: string): JSONContent {
+  return importMarkdown(source).document;
+}
+
+/**
+ * The parsed blocks with only the images a document may hold, and the rules the
+ * others broke.
+ *
+ * A refused image becomes a paragraph of its alt text, and an image with no alt
+ * text leaves nothing rather than an empty block: "the picture is not in this
+ * document" and "the words about it are" are the two halves of one answer, and it
+ * is the same answer for a source this Tool cannot draw at all (a remote URL never
+ * becomes an image node in the first place). A table cell that held only a refused
+ * image keeps the one block its schema requires.
+ */
+function admitImages(nodes: readonly JSONContent[], admission: ImportAdmission): JSONContent[] {
+  return nodes.flatMap((node) => {
+    if (node.type === "image") {
+      const verdict = admission.admit(node.attrs?.src);
+
+      if (verdict?.kind === "admitted") return [node];
+
+      const alt = imageAltText(node.attrs?.alt);
+
+      return alt === null ? [] : [{ content: [{ text: alt, type: "text" }], type: "paragraph" }];
+    }
+
+    const content = node.content;
+    if (content === undefined) return [node];
+
+    const admitted = admitImages(content, admission);
+
+    if (admitted.length === 0 && (node.type === "tableCell" || node.type === "tableHeader")) {
+      return [{ ...node, content: [{ type: "paragraph" }] }];
+    }
+
+    return [{ ...node, content: admitted }];
+  });
+}
+
+/** Whether a row's last pipe is its own edge rather than a literal an escape made. */
+function endsWithRowPipe(line: string): boolean {
+  const trimmed = line.trimEnd();
+  if (!trimmed.endsWith("|")) return false;
+
+  let backslashes = 0;
+  let index = trimmed.length - 2;
+
+  while (index >= 0 && trimmed[index] === "\\") {
+    backslashes += 1;
+    index -= 1;
+  }
+
+  // An odd run of backslashes escapes the pipe, so a row that ends in `\|` has a
+  // last cell rather than an edge to drop.
+  return backslashes % 2 === 0;
+}
+
+/** One cell's text, unescaped: a GFM cell holds inline content, so it goes to `parseInline`. */
+function cellsOfRow(line: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let index = 0;
+
+  while (index < line.length) {
+    const character = line[index] ?? "";
+
+    // A backslash takes the next character with it, so `\|` is a literal pipe and
+    // `\\` is a literal backslash that does not escape the pipe after it. The pair
+    // is kept whole here and undone by `parseInline`, which already knows both.
+    if (character === "\\") {
+      cell += character;
+      index += 1;
+      if (index < line.length) {
+        cell += line[index] ?? "";
+        index += 1;
+      }
+      continue;
+    }
+
+    if (character === "|") {
+      cells.push(cell);
+      cell = "";
+      index += 1;
+      continue;
+    }
+
+    cell += character;
+    index += 1;
+  }
+
+  cells.push(cell);
+
+  // The pipes at the two ends of a row are decoration rather than a leading and a
+  // trailing empty cell; a row without them has neither to drop.
+  if (line.trimStart().startsWith("|")) cells.shift();
+  if (cells.length > 0 && endsWithRowPipe(line)) cells.pop();
+
+  return cells.map((text) => text.trim());
+}
+
+/**
+ * A table's first two lines, when they are one: the header row and the delimiter
+ * row under it, with the column count the header had.
+ *
+ * The delimiter row is what makes the lines a table — GFM has no table without it —
+ * and it has to have the header's own cell count, because a count that disagrees is
+ * a pipe used for something else rather than a table. Alignment colons are read and
+ * dropped: the document has no column alignment to put them in, and inventing one
+ * here would be a second document model.
+ */
+function tableStart(lines: readonly string[], index: number): number | null {
+  const header = lines[index];
+  const delimiter = lines[index + 1];
+
+  if (header === undefined || delimiter === undefined) return null;
+  if (!header.includes("|") || !delimiter.includes("|")) return null;
+
+  const cells = cellsOfRow(header);
+  const rule = cellsOfRow(delimiter);
+
+  if (cells.length === 0 || rule.length !== cells.length) return null;
+  if (!rule.every((cell) => DELIMITER_CELL.test(cell))) return null;
+
+  return cells.length;
 }
 
 /** The number of columns a run of leading whitespace occupies, with four-column tabs. */
@@ -241,7 +406,9 @@ function startsBlock(line: string): boolean {
  * The order of the tests is the order the constructs can be mistaken for one
  * another: a fence before a heading (a fence's info string may hold `#`), a rule
  * before a list (`- - -` is a break, not an item), a quote before a list (a
- * nested quote starts with `>`), and every one of them before a paragraph.
+ * nested quote starts with `>`), a list before a table (a header row never looks
+ * like an item, but a cell may hold a marker's characters), and every one of them
+ * before a paragraph.
  */
 function parseBlocks(lines: readonly string[]): JSONContent[] {
   const blocks: JSONContent[] = [];
@@ -291,8 +458,16 @@ function parseBlocks(lines: readonly string[]): JSONContent[] {
       continue;
     }
 
+    const columns = tableStart(lines, index);
+    if (columns !== null) {
+      const result = parseTable(lines, index, columns);
+      blocks.push(result.node);
+      index = result.next;
+      continue;
+    }
+
     const result = parseParagraph(lines, index);
-    blocks.push(result.node);
+    blocks.push(...result.nodes);
     index = result.next;
   }
 
@@ -343,13 +518,27 @@ function parseFence(
 function headingNode(match: RegExpExecArray): JSONContent {
   const level = (match[2] ?? "#").length;
   const text = (match[3] ?? "").replace(/[ \t]+#+[ \t]*$/u, "");
-  const content = parseInline(text);
+  // A heading holds inline content only, and an image is a block node: an image
+  // written in a heading stays the words of its alt text rather than an image the
+  // schema would refuse.
+  const content = mergeTextNodes(flattenImages(parseInline(text)));
 
   return {
     attrs: { level },
     ...(content.length === 0 ? {} : { content }),
     type: "heading",
   };
+}
+
+/** The inline nodes with each image replaced by its alt text. */
+function flattenImages(nodes: readonly JSONContent[]): JSONContent[] {
+  return nodes.flatMap((node) => {
+    if (node.type !== "image") return [node];
+
+    const alt = imageAltText(node.attrs?.alt);
+
+    return alt === null ? [] : [{ text: alt, type: "text" }];
+  });
 }
 
 /**
@@ -509,23 +698,140 @@ function listItemNode(item: ItemDraft, task: boolean): JSONContent {
     : { content: blocks, type: "listItem" };
 }
 
+/** One row of a table, padded or cut to the header's own width. */
+function rowCells(line: string, columns: number): string[] {
+  const cells = cellsOfRow(line);
+
+  return Array.from({ length: columns }, (_, column) => cells[column] ?? "");
+}
+
+/** A cell's inline content as the blocks a table cell holds. */
+function cellBlocks(text: string): JSONContent[] {
+  const blocks = blocksOfInline(parseInline(text));
+
+  return blocks.length === 0 ? [{ type: "paragraph" }] : blocks;
+}
+
+/**
+ * A GFM pipe table (#220): the header row, the delimiter row dropped, the body rows.
+ *
+ * The first row's cells are `tableHeader` because the writer treats the first row
+ * as the header in both formats, and a reader that gave a different answer would be
+ * reading a different document. A body row is a following non-blank line that has
+ * not started another block and still has a pipe in it: GFM itself reads a pipe-less
+ * line as a one-cell row, but that turns an ordinary paragraph after a table into
+ * part of it, and a paragraph is the reading a person expects. Every row is padded
+ * or cut to the header's width, which is what GFM asks a reader to do with one.
+ */
+function parseTable(
+  lines: readonly string[],
+  start: number,
+  columns: number,
+): { node: JSONContent; next: number } {
+  const rows: string[][] = [rowCells(lines[start] ?? "", columns)];
+  let index = start + 2;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+
+    if (isBlank(line) || startsBlock(line) || !line.includes("|")) break;
+
+    rows.push(rowCells(line, columns));
+    index += 1;
+  }
+
+  return {
+    node: {
+      content: rows.map((cells, row) => ({
+        content: cells.map((text) => ({
+          content: cellBlocks(text),
+          type: row === 0 ? "tableHeader" : "tableCell",
+        })),
+        type: "tableRow",
+      })),
+      type: "table",
+    },
+    next: index,
+  };
+}
+
+/**
+ * Inline content as the blocks the document can hold.
+ *
+ * An image is a block node in this editor (#216) while GFM writes it inline, so a
+ * run of inline content is split around it: the words keep their own paragraphs
+ * and each image becomes a block of its own, in the order they were written. A
+ * table cell uses the same split, because a cell holds blocks too and the writer
+ * flattens them back onto one line.
+ */
+function blocksOfInline(nodes: readonly JSONContent[]): JSONContent[] {
+  const blocks: JSONContent[] = [];
+  let run: JSONContent[] = [];
+
+  const flush = () => {
+    const content = trimRun(run);
+
+    if (content.length > 0) blocks.push({ content, type: "paragraph" });
+    run = [];
+  };
+
+  for (const node of nodes) {
+    if (node.type === "image") {
+      flush();
+      blocks.push(node);
+      continue;
+    }
+
+    run.push(node);
+  }
+
+  flush();
+
+  return blocks;
+}
+
+/**
+ * A run of inline nodes with the whitespace an image's split left at its edges
+ * taken off, so the paragraph beside a picture does not begin with the space that
+ * was written to separate the two.
+ */
+function trimRun(nodes: readonly JSONContent[]): JSONContent[] {
+  const trimmed = [...nodes];
+  const first = trimmed[0];
+
+  if (first?.type === "text" && typeof first.text === "string") {
+    trimmed[0] = { ...first, text: first.text.replace(/^[ \t]+/u, "") };
+  }
+
+  const last = trimmed[trimmed.length - 1];
+
+  if (last?.type === "text" && typeof last.text === "string") {
+    trimmed[trimmed.length - 1] = { ...last, text: last.text.replace(/[ \t]+$/u, "") };
+  }
+
+  return trimmed.filter((node) => node.type !== "text" || (node.text ?? "") !== "");
+}
+
 /**
  * A paragraph: consecutive plain lines, joined as one run of inline content.
  *
  * A line ending in two spaces or a backslash is a hard break; every other line
  * break is a space, because a soft break in Markdown renders as one. The sentence
- * itself is then read by `parseInline`.
+ * itself is then read by `parseInline`, and the run is split into the blocks the
+ * document can hold — a line that is only a data image is a picture rather than an
+ * empty paragraph around one. A line that starts a table ends the paragraph here,
+ * so a table may sit directly under prose.
  */
 function parseParagraph(
   lines: readonly string[],
   start: number,
-): { node: JSONContent; next: number } {
+): { nodes: JSONContent[]; next: number } {
   const collected: string[] = [];
   let index = start;
 
   while (index < lines.length) {
     const line = lines[index] ?? "";
-    if (isBlank(line) || startsBlock(line)) break;
+    if (isBlank(line) || startsBlock(line) || tableStart(lines, index) !== null) break;
     collected.push(line);
     index += 1;
   }
@@ -544,12 +850,7 @@ function parseParagraph(
   // A hard break with no line after it is not a break.
   while (source.endsWith(HARD_BREAK)) source = source.slice(0, -1);
 
-  const content = parseInline(source);
-
-  return {
-    node: { ...(content.length === 0 ? {} : { content }), type: "paragraph" },
-    next: index,
-  };
+  return { nodes: blocksOfInline(parseInline(source)), next: index };
 }
 
 /** A text node carrying the marks it was read under. */
@@ -720,6 +1021,15 @@ function parseInline(source: string, marks: readonly Mark[] = []): JSONContent[]
     }
 
     if (character === "!" && source[index + 1] === "[") {
+      const result = inlineImage(source, index, marks);
+
+      if (result !== null) {
+        flush();
+        nodes.push(...result.nodes);
+        index = result.next;
+        continue;
+      }
+
       buffer += character;
       index += 1;
       continue;
@@ -784,9 +1094,13 @@ function findRun(source: string, from: number, character: string, length: number
 }
 
 /**
- * An angle construct: the export's inline `<u>…</u>` underline, or a GFM
+ * An angle construct: the export's inline `<u>…</u>` underline, a `<br>`, or a GFM
  * autolink. Anything else is literal `<`, which is what makes a pasted tag in a
  * Markdown file stay text.
+ *
+ * `<br>` is here because the writer puts one inside a table cell: a real newline
+ * would end the row, so a cell's hard break is written as `<br>` and has to be read
+ * back as one.
  */
 function inlineAngle(source: string, index: number, marks: readonly Mark[]): InlineResult | null {
   const rest = source.slice(index);
@@ -803,6 +1117,12 @@ function inlineAngle(source: string, index: number, marks: readonly Mark[]): Inl
         next: index + close + "</u>".length,
       };
     }
+  }
+
+  const lineBreak = /^<br\s*\/?>/iu.exec(rest);
+
+  if (lineBreak !== null) {
+    return { nodes: [{ type: "hardBreak" }], next: index + lineBreak[0].length };
   }
 
   const autolink = /^<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)>/u.exec(rest);
@@ -883,13 +1203,62 @@ function inlineLink(source: string, index: number, marks: readonly Mark[]): Inli
 
   if (destination === null) return null;
 
-  const label = parseInline(source.slice(index + 1, labelEnd), marks);
+  // An image inside a label is its alt text: a link's content is inline, and an
+  // image is a block node this document cannot put in one.
+  const label = flattenImages(parseInline(source.slice(index + 1, labelEnd), marks));
   const text = label.length === 0 ? [textNode(destination, marks)] : label;
 
   return {
     nodes: applyMark(text, { attrs: { href: destination }, type: "link" }),
     next: end + 1,
   };
+}
+
+/**
+ * An image: `![alt](destination)`, read as the node the document has for it.
+ *
+ * Only a source this Tool can measure becomes an image node — a base64 `data:` URL.
+ * GFM would read a remote `https:` image as one, but the CSP draws nothing from
+ * another origin and the site has no upload service, so a remote source is not a
+ * picture here: the alt text is the text that remains, in the place the image stood
+ * (#220's rule, and the same answer admission gives an image it refuses).
+ *
+ * The alt is a description rather than markup, so it is unescaped rather than parsed
+ * as inline content: `**` in an alt is the two characters a screen reader says.
+ */
+function inlineImage(source: string, index: number, marks: readonly Mark[]): InlineResult | null {
+  const labelEnd = findPairEnd(source, index + 2, "[", "]");
+
+  if (labelEnd === -1 || source[labelEnd + 1] !== "(") return null;
+
+  const end = findPairEnd(source, labelEnd + 2, "(", ")");
+
+  if (end === -1) return null;
+
+  const destination = parseDestination(source.slice(labelEnd + 2, end));
+
+  if (destination === null) return null;
+
+  const alt = unescapeLabel(source.slice(index + 2, labelEnd));
+
+  if (dataUrlImageProbe(destination) === null) {
+    const remaining = imageAltText(alt);
+
+    return { nodes: remaining === null ? [] : [textNode(remaining, marks)], next: end + 1 };
+  }
+
+  return { nodes: [{ attrs: { alt, src: destination }, type: "image" }], next: end + 1 };
+}
+
+/**
+ * An image's label as its plain text.
+ *
+ * The writer escapes the alt like any other text run (and a cell escapes its pipe
+ * too), so the escapes are undone here — but no mark is read, because the label is
+ * a description rather than content the image can format.
+ */
+function unescapeLabel(raw: string): string {
+  return raw.replace(/\\([\\`*_[\]<>~&|])/gu, "$1");
 }
 
 /** Whether a character can be part of a word, for the `_` intraword rule. */

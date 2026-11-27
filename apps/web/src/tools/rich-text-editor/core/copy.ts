@@ -1,3 +1,4 @@
+import type { ImageRefusal } from "./admission";
 import type { SaveStatus } from "./save";
 
 /**
@@ -81,3 +82,47 @@ export const IMPORT_DIALOG_TITLE = "替换当前文档？";
 export const IMPORT_DIALOG_DESCRIPTION = "导入的文件会替换当前文档，取消则保持原样。";
 export const IMPORT_CANCEL_LABEL = "取消";
 export const IMPORT_CONFIRM_LABEL = "替换";
+
+/**
+ * The four sentences an image is refused with (#216).
+ *
+ * Admission decides which rule was broken, and these say it: a refusal that does
+ * not name the rule leaves the visitor to guess whether the fix is a smaller file,
+ * a different format, or deleting an image first. They are here rather than in the
+ * insert module for the reason every sentence in this Tool is — the wording is a
+ * rule a unit test can read, and the gate spells out the same sentences.
+ *
+ * The limits are written out, not derived from `core/admission.ts`, so a number
+ * changed in one place and not the other is a red test rather than a sentence that
+ * promises 5 MB while the rule takes 2.
+ *
+ * `satisfies Record<ImageRefusal, string>` is what makes a fifth rule with no
+ * sentence a `tsc` error, the same way `SAVE_STATUS_TEXT` covers every save state.
+ */
+export const IMAGE_REFUSAL_TEXT = {
+  count: "一份文档最多放十张图片。",
+  size: "图片太大了：JPEG、PNG、WebP 不超过 5 MB，GIF 不超过 2 MB。",
+  total: "文档里的图片总共不能超过 40 MB。",
+  type: "只支持 JPEG、PNG、WebP 和 GIF 图片。",
+} as const satisfies Record<ImageRefusal, string>;
+
+/**
+ * The toolbar control that opens the image picker.
+ *
+ * The command table calls the row 图片, because that is the word the slash menu
+ * lists and the visitor types; on the toolbar the same row is an action whose name
+ * says what pressing it does, which is the name the hit-area instrument declares.
+ */
+export const IMAGE_INSERT_LABEL = "插入图片";
+
+/**
+ * The alt text an image gets when its file's name says nothing (#216).
+ *
+ * A file's name without its extension is the only description the Tool has at
+ * insert time (`editor/insert-image.ts`), and the name can be empty of meaning: a
+ * screenshot arrives as `image.png`, a download as `.png`. An `<img>` with no alt
+ * is announced by its file name at best and skipped at worst, so the fallback is a
+ * word a screen reader can read, and it is a word the visitor sees in the panel's
+ * field — which is why it lives here rather than in the module that inserts.
+ */
+export const IMAGE_ALT_FALLBACK = "图片";

@@ -395,3 +395,304 @@ export async function storedDraft(page: Page): Promise<StoredDraftRecord | null>
 export function canvas(page: Page): Locator {
   return page.locator(CANVAS);
 }
+
+/**
+ * The toolbar's 表格 button (#217): one control in two states.
+ *
+ * Outside a table it opens the grid picker, inside a table the contextual menu. The
+ * name is the same in both, so every press goes through it; what the button opens is
+ * asserted by the region that appears and by `aria-haspopup`.
+ */
+export function tableTrigger(page: Page): Locator {
+  return toolbarControl(page, "表格");
+}
+
+/** The grid picker's region, by the name its section carries. */
+export function tableGrid(page: Page): Locator {
+  return page.getByRole("region", { name: "表格大小" });
+}
+
+/** One cell of the grid picker, by the size a screen reader reads on it. */
+export function tableGridCell(page: Page, rows: number, columns: number): Locator {
+  return tableGrid(page).getByRole("button", { name: `${rows} 行 × ${columns} 列`, exact: true });
+}
+
+/** The contextual 表格 menu, by the name its region carries. */
+export function tableMenu(page: Page): Locator {
+  return page.getByRole("menu", { name: "表格操作" });
+}
+
+/** One row of the contextual menu, by the words the Tool gives it. */
+export function tableMenuItem(page: Page, label: string): Locator {
+  return tableMenu(page).getByRole("menuitem", { name: label, exact: true });
+}
+
+/**
+ * Insert a table of the chosen size through the page's own grid picker.
+ *
+ * Both presses are coordinate presses: the trigger is a toolbar control, and the
+ * cells are the transient surface the hit-area instrument deliberately does not
+ * declare, so this is the path that proves they are reachable with a pointer.
+ */
+export async function insertTableOfSize(page: Page, rows: number, columns: number): Promise<void> {
+  await pressAt(page, tableTrigger(page));
+  await pressAt(page, tableGridCell(page, rows, columns));
+}
+
+/** Open the contextual menu from inside the table and press one of its rows. */
+export async function pressTableMenuItem(page: Page, label: string): Promise<void> {
+  await pressAt(page, tableTrigger(page));
+  await pressAt(page, tableMenuItem(page, label));
+}
+
+/**
+ * One image file for the gate, in Playwright's in-memory form.
+ *
+ * `buffer` is the file's bytes as a person's disk would hold them, so a size claim
+ * is about the file the page is handed rather than about a number this file chose.
+ */
+export interface ImageFile {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly buffer: Buffer;
+}
+
+/**
+ * A real 1×1 PNG: the shortest file the sniffer and the browser both accept.
+ *
+ * It is a PNG's own bytes rather than a signature and a guess, so a case about
+ * insertion exercises the same decode path a visitor's photograph does. Its size is
+ * irrelevant: the node draws it at the width in the document, which is what the
+ * measure claim reads.
+ */
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+/** A valid PNG under the per-file limit, named so the alt text is predictable. */
+export function pngFile(name = "photo.png"): ImageFile {
+  return { buffer: PNG_1X1, mimeType: "image/png", name };
+}
+
+/**
+ * A PNG one byte over the 5 MB per-file limit.
+ *
+ * The first bytes are a PNG, so the size rule is the one it reaches; the rest is
+ * padding rather than a picture, because the claim is about a file admission must
+ * refuse before reading — a real 5 MB photograph would prove less and cost more.
+ */
+export function oversizedPng(name = "huge.png"): ImageFile {
+  const buffer = Buffer.alloc(5 * 1024 * 1024 + 1);
+  PNG_1X1.copy(buffer, 0);
+
+  return { buffer, mimeType: "image/png", name };
+}
+
+/**
+ * A file that claims to be a PNG and is not.
+ *
+ * Its name and its declared type both say `image/png`, which is exactly the case
+ * the sniffer exists for: the bytes are the only thing that decides.
+ */
+export function notAnImage(name = "note.png"): ImageFile {
+  return { buffer: Buffer.from("这不是一张图片。", "utf8"), mimeType: "image/png", name };
+}
+
+/** 插入图片: the toolbar control that opens the file picker. */
+export function imageInsert(page: Page): Locator {
+  return toolbarControl(page, "插入图片");
+}
+
+/**
+ * Insert an image through the toolbar's own control.
+ *
+ * The picker is pressed at its coordinates like every other toolbar control, and
+ * Playwright answers the browser's file chooser; the input is never set directly,
+ * because the claim is that the button opens it.
+ */
+export async function insertImageFromToolbar(page: Page, file: ImageFile): Promise<void> {
+  const chooser = page.waitForEvent("filechooser");
+  await pressAt(page, imageInsert(page));
+
+  await (await chooser).setFiles(file);
+}
+
+/**
+ * The sentence a refused file is shown.
+ *
+ * Scoped to the `Alert` Primitive's own anchor, not to `getByRole("alert")`: Next's
+ * route announcer (`#__next-route-announcer__`) carries `role="alert"` too, so a
+ * role-only locator finds two elements and Playwright's strict mode fails before
+ * the sentence is read. `data-slot="alert"` is the element the page itself renders
+ * for a refusal, and the announcer is not one of the page's notices.
+ */
+export function refusalNotice(page: Page): Locator {
+  return page.locator('[data-slot="alert"]');
+}
+
+/** The images the canvas is drawing, in document order. */
+export function imagesInCanvas(page: Page): Locator {
+  return canvas(page).locator("img");
+}
+
+/** The file as the page's own JavaScript must rebuild it for a drop or a paste. */
+function entriesOf(files: readonly ImageFile[]) {
+  return files.map((file) => ({
+    base64: file.buffer.toString("base64"),
+    mimeType: file.mimeType,
+    name: file.name,
+  }));
+}
+
+/**
+ * Drop image files onto the editing surface, the way a visitor drags a file in.
+ *
+ * The bytes are rebuilt into real `File`s inside the page and carried by one real
+ * `DataTransfer`, so the editor's own drop handler is what reads them — the same
+ * seam the converter and Image to PDF gates use. The target is the editable rather
+ * than the card around it: that is where ProseMirror's handler listens, and the
+ * card's padding is the canvas's own fallback, not the path under test.
+ *
+ * Several files go in one transfer and one event, which is the case the Tool's own
+ * admission has to answer for: a visitor who drags two pictures at once is not two
+ * visitors.
+ */
+export async function dropImages(page: Page, files: readonly ImageFile[]): Promise<void> {
+  await editor(page).evaluate((element, entries) => {
+    const transfer = new DataTransfer();
+
+    for (const entry of entries) {
+      const binary = atob(entry.base64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+    }
+
+    element.dispatchEvent(
+      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
+  }, entriesOf(files));
+}
+
+/** Drop one image file; the single-file case of `dropImages`. */
+export async function dropImage(page: Page, file: ImageFile): Promise<void> {
+  await dropImages(page, [file]);
+}
+
+/**
+ * Paste an image file into the editing surface.
+ *
+ * A screenshot arrives as a file in the clipboard, which is what the transfer
+ * carries: ProseMirror's paste listener sees the same `ClipboardEvent` a real paste
+ * dispatches, so the handler under test is the page's own.
+ */
+export async function pasteImage(page: Page, file: ImageFile): Promise<void> {
+  await editor(page).evaluate(
+    (element, entries) => {
+      const transfer = new DataTransfer();
+
+      for (const entry of entries) {
+        const binary = atob(entry.base64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        transfer.items.add(new File([bytes], entry.name, { type: entry.mimeType }));
+      }
+
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        }),
+      );
+    },
+    entriesOf([file]),
+  );
+}
+
+/**
+ * The panel an image gets while it is selected (#218), by the name its region carries.
+ *
+ * It exists only in that state, so a case that expects it can see it and a case that
+ * has taken the selection off the image counts zero.
+ */
+export function imagePanel(page: Page): Locator {
+  return page.getByRole("region", { name: "图片操作" });
+}
+
+/** One control of the panel, by the name a screen reader reads on it. */
+export function imagePanelControl(page: Page, name: string): Locator {
+  return imagePanel(page).getByRole("button", { name, exact: true });
+}
+
+/** One width preset: the name says the share of the measure it sets. */
+export function widthPreset(page: Page, percent: number): Locator {
+  return imagePanelControl(page, `宽度 ${percent}%`);
+}
+
+/**
+ * Select an image the way a visitor does: press it.
+ *
+ * A picture is a block of its own, so a press on it selects the node rather than
+ * placing a caret, and that selection is the whole of what the panel attaches to.
+ * The press goes through `pressAt` like every other control on this page: the panel
+ * exists because the click landed on the picture, which is worth proving at
+ * coordinates rather than by dispatching a selection into the editor.
+ */
+export async function selectImage(page: Page, index = 0): Promise<void> {
+  await pressAt(page, imagesInCanvas(page).nth(index));
+}
+
+/** 替换: the panel's own button, and the file chooser behind it. */
+export async function replaceImage(page: Page, file: ImageFile): Promise<void> {
+  const chooser = page.waitForEvent("filechooser");
+  await pressAt(page, imagePanelControl(page, "替换"));
+
+  await (await chooser).setFiles(file);
+}
+
+/** 删除: the control that takes the node out of the document. */
+export async function deleteImage(page: Page): Promise<void> {
+  await pressAt(page, imagePanelControl(page, "删除"));
+}
+
+/** 替代文本: open the one-field alt popover from the panel. */
+export async function openAltPopover(page: Page): Promise<void> {
+  await pressAt(page, imagePanelControl(page, "替代文本"));
+}
+
+/** The alt field inside the open popover, by the label's own words. */
+export function altField(page: Page): Locator {
+  return page.getByRole("textbox", { name: "替代文本" });
+}
+
+/**
+ * Give the selected image alt text through the panel's own popover.
+ *
+ * The field is filled and 应用 is pressed at its coordinates: both are real controls,
+ * and the claim is that the picture's `alt` follows them.
+ */
+export async function setAltText(page: Page, alt: string): Promise<void> {
+  await openAltPopover(page);
+  await altField(page).fill(alt);
+  await pressAt(page, page.getByRole("button", { name: "应用", exact: true }));
+}
+
+/**
+ * A second real PNG, different from `pngFile`'s in its bytes and its size.
+ *
+ * 替换's claim is that the bytes change, and two files holding the same bytes have
+ * the same `data:` URL: this is a 2×2 picture of its own, so the `src` a replacement
+ * leaves behind is a fact about the file rather than about its name. It is drawn
+ * from an encoder rather than by appending to another PNG, so the browser really
+ * decodes it.
+ */
+export function replacementPng(name = "替换.png"): ImageFile {
+  return {
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGP8UGHDwMDAxAAGABSOAahZBMcNAAAAAElFTkSuQmCC",
+      "base64",
+    ),
+    mimeType: "image/png",
+    name,
+  };
+}

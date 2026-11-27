@@ -32,6 +32,27 @@ const heading = (level: number, ...content: JSONContent[]): JSONContent => ({
 
 const documentOf = (...content: JSONContent[]): JSONContent => ({ content, type: "doc" });
 
+/**
+ * The source an image node carries: a `data:` URL, because the page has no upload
+ * and the CSP draws nothing off this origin. It is short on purpose; the writer
+ * copies the bytes rather than the picture, so their arithmetic is the only claim.
+ */
+const IMAGE_SRC = "data:image/png;base64,iVBORw0KGgo=";
+
+const image = (attrs: Record<string, unknown> = {}): JSONContent => ({
+  attrs: { alt: "", src: IMAGE_SRC, width: 100, ...attrs },
+  type: "image",
+});
+
+const cell = (type: "tableCell" | "tableHeader", ...content: JSONContent[]): JSONContent => ({
+  content,
+  type,
+});
+
+const row = (...cells: JSONContent[]): JSONContent => ({ content: cells, type: "tableRow" });
+
+const table = (...rows: JSONContent[]): JSONContent => ({ content: rows, type: "table" });
+
 describe("the Markdown writer", () => {
   it("exports an empty document as an empty string", () => {
     expect(markdownFromDocument(documentOf(heading(1), paragraph()))).toBe("");
@@ -232,5 +253,125 @@ describe("the Markdown writer", () => {
         ),
       ),
     ).toBe("只有这一段。\n");
+  });
+
+  it("writes an image as an inline GFM image carrying its alt and its bytes", () => {
+    const markdown = markdownFromDocument(
+      documentOf(paragraph(text("前文")), image({ alt: "照片" })),
+    );
+
+    expect(markdown).toBe(`前文\n\n![照片](${IMAGE_SRC})\n`);
+    expect(markdown).toContain("![照片](data:image/png;base64,");
+  });
+
+  it("keeps an image's empty alt empty instead of inventing one", () => {
+    expect(markdownFromDocument(documentOf(image()))).toBe(`![](${IMAGE_SRC})\n`);
+  });
+
+  it("escapes an alt text that would close the label early", () => {
+    const markdown = markdownFromDocument(documentOf(image({ alt: "a]b *c*" })));
+
+    expect(markdown).toBe(`![a\\]b \\*c\\*](${IMAGE_SRC})\n`);
+  });
+
+  it("drops the image's width, which is the one thing this format cannot carry", () => {
+    const markdown = markdownFromDocument(documentOf(image({ alt: "照片", width: 50 })));
+
+    expect(markdown).toBe(`![照片](${IMAGE_SRC})\n`);
+    expect(markdown).not.toContain("width");
+    expect(markdown).not.toContain("50%");
+  });
+
+  it("writes a table as a GFM pipe table with the first row as the header", () => {
+    const markdown = markdownFromDocument(
+      documentOf(
+        table(
+          row(
+            cell("tableHeader", paragraph(text("名称"))),
+            cell("tableHeader", paragraph(text("数量"))),
+          ),
+          row(cell("tableCell", paragraph(text("甲"))), cell("tableCell", paragraph(text("1")))),
+          row(cell("tableCell", paragraph(text("乙"))), cell("tableCell", paragraph(text("2")))),
+        ),
+      ),
+    );
+
+    expect(markdown).toBe("| 名称 | 数量 |\n| --- | --- |\n| 甲 | 1 |\n| 乙 | 2 |\n");
+  });
+
+  it("escapes a pipe inside a cell so it cannot split the row", () => {
+    expect(
+      markdownFromDocument(
+        documentOf(
+          table(
+            row(cell("tableHeader", paragraph(text("条件 | 结论")))),
+            row(cell("tableCell", paragraph(text("a|b", [{ type: "code" }])))),
+            row(cell("tableCell", paragraph(text("甲 | 乙")))),
+          ),
+        ),
+      ),
+    ).toBe("| 条件 \\| 结论 |\n| --- |\n| `a\\|b` |\n| 甲 \\| 乙 |\n");
+  });
+
+  it("keeps a cell's inline marks, and a hard break as the one inline form a row can hold", () => {
+    expect(
+      markdownFromDocument(
+        documentOf(
+          table(
+            row(
+              cell("tableHeader", paragraph(text("标记"))),
+              cell("tableHeader", paragraph(text("换行"))),
+            ),
+            row(
+              cell("tableCell", paragraph(text("加粗", [{ type: "bold" }]))),
+              cell("tableCell", paragraph(text("上"), { type: "hardBreak" }, text("下"))),
+            ),
+          ),
+        ),
+      ),
+    ).toBe("| 标记 | 换行 |\n| --- | --- |\n| **加粗** | 上<br>下 |\n");
+  });
+
+  it("writes an image inside a cell with its alt's pipe escaped for the row", () => {
+    expect(
+      markdownFromDocument(documentOf(table(row(cell("tableHeader", image({ alt: "a|b" })))))),
+    ).toBe(`| ![a\\|b](${IMAGE_SRC}) |\n| --- |\n`);
+  });
+
+  it("repeats the header's column count on a row that is short, so the table stays a table", () => {
+    expect(
+      markdownFromDocument(
+        documentOf(
+          table(
+            row(
+              cell("tableHeader", paragraph(text("甲"))),
+              cell("tableHeader", paragraph(text("乙"))),
+            ),
+            row(cell("tableCell", paragraph(text("只有一格")))),
+          ),
+        ),
+      ),
+    ).toBe("| 甲 | 乙 |\n| --- | --- |\n| 只有一格 |  |\n");
+  });
+
+  it("exports a document holding an image and a table in both of its blocks", () => {
+    const markdown = markdownFromDocument(
+      documentOf(
+        heading(1, text("图文")),
+        paragraph(text("正文")),
+        image({ alt: "照片", width: 75 }),
+        table(
+          row(
+            cell("tableHeader", paragraph(text("名称"))),
+            cell("tableHeader", paragraph(text("数量"))),
+          ),
+          row(cell("tableCell", paragraph(text("甲"))), cell("tableCell", paragraph(text("1")))),
+        ),
+      ),
+    );
+
+    expect(markdown).toBe(
+      `# 图文\n\n正文\n\n![照片](${IMAGE_SRC})\n\n| 名称 | 数量 |\n| --- | --- |\n| 甲 | 1 |\n`,
+    );
   });
 });

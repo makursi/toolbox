@@ -2,8 +2,22 @@ import { Extension, ReactRenderer } from "@tiptap/react";
 import { Suggestion } from "@tiptap/suggestion";
 
 import { slashCommands, type CommandSpec } from "../core/commands";
-import { runCommand } from "../editor/execute";
+import { TABLE_DEFAULT_SIZE } from "../core/table";
+import { insertTable, runCommand } from "../editor/execute";
 import { SlashMenu, type SlashMenuHandle } from "./slash-menu";
+
+/**
+ * The slash menu's settings.
+ *
+ * 图片 is a command-table row with no chain behind it (#216): applying it must
+ * insert an image, but the file input is the pinned toolbar's, not this menu's. So
+ * the option is how the menu asks the surface that owns the input to open it — the
+ * same seam the link's `Mod-K` uses, and the reason `runCommand` answers `false` for
+ * an interface-shaped command rather than pretending it ran.
+ */
+export interface SlashMenuOptions {
+  readonly onImageRequest?: () => void;
+}
 
 /**
  * The slash menu's wiring: `/` at the start of a paragraph opens the command table,
@@ -21,10 +35,16 @@ import { SlashMenu, type SlashMenuHandle } from "./slash-menu";
  * the paragraph's text, and only in a paragraph — a slash in the title heading is a
  * slash.
  */
-export const SlashMenuExtension = Extension.create({
+export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
   name: "slashMenu",
 
+  addOptions() {
+    return {};
+  },
+
   addProseMirrorPlugins() {
+    const requestImagePicker = this.options.onImageRequest;
+
     return [
       Suggestion<CommandSpec, CommandSpec>({
         editor: this.editor,
@@ -43,7 +63,28 @@ export const SlashMenuExtension = Extension.create({
           // The typed `/query` is not document content: it is the filter, so it
           // goes before the command runs and the command acts on the empty block.
           editor.chain().focus().deleteRange(range).run();
-          runCommand(editor, props.id);
+
+          /*
+           * 表格 is one of the commands whose behaviour is an interface rather than a
+           * chain (#217), and this is where the two surfaces part company: the
+           * toolbar opens the grid picker, while the slash menu is a keyboard gesture
+           * that ends on Enter and has no second step. So it applies the documented
+           * default (`TABLE_DEFAULT_SIZE`, 3 × 3) through the same insert the picker
+           * commits. The command says a table arrives; the surface decides at what
+           * size. 链接 has no such branch: it is not a slash command at all.
+           */
+          if (props.id === "table") {
+            insertTable(editor, TABLE_DEFAULT_SIZE);
+            return;
+          }
+
+          const ran = runCommand(editor, props.id);
+
+          // 图片 is the other interface-shaped row that is a slash command, and it
+          // runs no chain: the caller owns the interface and opens its picker. Every
+          // other row left here is a real chain, which is why this is the only
+          // `false` branch.
+          if (!ran && props.id === "image") requestImagePicker?.();
         },
         render: () => {
           let component: ReactRenderer<SlashMenuHandle, SlashMenuPropsForRenderer> | null = null;

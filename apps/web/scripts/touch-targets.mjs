@@ -88,7 +88,10 @@ const PREVIEW_MAX_SHARE = 0.45;
  * names how many copies of the shared fixture it takes, in `fileCount` (#200).
  * `layout` asks for the cover generator's two-column check (see `LAYOUT`);
  * `pinned` says the page's result row is the subject of the `pinned-action-row`
- * claim; `sections` says the page's controls live in an editor that
+ * claim; `selection` and `scrolling` declare the states the selection toolbar and
+ * the toolbar's scrolling claim have to be read in; `image` declares the file input,
+ * the panel and the picture that `image-panel-clearance` reaches (see the
+ * rich-text-editor entry); `sections` says the page's controls live in an editor that
  * shows one panel at a time, so each section names its own and each is visited
  * (#91). A section declares two dimensions of "its own": `carriers` (selectors whose
  * matches must carry the hit-area class) and `presence` (`.show` — the panel that
@@ -337,18 +340,38 @@ const PAGES = [
      * and the two dialog buttons carry `.touch-target`, so a scan that catches them
      * open still measures 44px.
      *
+     * #216's 插入图片 and #217's 表格 are both always-visible buttons in the insert
+     * group, so both are declared here like the other toolbar controls. 插入图片 is
+     * a real `<button>` that opens a hidden file input, and the input is not a
+     * control a visitor presses. 表格 is one button in two states: outside a table
+     * it opens the grid picker, and inside one the contextual row/column menu. Both
+     * of 表格's surfaces are transient — they exist only while the popover is open —
+     * so neither the grid's cells nor the menu's rows are named here, for 导入's
+     * reason. Every one of them carries `.touch-target` on its own button, so a
+     * scan that catches the surface open still measures 44px, and the gate opens it
+     * and presses its cells and rows.
+     *
+     * #216's refusal sentence is an `Alert` between the toolbar and the canvas, and
+     * it exists only after a file is refused, so it is not declared either: a name
+     * that is absent in the state this Instrument opens would fail the page for
+     * being in its normal state. The gate reads that sentence instead.
+     *
      * The cover (#212) is the homepage card's illustration and does not change this
      * page. `outgoing` is the whole document: this page has one layer.
      *
-     * Two claims need a state this page is not in when it loads, and both are read
+     * Three claims need a state this page is not in when it loads, and all are read
      * here rather than by the gate: geometry is what an Instrument is for
      * (`docs/adr/0012-playwright-for-the-browser-gate.md`). `selection` fills the
      * title block through a real input event and selects it, which is the only state
      * the selection toolbar exists in, so `selection-toolbar-clearance` can compare
      * the row's box with the selection's box. `scrolling` names the toolbar's
      * scrolling region and the one control outside it, so `toolbar-scroll-end` can
-     * scroll the region and read both boxes again. The gate used to read both of
-     * these; this is where they moved (#207 review).
+     * scroll the region and read both boxes again. `image` names the file input
+     * behind 插入图片, the panel that input's insert opens and the picture that panel
+     * edits: the claim sets the input with the shared fixture, the insert leaves the
+     * new image selected (#216), and `image-panel-clearance` compares the panel's box
+     * with the picture's and the viewport. The gate used to read the panel's boxes;
+     * this is where they moved (#215 review).
      */
     controls: [
       "切换到",
@@ -368,11 +391,18 @@ const PAGES = [
       "代码块",
       "分隔线",
       "链接",
+      "插入图片",
+      "表格",
       "文件",
     ],
     name: "rich-text-editor",
     outgoing: ["body"],
     path: "/tools/rich-text-editor",
+    image: {
+      input: '[aria-label="插入图片"] + input[type=file]',
+      panel: '[aria-label="图片操作"]',
+      picture: '[data-slot="rich-text-canvas"] img',
+    },
     scrolling: {
       end: '[aria-label="文件"]',
       region: '[data-slot="rich-text-toolbar-scroll"]',
@@ -759,6 +789,40 @@ assertNoDanglingInterpolation(
 );
 
 /**
+ * The image panel's box, the picture it is drawn for, and the viewport.
+ *
+ * Both boxes are read in one expression, for the reason the selection claim reads
+ * its two that way: the panel is placed from the picture's own rectangle, and two
+ * evaluations could catch the page between the picture's move and the layout effect
+ * that placed the panel against the old box. The panel is `position: fixed`, so both
+ * rectangles are in viewport coordinates. The reading does not decide; the claim's
+ * predicate does.
+ *
+ * No backticks in here: the expression is itself a template literal (#108).
+ */
+const IMAGE_PANEL = (image) => `(() => {
+  const panel = document.querySelector(${JSON.stringify(image.panel)});
+  const picture = document.querySelector(${JSON.stringify(image.picture)});
+  if (panel === null) return JSON.stringify({ missing: "panel" });
+  if (picture === null) return JSON.stringify({ missing: "picture" });
+  const box = (rect) => ({
+    bottom: Math.round(rect.bottom),
+    height: Math.round(rect.height),
+    left: Math.round(rect.left),
+    right: Math.round(rect.right),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+  });
+  return JSON.stringify({
+    panel: box(panel.getBoundingClientRect()),
+    picture: box(picture.getBoundingClientRect()),
+    viewport: { height: window.innerHeight, width: window.innerWidth },
+  });
+})()`;
+
+assertNoDanglingInterpolation("IMAGE_PANEL", IMAGE_PANEL({ panel: "", picture: "" }));
+
+/**
  * The toolbar's scrolling region and the control outside it, before and after the
  * region is scrolled to its end.
  *
@@ -984,6 +1048,107 @@ async function selectTextOnce(client, selection) {
   })()`);
 
   if (selected !== true) throw new Error("the block could not be selected");
+}
+
+/**
+ * Put the page into the one state the image panel exists in: an image selected.
+ *
+ * The panel is transient — it is not in the document at all unless the selection is
+ * an image — so the claim has to reach that state the way a visitor does, which is
+ * the same thing `convert` does for the second Tool and `selection` for the toolbar.
+ * The image goes in through the page's own 插入图片 control: the file input beside
+ * that button is set with the shared fixture, and the Tool's insert deliberately
+ * leaves the new node as a `NodeSelection` (#216), so the panel follows without a
+ * second press.
+ *
+ * A caret is put in the body paragraph first, because the selection claim that ran
+ * before this one left the title's probe text selected: an insert is
+ * `insertContent`-shaped, so a block inserted over a run of text replaces it, and
+ * the page would then be measured in a state a visitor never reaches. When the draft
+ * already holds an image — the page stores one after the first case — the picture is
+ * pressed instead of inserting a second, so a sweep cannot accumulate pictures in
+ * the draft.
+ *
+ * Throws rather than returning quietly: a page the claim cannot reach is not a page
+ * whose panel was measured.
+ */
+async function selectImageOnce(client, image) {
+  const picture = JSON.stringify(image.picture);
+
+  const already = await client.evaluate(`document.querySelector(${picture}) !== null`);
+
+  if (already !== true) {
+    await placeCaretInBody(client);
+    await client.setFile(image.input, [FIXTURE]);
+  }
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const state = JSON.parse(
+      await client.evaluate(`(() => {
+        const panel = document.querySelector(${JSON.stringify(image.panel)});
+        const picture = document.querySelector(${picture});
+        return JSON.stringify({ panel: panel !== null, picture: picture !== null });
+      })()`),
+    );
+
+    if (state.panel === true) return;
+
+    if (state.picture === true) {
+      // A restored draft can hold the image without the selection being on it:
+      // pressing a picture is how a visitor selects one, and ProseMirror makes the
+      // `NodeSelection` on the press rather than on the click.
+      await client.evaluate(`(() => {
+        const picture = document.querySelector(${picture});
+        if (picture === null) return false;
+        picture.scrollIntoView({ block: 'center' });
+        const box = picture.getBoundingClientRect();
+        const at = {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+          clientX: box.left + box.width / 2,
+          clientY: box.top + box.height / 2,
+        };
+        picture.dispatchEvent(new MouseEvent('mousedown', at));
+        picture.dispatchEvent(new MouseEvent('mouseup', at));
+        picture.dispatchEvent(new MouseEvent('click', at));
+        return true;
+      })()`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error("the image panel never came to be drawn for a selected image");
+}
+
+/**
+ * A caret at the end of the page's first body paragraph.
+ *
+ * Set through the browser's own selection and announced the way a real one is,
+ * which is how ProseMirror's document listener reads it — the seam `selectTextOnce`
+ * uses for its range. The insert that follows is a block into text, so where the
+ * caret is decides whether the paragraph is split or a run of words is replaced.
+ */
+async function placeCaretInBody(client) {
+  const placed = await client.evaluate(`(() => {
+    const editable = document.querySelector('[contenteditable="true"]');
+    if (editable === null) return false;
+    const block = editable.querySelector('p');
+    if (block === null) return false;
+    editable.focus();
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    range.collapse(false);
+    const selection = window.getSelection();
+    if (selection === null) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    return true;
+  })()`);
+
+  if (placed !== true) throw new Error("the page has no body paragraph to put a caret in");
 }
 
 /** Wait until a selector matches, without deciding what the page should have said. */
@@ -1540,6 +1705,47 @@ const CLAIMS = [
         {
           ok,
           line: `  ${ok ? "PASS" : "FAIL"}  the middle scrolled while the end stayed put — scroll ${before.left} → ${after.left} of ${before.scrollable}px, end x ${before.end.left} → ${after.end.left} (right edge ${before.end.right} of ${viewport})`,
+        },
+      ];
+    },
+  },
+  {
+    name: "image-panel-clearance",
+    about: "the panel an image gets sits outside the picture it edits and inside the viewport",
+    falsification: {
+      source:
+        "put the panel's top on the picture's top instead of one gap above it — one line in core/image-panel.ts. The placement is React's inline style, so an injected rule cannot move it; this is the selection toolbar's route for the same reason",
+    },
+    per: "page",
+    only: (ctx) => ctx.page.image !== undefined,
+    prepare: async (ctx) => {
+      ctx.reset();
+      await selectImageOnce(ctx.client, ctx.page.image);
+    },
+    read: (ctx) => ctx.read("imagePanel", IMAGE_PANEL(ctx.page.image)),
+    judge: (reading) => {
+      if (reading.missing !== undefined) {
+        return [
+          {
+            ok: false,
+            line: `  FAIL  the image panel's claim has no ${reading.missing} to read — the page never put the panel in front of a selected picture`,
+          },
+        ];
+      }
+      const { panel, picture, viewport } = reading;
+      const above = panel.bottom <= picture.top;
+      const below = panel.top >= picture.bottom;
+      const inside =
+        panel.left >= 0 &&
+        panel.top >= 0 &&
+        panel.right <= viewport.width &&
+        panel.bottom <= viewport.height &&
+        panel.height > 0;
+      const ok = (above || below) && inside;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  the panel is ${above ? "above" : below ? "below" : "across"} the picture and ${inside ? "inside" : "outside"} the viewport — panel ${panel.top}..${panel.bottom} x ${panel.left}..${panel.right}, picture ${picture.top}..${picture.bottom}, viewport ${viewport.width}x${viewport.height}`,
         },
       ];
     },

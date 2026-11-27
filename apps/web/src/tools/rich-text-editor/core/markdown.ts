@@ -9,14 +9,23 @@ import { codeText, headingLevel } from "./document";
  * never parsed back into it here (that is the import slice). The writer therefore
  * answers one question: what does this document *say* in GFM? It keeps every
  * block the editor can make (headings, paragraphs, nested lists, task items,
- * quotes, fenced code with its language, rules) and every mark it can apply, and
- * it escapes text so a visitor's literal `*` or a paragraph that starts with
- * `1.` stays literal rather than becoming syntax.
+ * quotes, fenced code with its language, rules, images, tables) and every mark it
+ * can apply, and it escapes text so a visitor's literal `*` or a paragraph that
+ * starts with `1.` stays literal rather than becoming syntax.
  *
  * Underline is the one mark GFM has no form for, so it is written as inline HTML
  * (`<u>…</u>`), which GFM allows. Code is a span of its own: its content is
  * literal, so it is never escaped and its fence is grown past any backtick run
  * inside it.
+ *
+ * An image keeps its alt and its bytes but not its width: GFM has no width syntax,
+ * so the width is dropped here and here only (#219). The document still keeps it,
+ * and the HTML export carries it; `rules.md` records the degradation.
+ *
+ * A table is a GFM pipe table, its first row the header (the row the editor makes
+ * a header row). GFM reads a row before it reads inline syntax, so a cell is
+ * escaped for the row as well as for the format, and a cell holds inline content
+ * only: a cell's second paragraph becomes `<br>` rather than starting a line.
  *
  * An empty document exports as an empty string rather than a lone newline: both
  * an empty file and a file of one newline are valid GFM, and `""` is the one that
@@ -72,6 +81,31 @@ function codeSpan(text: string): string {
     text.startsWith("`") || text.endsWith("`") || (text.startsWith(" ") && text.endsWith(" "));
 
   return `${fence}${padded ? ` ${text} ` : text}${fence}`;
+}
+
+/**
+ * An image as the one line GFM has for it: the alt text in the label and the
+ * document's own bytes as the destination.
+ *
+ * The alt is escaped like any other text run, because GFM reads the label as
+ * inline content: an alt with a `]` would end it early. An image without alt text
+ * keeps the empty label (`![](…)`) rather than gaining a placeholder, which is
+ * what "alt text or nothing" means to a screen reader. A line break in an alt is
+ * folded to a space so the image cannot end its own line.
+ *
+ * The width is not written: GFM has no width syntax. It is the one thing this
+ * writer drops, and it is recorded in `rules.md`; the document and the HTML export
+ * both keep it, so no reader of this file loses the picture.
+ */
+function imageMarkdown(node: JSONContent): string {
+  const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt.replace(/\r\n?|\n/gu, " ") : "";
+  const src = typeof node.attrs?.src === "string" ? node.attrs.src : "";
+
+  // An image with no source has nothing to load; text is what remains of it, the
+  // same answer the import gives an image it cannot draw (#220's rule).
+  if (src === "") return escapeText(alt);
+
+  return `![${escapeText(alt)}](${linkDestination(src)})`;
 }
 
 /**
@@ -240,6 +274,130 @@ function renderList(node: JSONContent, indent: number): string {
   return lines.join("\n");
 }
 
+/**
+ * One row of a pipe table, padded to the grid's width.
+ *
+ * Every row is padded to the widest row rather than left short: GFM ends a row at
+ * its own pipe count, so a table whose rows disagree is not one table. A table the
+ * editor makes is rectangular, so this guard is for a document from elsewhere.
+ */
+function pipeRow(cells: readonly string[], columns: number): string {
+  const padded = Array.from({ length: columns }, (_, index) => cells[index] ?? "");
+
+  return `| ${padded.join(" | ")} |`;
+}
+
+/**
+ * A cell's text, escaped for the row before the format.
+ *
+ * GFM splits a row into cells before it reads inline syntax, so a `|` splits cells
+ * even inside a code span; the table parser reads the `\|` back as a literal pipe.
+ * Everything else is the writer's ordinary escaping, with the marks around it.
+ */
+function renderCellText(node: JSONContent): string {
+  const text = node.text ?? "";
+  const marks = node.marks ?? [];
+
+  if (marks.some((mark) => mark.type === "code")) return codeSpan(text.replace(/\|/gu, "\\|"));
+
+  return applyMarks(escapeText(text).replace(/\|/gu, "\\|"), marks);
+}
+
+/**
+ * An image as a cell's inline text.
+ *
+ * The row is split into cells before the image's own syntax is read, so a `|` in
+ * the alt text has to be escaped for the row too; the source is a `data:` URL and
+ * cannot contain one, but escaping the whole line is the one rule that cannot miss.
+ */
+function cellImageMarkdown(node: JSONContent): string {
+  return imageMarkdown(node).replace(/\|/gu, "\\|");
+}
+
+/**
+ * A cell's inline content, with the row's own rules: no line-start guard, and a
+ * hard break written as `<br>`.
+ *
+ * A newline inside a row would end the row rather than start a line, and `<br>` is
+ * the one inline form GFM readers keep on the same row.
+ */
+function renderCellInline(nodes: readonly JSONContent[] | undefined): string {
+  let output = "";
+
+  for (const node of nodes ?? []) {
+    if (node.type === "hardBreak") {
+      output += "<br>";
+      continue;
+    }
+
+    if (node.type === "image") {
+      output += cellImageMarkdown(node);
+      continue;
+    }
+
+    if (node.type === "text" && typeof node.text === "string" && node.text !== "") {
+      output += renderCellText(node);
+      continue;
+    }
+
+    if (node.content !== undefined) output += renderCellInline(node.content);
+  }
+
+  return output;
+}
+
+/** One cell block as the single line a row can hold. */
+function renderCellBlock(block: JSONContent): string {
+  if (block.type === "image") return cellImageMarkdown(block);
+  if (block.type === "paragraph") return renderCellInline(block.content);
+
+  // GFM cannot nest a block such as a list in a cell: the words survive, the
+  // structure does not, and `<br>` is what keeps the lines apart.
+  return (block.content ?? [])
+    .map(renderCellBlock)
+    .filter((line) => line !== "")
+    .join("<br>");
+}
+
+/** One cell as its row's text: its blocks flattened, joined by `<br>`. */
+function renderCell(node: JSONContent): string {
+  return (node.content ?? [])
+    .map(renderCellBlock)
+    .filter((line) => line !== "")
+    .join("<br>");
+}
+
+/**
+ * A table as a GFM pipe table (#219).
+ *
+ * The first row is the header because that is the row the editor makes a header
+ * row; GFM has room for exactly one, and the delimiter row under it is what tells
+ * a reader these lines are a table. A table with no rows says nothing, the same
+ * answer an empty heading gets.
+ */
+function renderTable(node: JSONContent): string {
+  const rows = (node.content ?? [])
+    .filter((child) => child.type === "tableRow")
+    .map((row) =>
+      (row.content ?? [])
+        .filter((child) => child.type === "tableCell" || child.type === "tableHeader")
+        .map(renderCell),
+    );
+  const columns = Math.max(0, ...rows.map((cells) => cells.length));
+  const [header = [], ...body] = rows;
+
+  if (rows.length === 0 || columns === 0) return "";
+
+  return [
+    pipeRow(header, columns),
+    pipeRow(
+      Array.from({ length: columns }, () => "---"),
+      columns,
+    ),
+    ...body.map((cells) => pipeRow(cells, columns)),
+  ].join("\n");
+}
+
 /** One block as GFM lines, with no trailing newline; `""` means it says nothing. */
 function renderBlock(node: JSONContent): string {
   switch (node.type) {
@@ -252,6 +410,12 @@ function renderBlock(node: JSONContent): string {
 
     case "paragraph":
       return renderInline(node.content, true);
+
+    case "image":
+      return imageMarkdown(node);
+
+    case "table":
+      return renderTable(node);
 
     case "blockquote": {
       const inner = (node.content ?? [])

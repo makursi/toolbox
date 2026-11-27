@@ -80,3 +80,28 @@ describe("documentTitle", () => {
     expect(documentTitle(documentOf({ content: [text("正文")], type: "paragraph" }))).toBe("");
   });
 });
+
+/**
+ * An image is content, so replacing a draft that holds one has to ask (#216).
+ *
+ * `isEmptyDocument` is the only thing standing between an import and losing what the
+ * visitor placed, and a picture is exactly the kind of thing a document can lose
+ * without a word: it paints nothing in the text, so a "does it say anything" walk
+ * that reads words alone answers no. The image is a leaf with no text of its own,
+ * which is why it needs its own case rather than falling out of the paragraph ones.
+ */
+describe("an image in the document", () => {
+  const image = {
+    attrs: { alt: "一张图", src: "data:image/png;base64,AA==", width: 100 },
+    type: "image",
+  } as const;
+
+  it("counts as content, in the body or on its own", () => {
+    expect(
+      isEmptyDocument(
+        documentOf({ attrs: { level: 1 }, type: "heading" }, image, { type: "paragraph" }),
+      ),
+    ).toBe(false);
+    expect(isEmptyDocument(documentOf(image))).toBe(false);
+  });
+});

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   HISTORY_DISABLED_REASON,
+  IMAGE_ALT_FALLBACK,
+  IMAGE_INSERT_LABEL,
+  IMAGE_REFUSAL_TEXT,
   IMPORT_CANCEL_LABEL,
   IMPORT_CONFIRM_LABEL,
   IMPORT_DIALOG_DESCRIPTION,
@@ -144,5 +147,59 @@ describe("the import confirmation copy", () => {
 
     expect(IMPORT_DIALOG_TITLE.endsWith("？")).toBe(true);
     expect(IMPORT_DIALOG_DESCRIPTION.endsWith("。")).toBe(true);
+  });
+});
+
+/**
+ * The four sentences an image is refused with (#216).
+ *
+ * A refusal has to name the rule it broke, because the visitor's next move depends
+ * on which one it was: a resized file fixes 过大, a different screenshot fixes 类型,
+ * and a full document fixes neither. So the four are held apart here, with the
+ * limits the rules actually enforce spelled out — the numbers exist in two places
+ * (the admission module and these sentences) and only one of them can be wrong
+ * without this test noticing.
+ */
+describe("the image refusal copy", () => {
+  it("has one different sentence for each of the four rules", () => {
+    const sentences = Object.values(IMAGE_REFUSAL_TEXT);
+
+    expect(sentences).toHaveLength(4);
+    expect(new Set(sentences).size).toBe(4);
+  });
+
+  it("names the formats it takes and the two per-file limits", () => {
+    expect(IMAGE_REFUSAL_TEXT.type).toContain("JPEG");
+    expect(IMAGE_REFUSAL_TEXT.type).toContain("PNG");
+    expect(IMAGE_REFUSAL_TEXT.type).toContain("WebP");
+    expect(IMAGE_REFUSAL_TEXT.type).toContain("GIF");
+    expect(IMAGE_REFUSAL_TEXT.size).toContain("5 MB");
+    expect(IMAGE_REFUSAL_TEXT.size).toContain("2 MB");
+  });
+
+  it("says what the document's two limits are", () => {
+    expect(IMAGE_REFUSAL_TEXT.count).toContain("十张");
+    expect(IMAGE_REFUSAL_TEXT.total).toContain("40 MB");
+  });
+
+  it("is a sentence: full-width stop, no dash, no Latin mark at the end", () => {
+    for (const sentence of Object.values(IMAGE_REFUSAL_TEXT)) {
+      expect(sentence.endsWith("。"), sentence).toBe(true);
+      expect(sentence, sentence).not.toMatch(/[—–]/);
+      expect(sentence, sentence).not.toContain("——");
+      expect(sentence, sentence).not.toMatch(/[,.;:!?]$/);
+    }
+  });
+
+  it("names the toolbar control the visitor opens", () => {
+    expect(IMAGE_INSERT_LABEL).toBe("插入图片");
+  });
+
+  it("has a word for the alt text when the file's name says nothing", () => {
+    // A file called `image.png` or `.png` leaves no words, and an `<img>` with no
+    // alt is skipped or read out as its file name: the fallback is the only
+    // description a screen reader gets, so its wording is held here.
+    expect(IMAGE_ALT_FALLBACK).toBe("图片");
+    expect(IMAGE_ALT_FALLBACK).not.toMatch(/[—–,.;:!?]/);
   });
 });
