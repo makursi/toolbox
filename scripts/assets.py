@@ -7,16 +7,25 @@ puts the two files where `apps/web/docs/design/assets.md` says they belong:
     apps/web/assets/tools/<slug>/cover.<ext>   the source of record (not served)
     apps/web/public/tools/<slug>/cover.jpg     the cover the card loads
 
-The crop is centred and never upscales: a source smaller than the minimum frame
-is refused rather than enlarged. EXIF orientation is applied before the crop,
-so a phone photo is not laid down sideways. The source is copied, never moved,
-and kept so the crop can be redone; the output is a JPEG re-encode, which is
-irreversible.
+The geometry is fixed: apply EXIF orientation, flatten any alpha onto white,
+take the largest centred box of the ratio (4:3 by default), and refuse the
+source if that box is under 1320x990 -- never upscale. The output is 1440 wide
+by default, capped at the crop's own width, and re-encoded as a JPEG at quality
+88, which is irreversible.
+
+The default copies the input and leaves it in place; `--move` consumes it,
+which is what empties the drop box. A failed run never consumes the input: the
+served cover is written before the input is removed, and an input that is
+already a destination is kept. The slug must be kebab-case, so a path cannot
+escape the asset tree.
 
     python scripts/assets.py cover --slug rich-text-editor --input path/to/source.jpg
+    python scripts/assets.py cover --slug rich-text-editor --input inbox/x.jpg --move
     python scripts/assets.py cover --slug rich-text-editor --input source.jpg --dry-run
 
-Requires Pillow (`python -m pip install Pillow`) and nothing else.
+A dry run prints the source size, the crop box, the output size and both paths,
+and writes nothing, directories included. Requires Pillow (`python -m pip
+install Pillow`) and nothing else.
 """
 
 from __future__ import annotations
@@ -119,16 +128,29 @@ def cover(args: argparse.Namespace) -> int:
         print("dry run: nothing written")
         return 0
 
+    # An input that is already a destination is the thing a re-run reproduces,
+    # not a thing to overwrite or delete.
+    keeps_source = source in {source_target.resolve(), public_target.resolve()}
+
     source_target.parent.mkdir(parents=True, exist_ok=True)
+    public_target.parent.mkdir(parents=True, exist_ok=True)
     if source_target.resolve() != source:
         shutil.copy2(source, source_target)
         print(f"copied   source of record, {source_target.stat().st_size:,} bytes")
     else:
         print("copied   source is already the source of record")
 
-    public_target.parent.mkdir(parents=True, exist_ok=True)
     cropped.save(public_target, "JPEG", quality=args.quality, optimize=True, subsampling=2)
     print(f"wrote    {public_target.stat().st_size:,} bytes at quality {args.quality}")
+
+    # The served cover is on disk before the input goes, so any failure above
+    # leaves the drop box exactly as it was.
+    if args.move:
+        if keeps_source:
+            print("kept     input is already a destination")
+        else:
+            source.unlink()
+            print(f"moved    consumed {source.name}")
     return 0
 
 
@@ -143,6 +165,11 @@ def main(argv: list[str] | None = None) -> int:
     cover_parser.add_argument("--width", default=DEFAULT_WIDTH, type=int)
     cover_parser.add_argument("--quality", default=DEFAULT_QUALITY, type=int)
     cover_parser.add_argument("--dry-run", action="store_true")
+    cover_parser.add_argument(
+        "--move",
+        action="store_true",
+        help="consume the input once both files are written (empties the drop box)",
+    )
     cover_parser.set_defaults(run=cover)
 
     args = parser.parse_args(argv)
