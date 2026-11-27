@@ -152,3 +152,45 @@ The owner wants a new Tool whose product document (`nuxt-editor-product-spec-sim
 - **A host configuration object now.** It would be an API for a consumer that does not exist.
 - **Extracting the editor to a package now.** The second-consumer threshold is the repo's rule, and the page is the first consumer.
 - **A document size cap.** A number picked without evidence would refuse ordinary long documents; the quota refusal is the real boundary.
+
+---
+
+# Rich Text Editor V2 — images and tables (2026-11-27)
+
+## The question
+
+V1 landed (#205, slices #206–#212, merged to main), and #214 lists what the product document still lacks. The owner asked for V2. Three rounds settled the scope and the mechanics: images and tables are this slice, Emoji is cut, and the block menu waits for V3.
+
+## Settled branches
+
+1. **V2 is images and tables.** They share one acceptance line ("the document can hold something that is not text"), and both change the two writers and the two parsers, so splitting them would edit the same code twice.
+2. **Emoji is cut** (owner decision, 2026-11-27). The OS/IME emoji panel already inserts characters into the document; an in-app dataset and picker buys only "searchable", and the dataset must be self-hosted.
+3. **The block menu is V3**, and then only the handle and moving, not "block settings". The slash menu already converts block types.
+4. **An image is a data URL inside the document JSON.** The draft record is the image store: one truth, synchronous export, undo/redo works, and 清空 deletes one record. The cost is that every debounced save clones the bytes again, which the limits in 5 bound.
+5. **Admission is a rule set, not a progress bar.** JPEG/PNG/WebP up to 5 MB each, GIF up to 2 MB (the owner's addition), at most 10 images and 40 MB total per document; the type is sniffed, the size is read before the file, and four refusals live in the pure copy layer.
+6. **Tables are `@tiptap/extension-table` plus two UI surfaces**: a grid picker (1–10 × 1–10) in the insert group, and, while the caret is inside a table, the same trigger becomes a 表格 menu with add row above/below, add column before/after, delete row, delete column, delete table. No merged cells, no formulas, no column widths, no cell styling.
+7. **Images arrive three ways** — the insert-group button (a file input), drag onto the canvas, paste from the clipboard — and all three go through the same admission. Selecting an image shows 替换 / 替代文本 / 删除 and width presets 25/50/75/100 %.
+8. **No free drag-to-resize.** Pointer math plus a touch fallback is the control class this repo's instrument has already caught shrinking below its hit area; presets are the accessible, testable equivalent.
+9. **Export inlines.** Markdown writes `![alt](data:…)` and GFM pipe tables with the first row as the header; HTML writes `<img src="data:…">` and `<table>`. Dropping images from Markdown was rejected: it is silent loss, and "some renderers strip data URIs" is the renderer's call.
+10. **Import accepts data: images only.** GFM pipe tables and HTML tables are learned; a remote image is dropped and its alt text remains as text, because the CSP cannot draw it and a broken image is not content.
+11. **The draft record keeps `version: 1`.** The record's shape does not change; only the node types inside the JSON grow, and that is the TipTap schema's concern. A bump is for a shape change — a new field, or JSON plus blobs — which 4 removed.
+12. **Two new packages, no new seam.** `@tiptap/extension-image` and `@tiptap/extension-table` at 3.35; the pure core carries admission, both writers and both parsers, the gate carries behaviour, the instruments carry hit areas and anchors.
+
+## Open branches
+
+- The grid picker's exact interaction (hover to size vs click each cell), and where the table menu anchors.
+- Where the refusal sentence is shown on the page (an inline line under the toolbar vs beside the canvas), and whether it needs a dismiss.
+- The image and table fixtures in the gate: images built in a separate page (the Gotchas rule), and a fixture that really exceeds a limit for each refusal.
+- Whether the image panel needs "open in a new tab" for inspecting a large image.
+
+## Rejected branches, and why
+
+- **Blob in IndexedDB plus an id on the node.** It buys write performance with an ownership problem: deleted or replaced images leave orphan blobs, and a GC that could collect one an undo resurrects is exactly the state this Tool refuses elsewhere.
+- **Image-by-URL only.** The CSP's `img-src 'self'` blocks every off-origin image, so a URL can only be a data URL anyway.
+- **An in-app Emoji picker.** The OS/IME panel covers insertion; the dataset would be a self-hosted megabyte for a capability the platform already has.
+- **Free drag-to-resize.** See 8.
+- **Dropping images from the Markdown export.** Silent loss; the PRD asks for format fidelity with a documented degradation, not deletion.
+- **Bumping the draft version for new node types.** The record's shape is unchanged; the version guards the record, not the schema.
+- **Accepting remote images on import.** They cannot render, and keeping them is keeping a broken image.
+- **Merged cells, formulas, column widths.** The product document's own "basic tables only".
+- **A second store, a second record type, or a documents list.** One draft remains the model.
