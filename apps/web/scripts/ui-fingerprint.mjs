@@ -566,7 +566,7 @@ function compare(beforeFile, afterFile) {
 
     // Both files' view states, not only the "before" file's: a state that exists in
     // "after" alone used to be skipped in silence (#105).
-    const views = [...new Set([...Object.keys(b.views), ...Object.keys(a.views)])].sort();
+    const views = [...new Set([...Object.keys(b.views), ...Object.keys(a.views)])].toSorted();
     for (const view of views) {
       const bv = b.views[view];
       const av = a.views[view];
