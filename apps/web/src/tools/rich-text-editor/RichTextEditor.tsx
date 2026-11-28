@@ -1,5 +1,6 @@
 "use client";
 
+import { Highlight } from "@tiptap/extension-highlight";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
@@ -9,11 +10,14 @@ import { type DragEvent, useCallback, useEffect, useRef, useState } from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+import { BlockHandle } from "./block-handle/block-handle";
 import type { ImageRefusal } from "./core/admission";
+import { BLOCK_HANDLE_INSET, blockHandleHome } from "./core/block";
 import { IMAGE_REFUSAL_TEXT } from "./core/copy";
 import { EMPTY_DOCUMENT } from "./core/document";
 import { sanitizeHtml } from "./core/html-import";
 import type { SaveStatus } from "./core/save";
+import { Alignment } from "./editor/align-extension";
 import { ImageNode } from "./editor/image-extension";
 import {
   imageFiles,
@@ -102,6 +106,14 @@ const EDITOR_CLASS = [
   "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
   "[&_hr]:my-8 [&_hr]:border-t [&_hr]:border-border",
   "[&_a]:underline [&_a]:underline-offset-[3px]",
+  /*
+   * A highlighted run (#230) is a `<mark>` with no attributes: the mark means
+   * highlighted, and the fill is the site's measured token pair rather than a
+   * colour the document carries. The two properties are the pair the token test
+   * walks — `highlight` and `highlightInk` — so the canvas and the exported file
+   * cannot disagree about what a highlight looks like in either scheme.
+   */
+  "[&_mark]:bg-[var(--site-highlight)] [&_mark]:text-[var(--site-highlight-ink)]",
   "[&_.tableWrapper]:my-4 [&_.tableWrapper]:overflow-x-auto",
   "[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
   "[&_th]:border [&_th]:border-border [&_th]:bg-secondary [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
@@ -122,6 +134,14 @@ const EDITOR_CLASS = [
    */
   "[&_img]:my-4 [&_img]:block [&_img]:mx-auto [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md",
   "[&_img.ProseMirror-selectednode]:ring-2 [&_img.ProseMirror-selectednode]:ring-ring [&_img.ProseMirror-selectednode]:ring-offset-2 [&_img.ProseMirror-selectednode]:ring-offset-background",
+  /*
+   * The block being dragged is dimmed (#229). The class is added by a ProseMirror
+   * decoration (`editor/block-drag.ts`), not by an attribute written onto the
+   * block: ProseMirror observes its own subtree and redraws a node carrying a
+   * foreign attribute, which is what the gate caught. The rule lives here because
+   * this is the canvas's typography; the decoration is the handle's.
+   */
+  "[&_.block-dragging]:opacity-40",
 ].join(" ");
 
 /**
@@ -241,6 +261,41 @@ function EditorSurface({
   const [imageRefusal, setImageRefusal] = useState<ImageRefusal | null>(null);
 
   /*
+   * The canvas card, which the block handle measures to choose its home (#229),
+   * and the one decision that changes the card: below an 856px viewport the page
+   * gutter is narrower than a 44px control plus 8px of clearance, so the card
+   * carries a 52px left padding and the text measure narrows instead of the handle
+   * covering a glyph. `blockHandleHome` makes that decision for the handle's
+   * placement too, and the padding is `BLOCK_HANDLE_INSET` — the same two constants
+   * the placement uses — so the text and the control cannot land in different homes
+   * or disagree about where the gap is.
+   *
+   * The state is the answer, not the width: a resize recomputes it and React's
+   * own equality check turns the same answer into no render. It is initialised
+   * from the viewport rather than defaulted to `false`, because the wrong home
+   * for the first paint is a visible jump of the whole text measure when the
+   * effect catches up.
+   */
+  const canvas = useRef<HTMLDivElement | null>(null);
+  const [inset, setInset] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      blockHandleHome({ height: window.innerHeight, width: window.innerWidth }) === "inset",
+  );
+
+  useEffect(() => {
+    const onResize = () => {
+      setInset(
+        blockHandleHome({ height: window.innerHeight, width: window.innerWidth }) === "inset",
+      );
+    };
+
+    window.addEventListener("resize", onResize);
+
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  /*
    * The editor's drop and paste handlers are created with the editor, before
    * `insertImage` exists in this render, so they reach it through a ref. The ref is
    * refreshed whenever the editor changes, so a handler can never hold a stale one.
@@ -328,6 +383,22 @@ function EditorSurface({
        * `image-extension.ts` explains why both are decisions rather than defaults.
        */
       ImageNode,
+      /*
+       * 高亮 (#230). One mark and no attributes: `multicolor` stays off, so the
+       * mark carries no `color` and renders as a plain `<mark>`. The fill is the
+       * site's token, which is what makes the document's meaning "highlighted"
+       * rather than "yellow", and what lets the two exports and the canvas agree.
+       */
+      Highlight,
+      /*
+       * 对齐 (#230). A global attribute on a paragraph and a heading, over the
+       * three values the toolbar offers; `defaultAlignment` stays null so the
+       * absence of the attribute is left-alignment, which is the model's statement
+       * that left is not something the document says. `editor/align-extension.ts`
+       * holds the configuration and the one thing it overrides: the extension's
+       * own four key bindings, which this Tool's keyboard surface does not have.
+       */
+      Alignment,
       Placeholder.configure({
         /*
          * One placeholder function, two sentences: the document's first block says
@@ -565,9 +636,22 @@ function EditorSurface({
         data-slot="rich-text-canvas"
         onDragOver={handleCanvasDragOver}
         onDrop={handleCanvasDrop}
+        ref={canvas}
+        style={inset ? { paddingLeft: BLOCK_HANDLE_INSET } : undefined}
       >
         <EditorContent editor={editor} />
       </div>
+
+      {/*
+       * 块手柄 (#229) is mounted after the card on purpose. It measures the named
+       * block's rectangle on its first layout pass, and the editor's DOM is
+       * attached to the card by `EditorContent`'s own mount, which happens in the
+       * same commit: a handle rendered before the card would measure a detached
+       * block and be drawn in the wrong place until the next render. Its place in
+       * the tree has no visual meaning — it is `position: fixed` and placed from
+       * the block it names.
+       */}
+      {editor === null ? null : <BlockHandle canvas={canvas} editor={editor} />}
     </div>
   );
 }

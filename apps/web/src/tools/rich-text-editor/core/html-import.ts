@@ -3,10 +3,13 @@
  *
  * The editor's schema is a closed list: a document has paragraphs, headings,
  * lists, quotes, code blocks, rules, images and tables, and inline text has bold,
- * italic, underline, strike, code and link. Everything else a pasted or imported
- * document may carry (scripts, stylesheets, a `<head>`, layout wrappers, event
- * handlers, `javascript:` URLs, a remote image, a `data:` URL over one of the
+ * italic, underline, strike, code, highlight and link. Everything else a pasted or
+ * imported document may carry (scripts, stylesheets, a `<head>`, layout wrappers,
+ * event handlers, `javascript:` URLs, a remote image, a `data:` URL over one of the
  * image limits) is either dropped or unwrapped here, before a parser ever sees it.
+ * Two values are read out of a `style` attribute rather than dropped with it — an
+ * image's percentage width and a paragraph's or heading's alignment — and both are
+ * re-emitted in one canonical spelling.
  *
  * The output is a fragment of the elements the schema does know, and the final
  * conversion to JSON is TipTap's own: the editor hands this markup to
@@ -33,6 +36,7 @@
  */
 
 import { importAdmission, type ImageRefusal, type ImportAdmission } from "./admission";
+import { TEXT_ALIGN_HEADING_LEVELS, canonicalTextAlign } from "./align";
 import { imageAltText } from "./image";
 
 interface TextNode {
@@ -108,6 +112,7 @@ const KEPT_ELEMENTS = new Set([
   "h6",
   "hr",
   "li",
+  "mark",
   "ol",
   "p",
   "pre",
@@ -403,9 +408,14 @@ function transformElement(element: ElementNode, context: SanitizeContext): HtmlN
   }
 
   if (KEPT_ELEMENTS.has(tag)) {
+    const attrs: Record<string, string> = {};
+    const alignment = textAlignmentOf(element);
+
+    if (alignment !== null) attrs.style = alignment;
+
     return [
       {
-        attrs: {},
+        attrs,
         children: transformNodes(element.children, context),
         tag,
         type: "element",
@@ -462,6 +472,42 @@ function percentageWidth(element: ElementNode): number | null {
   if (!Number.isFinite(parsed)) return null;
 
   return Math.min(100, Math.max(1, Math.round(parsed)));
+}
+
+/**
+ * Elements whose `style` may carry a block alignment: a paragraph, or a heading
+ * 1–3.
+ *
+ * The set is derived from `core/align.ts`'s scope rather than written out, so the
+ * levels the reader accepts and the levels the writer emits cannot drift. `h4`–`h6`
+ * are headings the document holds — they are kept elements — and the alignment on
+ * one of them is dropped here: it is outside the attribute's scope, which is a
+ * realm no toolbar row can name or undo.
+ */
+const TEXT_ALIGN_ELEMENTS: ReadonlySet<string> = new Set([
+  "p",
+  ...TEXT_ALIGN_HEADING_LEVELS.map((level) => `h${String(level)}`),
+]);
+
+/**
+ * The canonical `text-align` style a paragraph or a heading 1–3 declares (#230).
+ *
+ * This is `percentageWidth`'s sibling: `style` is not a kept attribute, and the
+ * two values read out of it are the ones that are part of the document — an
+ * image's width and a block's alignment. The value is put through
+ * `core/align.ts`'s one whitelist and re-emitted from scratch, so
+ * `TEXT-ALIGN:CENTER; color: red` arrives as `text-align: center`, `left` and
+ * `justify` arrive as no style at all, and a style on anything but a p or an h1–h3
+ * is not an alignment. TipTap's own parser reads the attribute back from the style
+ * this emits, which is why the canonical form has to be the CSS spelling.
+ */
+function textAlignmentOf(element: ElementNode): string | null {
+  if (!TEXT_ALIGN_ELEMENTS.has(element.tag)) return null;
+
+  const written = /(?:^|;)\s*text-align\s*:\s*([a-z]+)/iu.exec(element.attrs.style ?? "");
+  const alignment = canonicalTextAlign(written?.[1]);
+
+  return alignment === null ? null : `text-align: ${alignment}`;
 }
 
 /**

@@ -109,20 +109,18 @@ export async function writeInTitle(page: Page, text: string): Promise<void> {
 }
 
 /**
- * Press a control where it is drawn.
- *
- * The toolbar is the first part of this page a visitor reaches with a pointer, and
- * the point of pressing at coordinates is that a control can look right and be
- * dead to the mouse (the overlay that grows a hit area can become the target
- * instead of the element that owns the click). A keyboard path would never see
- * that, so every toolbar claim goes through here.
+ * Where a control is drawn, with the two guards every pointer press on this page
+ * needs.
  *
  * `scrollIntoViewIfNeeded` first, and the viewport check second: `page.mouse.click`
  * takes viewport coordinates and drops anything outside them without a word, so a
  * control measured below the fold or beyond the toolbar's horizontal scroll would
  * read as a missing handler rather than as a missing scroll (`e2e/tool-page.ts`).
+ * It is a function of its own because `pressAt` is no longer the only gesture that
+ * starts at a control: the block handle's drag starts at the same point and must
+ * make the same two checks rather than growing a second copy of them.
  */
-export async function pressAt(page: Page, control: Locator): Promise<void> {
+export async function pointAt(page: Page, control: Locator): Promise<{ x: number; y: number }> {
   await control.scrollIntoViewIfNeeded();
 
   const box = await control.boundingBox();
@@ -139,6 +137,21 @@ export async function pressAt(page: Page, control: Locator): Promise<void> {
     );
   }
 
+  return point;
+}
+
+/**
+ * Press a control where it is drawn.
+ *
+ * The toolbar is the first part of this page a visitor reaches with a pointer, and
+ * the point of pressing at coordinates is that a control can look right and be
+ * dead to the mouse (the overlay that grows a hit area can become the target
+ * instead of the element that owns the click). A keyboard path would never see
+ * that, so every toolbar claim goes through here.
+ */
+export async function pressAt(page: Page, control: Locator): Promise<void> {
+  const point = await pointAt(page, control);
+
   await page.mouse.click(point.x, point.y);
 }
 
@@ -147,7 +160,7 @@ export async function pressAt(page: Page, control: Locator): Promise<void> {
  *
  * It is scoped to the pinned toolbar's region because there are two toolbars on this
  * page: the one above the canvas and the one that follows a selection, which offers
- * the same five marks and the link. A document-wide query would find both names and
+ * the same six marks and the link. A document-wide query would find both names and
  * fail on the ambiguity rather than on the control.
  */
 export function toolbarControl(page: Page, name: string): Locator {
@@ -184,6 +197,30 @@ export function slashItem(page: Page, label: string): Locator {
 /** The block menu's trigger, whose name carries the block at the cursor. */
 export function blockTrigger(page: Page): Locator {
   return page.getByRole("button", { name: /^块类型：/ });
+}
+
+/**
+ * 对齐's trigger (#230), whose name carries the alignment in force.
+ *
+ * It is the second popover trigger in the toolbar, and it is addressed the way
+ * `blockTrigger` is: by the prefix of the accessible name that says what it is,
+ * so a case can read the value in force without opening it.
+ */
+export function alignTrigger(page: Page): Locator {
+  return page.getByRole("button", { name: /^对齐：/ });
+}
+
+/**
+ * One row of the alignment popover.
+ *
+ * Scoped to the popover's own content because 左 / 居中 / 右 are short names that a
+ * document's words could otherwise satisfy: the row is a control of that popover,
+ * and the claim is about the row rather than about any button on the page.
+ */
+export function alignRow(page: Page, label: string): Locator {
+  return page
+    .locator('[data-slot="popover-content"]')
+    .getByRole("button", { name: label, exact: true });
 }
 
 /**
@@ -695,4 +732,123 @@ export function replacementPng(name = "替换.png"): ImageFile {
     mimeType: "image/png",
     name,
   };
+}
+
+/**
+ * 块手柄: the control beside the block the pointer or the caret is on (#229).
+ *
+ * It is addressed by the accessible name a screen reader reads, which is also the
+ * name the hit-area Instrument declares. It is a real `<button>`, so it is in the
+ * tab order and `focus()` is a legitimate way for the gate to press it with a
+ * keyboard — the pointer path goes through `pressAt` instead.
+ */
+export function blockHandle(page: Page): Locator {
+  return page.getByRole("button", { name: "块手柄", exact: true });
+}
+
+/** The 块操作 menu, by the name its region carries. */
+export function blockMenu(page: Page): Locator {
+  return page.getByRole("menu", { name: "块操作" });
+}
+
+/** One row of the block menu: 上移, 下移, 删除 or a block type's label. */
+export function blockMenuItem(page: Page, name: string): Locator {
+  return blockMenu(page).getByRole("menuitem", { name, exact: true });
+}
+
+/** The 2px ink line that marks where a dragged block will land. */
+export function blockDropLine(page: Page): Locator {
+  return page.locator('[data-slot="block-drop-line"]');
+}
+
+/**
+ * The document's top-level blocks, in document order.
+ *
+ * The editor's own children, not `canvas p`: the gate needs the title heading and
+ * the body paragraphs in one list to assert an order, and a selector that only
+ * names paragraphs cannot say which block the heading is.
+ */
+export function documentBlocks(page: Page): Locator {
+  return page.locator('[data-slot="rich-text-canvas"] [contenteditable="true"] > *');
+}
+
+/** The text of each top-level block, in document order. */
+export async function blockTexts(page: Page): Promise<string[]> {
+  return documentBlocks(page).evaluateAll((blocks) =>
+    blocks.map((block) => (block.textContent ?? "").trim()),
+  );
+}
+
+/**
+ * A point inside the block at `index`, near its bottom edge.
+ *
+ * The drop boundary is decided by the blocks' vertical midpoints, so a point near
+ * the bottom of a block is unambiguously past that block's own midpoint; the
+ * horizontal coordinate is irrelevant to the boundary and only has to be on the
+ * page. `scrollIntoViewIfNeeded` and the viewport check are the same ones
+ * `pointAt` makes, because a point measured below the fold is dropped silently by
+ * `page.mouse.move`.
+ */
+export async function blockBottomPoint(
+  page: Page,
+  index: number,
+): Promise<{ x: number; y: number }> {
+  const block = documentBlocks(page).nth(index);
+  await block.scrollIntoViewIfNeeded();
+
+  const box = await block.boundingBox();
+  if (box === null) throw new Error(`the block at ${index} has no geometry to drop against`);
+
+  const point = { x: box.x + box.width / 2, y: box.y + box.height - 3 };
+  const viewport = page.viewportSize();
+  if (
+    viewport !== null &&
+    (point.x < 0 || point.y < 0 || point.x >= viewport.width || point.y >= viewport.height)
+  ) {
+    throw new Error(
+      `the block at ${index} is at ${Math.round(point.x)},${Math.round(point.y)}, outside the ${viewport.width}×${viewport.height} viewport, so a drop there would be dropped rather than fail`,
+    );
+  }
+
+  return point;
+}
+
+/**
+ * Begin a drag of 块手柄: hover the block the handle should name, press the handle
+ * where it is drawn, and move far enough that the gesture is a drag.
+ *
+ * Two real pointer moves are needed before the assertion that follows: the first
+ * crosses the 4px threshold (which is what draws the drop line and dims the
+ * source), the second moves the pointer to the block the drag is about. The press
+ * itself starts at `pointAt`'s measured handle, so the same viewport guard the
+ * page's other presses make is what guards this one.
+ */
+export async function beginBlockDrag(
+  page: Page,
+  from: Locator,
+  to: { x: number; y: number },
+): Promise<void> {
+  await from.hover();
+
+  const start = await pointAt(page, blockHandle(page));
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x, start.y + 8, { steps: 4 });
+  await page.mouse.move(to.x, to.y, { steps: 12 });
+}
+
+/**
+ * Drag 块手柄 from one block to a point, and release.
+ *
+ * `from` is the block whose handle names the drag — hovered first, because that is
+ * how the control gets to a block the caret is not in. The move is a real
+ * down/move/up sequence, the only shape a pointer drag has in the browser.
+ */
+export async function dragBlockHandle(
+  page: Page,
+  from: Locator,
+  to: { x: number; y: number },
+): Promise<void> {
+  await beginBlockDrag(page, from, to);
+  await page.mouse.up();
 }

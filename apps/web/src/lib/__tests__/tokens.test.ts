@@ -60,8 +60,16 @@ const pairings: readonly Pairing[] = [
   { about: "muted text on a hovered surface", floor: AA_TEXT, on: "dimmed", over: "surfaceHover" },
   { about: "an input's placeholder", floor: AA_TEXT, on: "placeholder", over: "surface" },
   { about: "a filled control's label", floor: AA_TEXT, on: "canvas", over: "text" },
+  { about: "highlighted text on its fill", floor: AA_TEXT, on: "highlightInk", over: "highlight" },
   { about: "error text on the page", floor: AA_TEXT, on: "error", over: "canvas" },
   { about: "error text in a card", floor: AA_TEXT, on: "error", over: "surface" },
+  {
+    about: "the highlight fill, which is decoration behind the words",
+    floor: null,
+    on: "highlight",
+    over: "canvas",
+    why: "it is a background a marked run is painted on, not a control's boundary or text, so WCAG's 4.5:1 is not the number it has to meet; it only has to be visibly tinted from the page, and it is measured here so a later value that vanishes into the canvas is a red test rather than a look nobody checked.",
+  },
   {
     about: "the hairline, which is decoration",
     floor: null,

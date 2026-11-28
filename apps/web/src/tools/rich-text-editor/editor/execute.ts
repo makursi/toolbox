@@ -1,6 +1,11 @@
 import { createTable } from "@tiptap/extension-table";
+import { closeHistory } from "@tiptap/pm/history";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 
+import type { BlockOperationId } from "../core/block";
+import { moveBlockIndex } from "../core/block";
 import type { CommandId } from "../core/commands";
 import type { TableOperationId, TableSize } from "../core/table";
 import { insertionPointAfterSelectedNode } from "./insertion-point";
@@ -9,9 +14,11 @@ import { insertionPointAfterSelectedNode } from "./insertion-point";
  * What each command of the table does, as one TipTap chain.
  *
  * The table says what exists; this map says what it does, and it is the only such
- * map: the pinned toolbar, the slash menu and the selection toolbar all run a
- * command through `runCommand`, so a command cannot behave one way in the menu and
- * another on the bar. `Record<Exclude<CommandId, "link" | "image" | "table">, ...>`
+ * map: the pinned toolbar, the slash menu, the selection toolbar and the block
+ * menu's four block-type rows all run a command through `runCommand` (the last of
+ * them through `runCommandOnBlock`, which moves the selection into the named block
+ * first), so a command cannot behave one way in one menu and another elsewhere.
+ * `Record<Exclude<CommandId, "link" | "image" | "table">, ...>`
  * is the exhaustiveness check TipTap's own commands cannot give: adding an id to
  * the table without a line here is a `tsc` error rather than a control that does
  * nothing.
@@ -63,6 +70,9 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   code: (editor) => {
     editor.chain().focus().toggleCode().run();
   },
+  highlight: (editor) => {
+    editor.chain().focus().toggleHighlight().run();
+  },
   "bullet-list": (editor) => {
     editor.chain().focus().toggleBulletList().run();
   },
@@ -71,6 +81,21 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   },
   "task-list": (editor) => {
     editor.chain().focus().toggleTaskList().run();
+  },
+  /*
+   * Alignment's three rows (#230). Left is the absence of the attribute rather
+   * than a value it carries, so the left row unsets it: `setTextAlign("left")`
+   * would write `style="text-align: left"` and make the same document compare
+   * unequal to one that was never aligned.
+   */
+  "align-left": (editor) => {
+    editor.chain().focus().unsetTextAlign().run();
+  },
+  "align-center": (editor) => {
+    editor.chain().focus().setTextAlign("center").run();
+  },
+  "align-right": (editor) => {
+    editor.chain().focus().setTextAlign("right").run();
   },
   blockquote: (editor) => {
     editor.chain().focus().toggleBlockquote().run();
@@ -180,4 +205,213 @@ const TABLE_EXECUTORS: Record<TableOperationId, (editor: Editor) => void> = {
 /** Run one contextual table action. */
 export function runTableOperation(editor: Editor, id: TableOperationId): void {
   TABLE_EXECUTORS[id](editor);
+}
+
+/**
+ * A top-level block of the document: what it is, where it starts, and which of the
+ * document's blocks it is.
+ *
+ * `pos` is a document position at a node boundary, which is what a caret's
+ * `$from.before(1)` and a pointer's measured block both give. `index` is the same
+ * block counted among the document's top-level children, which is what the move
+ * arithmetic and the menu's two disabled ends are about.
+ */
+export interface TopLevelBlock {
+  readonly index: number;
+  readonly node: ProseMirrorNode;
+  readonly pos: number;
+}
+
+/**
+ * Every top-level block of the document, in document order.
+ *
+ * The block menu's snapshot, the block arithmetic and the two operations all need
+ * the same walk, so it is one function rather than a `doc.forEach` at each call
+ * site: a second copy is a second answer to "what is a top-level block", and the
+ * menu's index of a block has to be the index the move arithmetic uses.
+ */
+export function topLevelBlocks(doc: ProseMirrorNode): readonly TopLevelBlock[] {
+  const blocks: TopLevelBlock[] = [];
+
+  doc.forEach((node, offset, index) => blocks.push({ index, node, pos: offset }));
+
+  return blocks;
+}
+
+/**
+ * The top-level block that starts at `pos`, or `null` when no block does.
+ *
+ * A block operation always arrives with a position a block starts at — the caret's
+ * `$from.before(1)` for a menu action, a measured child's offset for a drag — so
+ * this is the one place that turns such a position into the node and index the
+ * arithmetic needs. A position inside a block is not one: the operations act on
+ * whole blocks, and a caller that handed over a text position has already made a
+ * mistake that this guard turns into nothing rather than into a wrong deletion.
+ */
+function blockAt(doc: ProseMirrorNode, pos: number): TopLevelBlock | null {
+  return topLevelBlocks(doc).find((block) => block.pos === pos) ?? null;
+}
+/**
+ * Run a command-table command on the block at `pos` rather than on wherever the
+ * selection happens to be (#229).
+ *
+ * The block menu's four conversions are the table's own `block` rows, so they run
+ * through `runCommand` like every other surface's commands; what differs is which
+ * block they apply to. A handle can name a block the caret is not in — it follows
+ * the pointer — so the selection is moved into the named block first. Existing
+ * selections that are already inside it are left alone, because then the command
+ * means what the caret says rather than what the menu says.
+ */
+export function runCommandOnBlock(editor: Editor, id: CommandId, pos: number): void {
+  const block = blockAt(editor.state.doc, pos);
+  if (block === null) return;
+
+  const { from, to } = editor.state.selection;
+  const inside = from >= block.pos && to <= block.pos + block.node.nodeSize;
+
+  if (!inside) {
+    if (block.node.isTextblock) editor.commands.setTextSelection(block.pos + 1);
+    else editor.commands.setNodeSelection(block.pos);
+  }
+
+  runCommand(editor, id);
+}
+
+/**
+ * Where a block of `nodeSize` starts after `count` top-level children of `doc`.
+ *
+ * A document position is the sum of the sizes before it; the move needs the
+ * position a block lands at in the document left after the source was removed,
+ * and this is that sum written once instead of at each call site.
+ */
+function positionAfter(doc: ProseMirrorNode, count: number): number {
+  let pos = 0;
+
+  for (let index = 0; index < count; index++) pos += doc.child(index).nodeSize;
+
+  return pos;
+}
+
+/**
+ * Move the block at `pos` to a drop boundary, in one transaction.
+ *
+ * `boundary` is the index of the gap the block was dropped in, counted **before**
+ * the block is taken out (`core/block.ts`'s `dropBoundary`). The deletion shifts
+ * every index after the source down by one, so the insertion point is
+ * `moveBlockIndex(from, boundary)`, not `boundary` — the case the pure module
+ * exists for.
+ *
+ * Both steps are in one transaction, which is the ticket's requirement: one 撤销
+ * puts the block back. `closeHistory` opens a history group first, for the reason
+ * 删除 in the image panel does: ProseMirror merges a change into the previous undo
+ * step when it happens soon after and touches adjacent content, so without the
+ * group a drag right after typing could be undone together with the typing.
+ *
+ * The caret follows the block when it was inside it. A drag that names a block the
+ * caret is not in leaves the caret where it was, mapped through the moved text —
+ * a pointer gesture on one block must not move the visitor's caret in another.
+ */
+export function moveBlockToBoundary(editor: Editor, pos: number, boundary: number): void {
+  const { state, view } = editor;
+  const source = blockAt(state.doc, pos);
+  if (source === null) return;
+
+  const target = moveBlockIndex(
+    source.index,
+    Math.max(0, Math.min(boundary, state.doc.childCount)),
+  );
+  if (target === source.index) return;
+
+  const { selection } = state;
+  const blockEnd = source.pos + source.node.nodeSize;
+  const contentStart = source.pos + 1;
+  const caretInside = selection.from >= source.pos && selection.to <= blockEnd;
+  const nodeSelected = selection instanceof NodeSelection && selection.from === source.pos;
+  const anchorOffset = Math.max(
+    0,
+    Math.min(selection.anchor - contentStart, source.node.content.size),
+  );
+  const headOffset = Math.max(0, Math.min(selection.head - contentStart, source.node.content.size));
+
+  const tr = state.tr;
+  closeHistory(tr);
+  tr.delete(source.pos, blockEnd);
+  const insertPos = positionAfter(tr.doc, target);
+  tr.insert(insertPos, source.node);
+
+  if (nodeSelected) {
+    tr.setSelection(NodeSelection.create(tr.doc, insertPos));
+  } else if (caretInside) {
+    tr.setSelection(
+      TextSelection.create(tr.doc, insertPos + 1 + anchorOffset, insertPos + 1 + headOffset),
+    );
+  }
+
+  view.dispatch(tr);
+  view.focus();
+}
+
+/**
+ * Delete the block at `pos` in one transaction, leaving the caret in a block that
+ * can be typed in.
+ *
+ * The group is opened for the reason the move opens one. When the caret was in the
+ * deleted block the selection is placed with `Selection.near`, because the mapped
+ * position after a deletion is the boundary itself and that is not always a text
+ * position — the editor has to end up somewhere the visitor can write. A document
+ * whose last block was not a paragraph gets one back from StarterKit's own
+ * `TrailingNode`, the way 删除表格 does, so "delete the only paragraph" leaves a
+ * paragraph rather than a heading with nowhere to type below it.
+ */
+function deleteBlock(editor: Editor, pos: number): void {
+  const { state, view } = editor;
+  const source = blockAt(state.doc, pos);
+  if (source === null) return;
+
+  const blockEnd = source.pos + source.node.nodeSize;
+  const caretInside = state.selection.from >= source.pos && state.selection.to <= blockEnd;
+
+  const tr = state.tr;
+  closeHistory(tr);
+  tr.delete(source.pos, blockEnd);
+
+  if (caretInside) {
+    tr.setSelection(Selection.near(tr.doc.resolve(Math.min(source.pos, tr.doc.content.size)), 1));
+  }
+
+  view.dispatch(tr);
+  view.focus();
+}
+
+/**
+ * What each block-menu operation does, as one transaction on the block it names.
+ *
+ * It is a second executor map for the reason the table's seven are: these act on
+ * one block rather than on the document-wide selection the command table's
+ * commands act on, they are reachable from the block menu alone, and the toolbar
+ * never renders them. `Record<BlockOperationId, ...>` is the exhaustiveness check
+ * the menu relies on, and the two moves are one arithmetic with a direction —
+ * 上移 drops the block at its own index (before the previous block) and 下移 at
+ * its index plus two (after the next one), which is the same boundary the drag
+ * computes with a pointer.
+ */
+const BLOCK_EXECUTORS: Record<BlockOperationId, (editor: Editor, pos: number) => void> = {
+  "move-up": (editor, pos) => {
+    const source = blockAt(editor.state.doc, pos);
+    if (source === null) return;
+
+    moveBlockToBoundary(editor, pos, Math.max(source.index - 1, 0));
+  },
+  "move-down": (editor, pos) => {
+    const source = blockAt(editor.state.doc, pos);
+    if (source === null) return;
+
+    moveBlockToBoundary(editor, pos, Math.min(source.index + 2, editor.state.doc.childCount));
+  },
+  delete: (editor, pos) => deleteBlock(editor, pos),
+};
+
+/** Run one block-menu operation on the block at `pos`. */
+export function runBlockOperation(editor: Editor, id: BlockOperationId, pos: number): void {
+  BLOCK_EXECUTORS[id](editor, pos);
 }

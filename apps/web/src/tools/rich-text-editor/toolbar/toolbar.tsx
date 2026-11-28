@@ -6,6 +6,7 @@ import { Fragment, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
+import { AlignControl } from "../align-control/align-control";
 import { CommandToggle } from "../command-toggle/command-toggle";
 import type { ImageRefusal } from "../core/admission";
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
@@ -26,10 +27,11 @@ import { TableControl } from "../table-control/table-control";
  * It is the table's renderer, not a second list. The groups come from
  * `commandsInGroup` in table order, so a command added to the core appears here
  * without an edit. What each command does is `runCommand` (`editor/execute.ts`),
- * which the slash menu and the selection toolbar run too: one table, one executor,
- * three surfaces. The file menu's four actions are the exception, and they say why
- * in `file-menu/file-menu.tsx`: they are file I/O around the document rather than
- * editor commands, so they have no row in the table and no executor.
+ * which the slash menu, the selection toolbar and the block menu's four block-type
+ * rows run too: one table, one executor, four surfaces. The file menu's four
+ * actions are the exception, and they say why in `file-menu/file-menu.tsx`: they
+ * are file I/O around the document rather than editor commands, so they have no
+ * row in the table and no executor.
  *
  * The state at the cursor comes from `useEditorCommandState`, so a mark that is on
  * says so and the block menu names the block the caret is in, without this component
@@ -75,6 +77,7 @@ const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
   "underline",
   "strike",
   "code",
+  "highlight",
   "bullet-list",
   "ordered-list",
   "task-list",
@@ -234,6 +237,17 @@ export function EditorToolbar({
         <Separator />
 
         {commandsInGroup("list").map(toggle)}
+
+        <Separator />
+
+        {/*
+         * Alignment is one trigger over the group's three rows (#230), not three
+         * controls: the toolbar is already at its column's width, and the values
+         * of one attribute read better as a named menu than as three buttons.
+         * Nothing else in the row renders this group, and the slash menu never
+         * will — its `block` value is outside the set the menu offers.
+         */}
+        <AlignControl editor={editor} pressed={state.pressed} />
 
         <Separator />
 

@@ -38,7 +38,7 @@ describe("the command table", () => {
   });
 
   it("keeps every group's commands in the table's order", () => {
-    const groups: readonly CommandGroup[] = ["history", "block", "mark", "list", "insert"];
+    const groups: readonly CommandGroup[] = ["history", "block", "mark", "list", "align", "insert"];
     let previous = -1;
 
     for (const group of groups) {
@@ -144,11 +144,21 @@ describe("the slash menu's commands", () => {
     expect(slashCommands("图片").map((command) => command.id)).toEqual(["image"]);
   });
 
-  it("cannot reach a mark, a link or a whole-document command", () => {
-    for (const query of ["加粗", "链接", "撤销", ""]) {
+  it("cannot reach a mark, a link, an alignment or a whole-document command", () => {
+    for (const query of ["加粗", "链接", "撤销", "对齐", "居中", ""]) {
       const ids = slashCommands(query).map((command) => command.id);
 
-      for (const excluded of ["bold", "italic", "link", "undo", "redo"]) {
+      for (const excluded of [
+        "bold",
+        "italic",
+        "highlight",
+        "link",
+        "undo",
+        "redo",
+        "align-left",
+        "align-center",
+        "align-right",
+      ]) {
         expect(ids, `${query} reached ${excluded}`).not.toContain(excluded);
       }
     }
@@ -211,5 +221,81 @@ describe("the image command", () => {
     expect(ids.at(-1)).toBe("table");
     expect(ids.at(-2)).toBe("image");
     expect(ids).not.toContain("link");
+  });
+});
+
+/**
+ * The sixth inline mark (#230).
+ *
+ * 高亮 is a mark like the other five, so it belongs in the mark group and the two
+ * toolbars render it from the table. It is not a colour: the command carries the
+ * name of the construct it applies and nothing else, and the fill is the site's
+ * token, so the document has no colour to disagree with the export about.
+ */
+describe("the highlight command", () => {
+  it("is the mark group's sixth row, after 行内代码", () => {
+    expect(commandsInGroup("mark").map((command) => command.id)).toEqual([
+      "bold",
+      "italic",
+      "underline",
+      "strike",
+      "code",
+      "highlight",
+    ]);
+    expect(commandById("highlight")).toMatchObject({
+      block: "highlight",
+      group: "mark",
+      label: "高亮",
+    });
+  });
+
+  it("is reachable by its Chinese word and its English one", () => {
+    expect(filterCommands("高亮").map((command) => command.id)).toEqual(["highlight"]);
+    expect(filterCommands("highlight").map((command) => command.id)).toEqual(["highlight"]);
+  });
+});
+
+/**
+ * Alignment (#230): a new group of three rows, and a `block` value the slash
+ * menu's predicate must not know.
+ *
+ * The menu offers the constructs that produce a block. Alignment changes a block
+ * that already exists, so it is not one of them: the new `block` value is outside
+ * `SLASH_BLOCKS` on purpose, and that is what keeps it out of both the slash menu
+ * and the 块类型 popover without either one naming alignment.
+ */
+describe("the alignment commands", () => {
+  it("is its own group of three, in the order 左 / 居中 / 右", () => {
+    expect(commandsInGroup("align").map((command) => command.id)).toEqual([
+      "align-left",
+      "align-center",
+      "align-right",
+    ]);
+    expect(commandsInGroup("align").map((command) => command.label)).toEqual(["左", "居中", "右"]);
+  });
+
+  it("names a construct the slash menu cannot produce, by row or by block", () => {
+    const offered = slashCommands("");
+
+    for (const command of commandsInGroup("align")) {
+      expect(offered, command.id).not.toContain(command);
+      expect(
+        offered.map((one) => one.block),
+        `${command.id}'s block leaked into the slash menu`,
+      ).not.toContain(command.block);
+    }
+  });
+
+  it("is reachable by its Chinese word and its English one", () => {
+    expect(filterCommands("对齐").map((command) => command.id)).toEqual([
+      "align-left",
+      "align-center",
+      "align-right",
+    ]);
+    expect(filterCommands("align").map((command) => command.id)).toEqual([
+      "align-left",
+      "align-center",
+      "align-right",
+    ]);
   });
 });

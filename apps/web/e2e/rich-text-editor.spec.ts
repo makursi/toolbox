@@ -1,18 +1,29 @@
 import { readFile } from "node:fs/promises";
 
-import { expect, test, type Download } from "@playwright/test";
+import { expect, test, type Download, type Page } from "@playwright/test";
 
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
+  alignRow,
+  alignTrigger,
   altField,
   answerImportDialog,
+  beginBlockDrag,
+  blockBottomPoint,
+  blockDropLine,
+  blockHandle,
+  blockMenu,
+  blockMenuItem,
+  blockTexts,
   blockTrigger,
   bodyParagraph,
   canvas,
   clearDocument,
   deleteImage,
+  documentBlocks,
   downloadFromFileMenu,
+  dragBlockHandle,
   dropImage,
   dropImages,
   editor,
@@ -33,6 +44,7 @@ import {
   paintedPlaceholder,
   pasteImage,
   pngFile,
+  pointAt,
   pressAt,
   pressTableMenuItem,
   refusalNotice,
@@ -64,7 +76,9 @@ import {
  * command table (#207), the three ways to write without leaving the keyboard (#208),
  * the two exports (#210), the local draft with its save status (#209), the import
  * (#211), the images and tables that travel with the document (#216, #217), the
- * two formats that carry them (#219), and the same two formats read back (#220).
+ * two formats that carry them (#219), the same two formats read back (#220), the
+ * block handle and its menu (#229), and the sixth mark with block alignment
+ * (#230).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -83,12 +97,14 @@ import {
  */
 
 /**
- * The five inline marks, in the order the toolbar offers them, with the element
- * TipTap's mark renders as.
+ * The five inline marks the #207 slice introduced, in the order the toolbar offers
+ * them, with the element TipTap's mark renders as.
  *
  * Spelled out rather than read from the command table: the table is the other side
  * of this assertion, and an expectation derived from the code under test would
- * agree with it whether or not it is right.
+ * agree with it whether or not it is right. 高亮 is the sixth mark (#230) and has
+ * its own case, because its claim includes the reload and the selection toolbar
+ * as well as the toggle.
  */
 const MARKS = [
   { element: "strong", label: "加粗" },
@@ -774,7 +790,7 @@ test("a paragraph that begins with the same characters but makes no rule stays t
 });
 
 /**
- * The toolbar that follows a selection: the five marks and the link, from the same
+ * The toolbar that follows a selection: the six marks and the link, from the same
  * command table, applied at the row's own coordinates.
  *
  * Where the row sits — above the words when there is room, below them otherwise,
@@ -791,7 +807,7 @@ test("the selection toolbar offers the marks and the link, and applies them", as
   const bar = selectionToolbar(page);
   await expect(bar).toBeVisible();
 
-  for (const label of ["加粗", "斜体", "下划线", "删除线", "行内代码", "链接"]) {
+  for (const label of ["加粗", "斜体", "下划线", "删除线", "行内代码", "高亮", "链接"]) {
     await expect(selectionControl(page, label)).toBeVisible();
   }
 
@@ -1594,6 +1610,483 @@ test("替换 swaps the bytes, and a refused replacement leaves the image unchang
   await expect(refusalNotice(page)).toHaveCount(0);
   // One image, not two: a replacement is not an insert.
   await expect(imagesInCanvas(page)).toHaveCount(1);
+});
+
+/**
+ * The block handle, the block menu and drag-to-reorder (#229).
+ *
+ * The pure module (`core/block.ts`) holds the arithmetic and the words; these
+ * cases are what only a browser can answer: that a real pointer press opens the
+ * menu, that the rows act on the block the handle names rather than on the caret's,
+ * that a real drag reorders the document as one undo step, that Escape during a
+ * drag changes nothing, and that a press moving less than the drag threshold is
+ * still a press. The handle's geometry — 44×44, clear of the text, inside the
+ * viewport — is the hit-area Instrument's `block-handle-clearance`.
+ */
+async function writeThreeBlocks(page: Page): Promise<void> {
+  await open(page);
+  await writeInTitle(page, "第一块");
+  await writeInBody(page, "第二块");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("第三块");
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+}
+
+test("块手柄 opens 块操作, and each end's row says which end it is", async ({ page }) => {
+  await writeThreeBlocks(page);
+
+  const handle = blockHandle(page);
+  await expect(handle).toHaveAttribute("aria-haspopup", "menu");
+  await expect(handle).toHaveAttribute("aria-expanded", "false");
+
+  // The pointer is moved off the content column first, so the handle is beside the
+  // block holding the caret rather than beside the last block the pointer crossed.
+  await page.mouse.move(2, 2);
+
+  // A pointer press on the handle opens the menu: the radix layer and the pressed
+  // control are one gesture, not a keyboard escape hatch.
+  await pressAt(page, handle);
+  await expect(blockMenu(page)).toBeVisible();
+  await expect(handle).toHaveAttribute("aria-expanded", "true");
+  await expect(blockMenu(page).getByRole("menuitem")).toHaveText([
+    "上移",
+    "下移",
+    "删除",
+    "正文",
+    "标题 1",
+    "标题 2",
+    "标题 3",
+  ]);
+
+  // The caret is in the last block, so 下移 is disabled and says which end it is.
+  // The sentence is carried on the row for the pointer (`title`) and for a screen
+  // reader (`aria-describedby`), and the gate spells it out rather than reading
+  // the component's constant.
+  const down = blockMenuItem(page, "下移");
+  await expect(down).toBeDisabled();
+  await expect(down).toHaveAttribute("title", "这已经是最后一个块，不能再下移。");
+  const describedBy = await down.getAttribute("aria-describedby");
+  expect(describedBy, "a disabled row carries the reason a screen reader reads").not.toBeNull();
+  await expect(page.locator(`[id="${describedBy}"]`)).toHaveText(
+    "这已经是最后一个块，不能再下移。",
+  );
+
+  // Escape closes it.
+  await page.keyboard.press("Escape");
+  await expect(blockMenu(page)).toHaveCount(0);
+
+  // The first block's 上移 is the other end, and it is the handle's block that
+  // decides: the caret is put in the title, and the sentence names that end.
+  await titleBlock(page).click();
+  await pressAt(page, blockHandle(page));
+  await expect(blockMenuItem(page, "上移")).toBeDisabled();
+  await expect(blockMenuItem(page, "上移")).toHaveAttribute(
+    "title",
+    "这已经是第一个块，不能再上移。",
+  );
+});
+
+test("the block menu's rows act on the block the handle names, not on the caret", async ({
+  page,
+}) => {
+  await writeThreeBlocks(page);
+
+  // The caret stays in 第三块 from here on; the handle is moved to another block
+  // by hovering it, which is how a visitor acts on a block without clicking into
+  // it. If a row acted on the caret's block, the order below would differ.
+  await documentBlocks(page).nth(1).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "上移"));
+  await expect.poll(() => blockTexts(page)).toEqual(["第二块", "第一块", "第三块"]);
+
+  // 下移 acts on the named block too: hovering 第二块 (now first) moves it back
+  // below the title.
+  await documentBlocks(page).nth(0).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "下移"));
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+
+  // 转换为 is the table's own block group, applied to the named block. The caret
+  // is still in 第三块; the handle is moved to 第二块 (index 1), and that is what
+  // turns into a heading 2 — neither the caret's block nor the title changes type.
+  await documentBlocks(page).nth(1).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "标题 2"));
+  await expect(documentBlocks(page).nth(1)).toHaveJSProperty("tagName", "H2");
+  await expect(documentBlocks(page).nth(2)).toHaveJSProperty("tagName", "P");
+  expect(await blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+
+  // 删除 acts on the named block: hovering 第二块 and pressing 删除 removes that
+  // paragraph, not the block the caret is in.
+  await documentBlocks(page).nth(1).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "删除"));
+  await expect.poll(() => blockTexts(page)).not.toContain("第二块");
+  await expect.poll(() => blockTexts(page)).toContain("第三块");
+});
+
+/**
+ * Drag-to-reorder.
+ *
+ * The drag is a real mouse down, a move and an up from the handle's coordinates.
+ * During the drag the source block says it is the one moving and a 2px ink line
+ * is drawn at the drop boundary; on release the order changes in one transaction,
+ * so a single 撤销 puts it back.
+ */
+test("dragging 块手柄 reorders the document, and one undo restores it", async ({ page }) => {
+  await writeThreeBlocks(page);
+
+  // The source is 第二块 (index 1); its handle is reached by hovering it. The drop
+  // point is near the bottom of 第三块, which is past that block's midpoint, so the
+  // boundary is the end of the document.
+  await dragBlockHandle(page, documentBlocks(page).nth(1), await blockBottomPoint(page, 2));
+
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第三块", "第二块"]);
+  await expect(blockDropLine(page)).toHaveCount(0);
+  await expect(page.locator(".block-dragging")).toHaveCount(0);
+
+  // One 撤销, not two: the move was a single transaction with its own history
+  // group.
+  await pressAt(page, toolbarControl(page, "撤销"));
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+});
+
+test("Escape during a drag changes nothing, and a press under 4px opens the menu", async ({
+  page,
+}) => {
+  await writeThreeBlocks(page);
+
+  const source = documentBlocks(page).nth(1);
+  const to = await blockBottomPoint(page, 2);
+
+  await beginBlockDrag(page, source, to);
+
+  // The two transient marks of the gesture: the source block is the one being
+  // moved, and a 2px ink line says where it will land.
+  await expect(source).toHaveClass(/block-dragging/u);
+  await expect(blockDropLine(page)).toBeVisible();
+
+  // Escape cancels, and the release that follows must change nothing.
+  await page.keyboard.press("Escape");
+  await expect(blockDropLine(page)).toHaveCount(0);
+  await page.mouse.move(to.x, to.y + 20);
+  await page.mouse.up();
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+  await expect(page.locator(".block-dragging")).toHaveCount(0);
+
+  // A press that moves less than the 4px threshold is still a press: it opens the
+  // menu rather than starting a drag, so nothing reorders and the menu appears.
+  await documentBlocks(page).nth(1).hover();
+  const start = await pointAt(page, blockHandle(page));
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 2, start.y);
+  await page.mouse.up();
+
+  await expect(blockMenu(page)).toBeVisible();
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+});
+
+/**
+ * A document long enough to scroll, whose first body block is tall.
+ *
+ * The import path builds it: typing thirty blocks with a keyboard would cost the
+ * case nothing but seconds, and the trick is the shape, not how it was written. The
+ * tall block is what makes the scroll case below unambiguous — the pointer can sit
+ * in the middle of one block while the page scrolls under it, so the line has one
+ * reason to move and it is the page's.
+ */
+async function writeScrollingDocument(page: Page): Promise<void> {
+  const tall = "这是一段很长的话。".repeat(80);
+  const rest = Array.from({ length: 30 }, (_unused, index) => `第 ${index + 1} 段。`);
+  const markdown = ["# 长文档", "", tall, "", ...rest.flatMap((line) => [line, ""])].join("\n");
+
+  await open(page);
+  await importFromFileMenu(page, fileOf("长文档.md", "text/markdown", markdown));
+  await expect.poll(() => blockTexts(page)).toHaveLength(32);
+}
+
+/**
+ * User story 27: the drop line follows the document when the page scrolls under a
+ * still pointer.
+ *
+ * The handle is placed by a layout pass the reposition hook re-runs on every scroll;
+ * the line's top used to be written only while the pointer moved, so a wheel or
+ * PageDown mid-drag left the 2px line at the viewport coordinate it was drawn at —
+ * across the wrong gap. This case starts a real drag over a tall block, scrolls the
+ * page without moving the pointer, and reads the line again. The claim is the
+ * comparison ("it followed the document"), not a number: where the line has to land
+ * is the hit-area instrument's business, and the numbers stay there.
+ */
+test("the drop line follows the page when it scrolls under a still drag", async ({ page }) => {
+  await writeScrollingDocument(page);
+
+  const target = documentBlocks(page).nth(1);
+  await target.hover();
+
+  const box = await target.boundingBox();
+  if (box === null) throw new Error("the tall block has no geometry to drag against");
+
+  // A point well above the tall block's own midpoint, so a small scroll keeps the
+  // pointer inside the same block and the same gap under it.
+  const pointer = { x: box.x + box.width / 2, y: box.y + 60 };
+  const viewport = page.viewportSize();
+  if (
+    viewport !== null &&
+    (pointer.x < 0 || pointer.y < 0 || pointer.x >= viewport.width || pointer.y >= viewport.height)
+  ) {
+    throw new Error(
+      `the drag point is at ${Math.round(pointer.x)},${Math.round(pointer.y)}, outside the ${viewport.width}×${viewport.height} viewport, so a point there would be dropped rather than fail`,
+    );
+  }
+
+  await beginBlockDrag(page, target, pointer);
+
+  const line = blockDropLine(page);
+  await expect(line).toBeVisible();
+  const before = await line.boundingBox();
+  if (before === null) throw new Error("the drop line has no geometry to read");
+
+  const scrolled = await page.evaluate(() => window.scrollY);
+  await page.mouse.wheel(0, 60);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(scrolled);
+
+  // The pointer has not moved and the drag is still live: if the line's own place
+  // on the page is the one it kept, it is glued to the screen rather than to the
+  // document, and it is now drawn across the wrong gap.
+  await expect
+    .poll(async () => Math.round((await line.boundingBox())?.y ?? before.y))
+    .not.toBe(Math.round(before.y));
+  await expect(line).toBeVisible();
+
+  await page.mouse.up();
+  await expect(line).toHaveCount(0);
+});
+
+test("Tab reaches 块手柄, and Enter or Space opens the menu", async ({ page }) => {
+  await open(page);
+
+  const handle = blockHandle(page);
+  if (!(await handle.evaluate((element) => element instanceof HTMLButtonElement))) {
+    throw new Error("the handle is no longer a button, so it cannot be reached by Tab");
+  }
+
+  // A real Tab walk, not `.focus()`: `focus()` also succeeds on a `tabindex="-1"`
+  // element, so it would prove nothing about the tab order the ticket promises. The
+  // walk is bounded, and the bounded count is the assertion: a handle that is not in
+  // the order never arrives.
+  let steps = 0;
+  while (steps < 60 && !(await handle.evaluate((element) => element === document.activeElement))) {
+    await page.keyboard.press("Tab");
+    steps += 1;
+  }
+  expect(steps, "the number of Tab presses that reached 块手柄").toBeLessThan(60);
+  await expect(handle).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expect(blockMenu(page)).toBeVisible();
+  // The first row that can be pressed takes the focus: the caret is in the first
+  // block, where 上移 is the disabled one.
+  await expect(blockMenuItem(page, "下移")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(blockMenu(page)).toHaveCount(0);
+
+  // Space is the other key user story 11 promises. A `<button>` reports Space as a
+  // click on release, which is why this proves the menu's own toggle rather than a
+  // key the component listens for.
+  await page.keyboard.press("Space");
+  await expect(blockMenu(page)).toBeVisible();
+  await expect(blockMenuItem(page, "下移")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(blockMenu(page)).toHaveCount(0);
+});
+
+test.describe("highlight and alignment (#230)", () => {
+  /*
+   * 高亮 is the sixth mark, and the two surfaces that render the mark group render
+   * it without a second list: the pinned toolbar and the row that follows a
+   * selection. The mark is a mark — the fill is the site's token — so what this
+   * case reads is the element in the canvas and the button's own `aria-pressed`,
+   * and then the same two facts after a reload, because the mark is document
+   * content rather than a screen effect.
+   */
+  test("高亮 toggles from both toolbars, and a reload keeps the mark", async ({ page }) => {
+    await open(page);
+    await writeInBody(page, "高亮这一段。");
+    await selectBodyText(page);
+
+    const pinned = toolbarControl(page, "高亮");
+    await expect(pinned).toHaveAttribute("aria-pressed", "false");
+
+    await pressAt(page, pinned);
+    await expect(pinned).toHaveAttribute("aria-pressed", "true");
+    await expect(bodyParagraph(page).locator("mark")).toHaveText("高亮这一段。");
+
+    await pressAt(page, pinned);
+    await expect(pinned).toHaveAttribute("aria-pressed", "false");
+    await expect(bodyParagraph(page).locator("mark")).toHaveCount(0);
+
+    // The second surface offers the same row, and applies the same command.
+    const floating = selectionControl(page, "高亮");
+    await pressAt(page, floating);
+    await expect(floating).toHaveAttribute("aria-pressed", "true");
+    await expect(bodyParagraph(page).locator("mark")).toHaveText("高亮这一段。");
+
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    await page.reload();
+    await expect(editor(page)).toBeVisible();
+    await expect(bodyParagraph(page).locator("mark")).toHaveText("高亮这一段。");
+  });
+
+  /*
+   * 对齐's one trigger and its three rows (#230).
+   *
+   * The list's own no-`aria-current` assertion is part of the state claim: the
+   * value in force is the one the trigger names and the one row that says it is
+   * current, so a row that merely looks selected cannot pass. The loop over the
+   * three heading levels is the ticket's "for a paragraph and for headings 1–3",
+   * read off each element's computed alignment rather than off a class.
+   */
+  test("对齐 names the value in force, and sets it on a paragraph and on headings 1-3", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInBody(page, "对齐这一段。");
+    await selectBodyText(page);
+
+    const trigger = alignTrigger(page);
+    const block = canvas(page).locator("h1, h2, h3, p").filter({ hasText: "对齐这一段。" });
+
+    await block.click();
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：左");
+
+    await pressAt(page, trigger);
+    await expect(alignRow(page, "左")).toHaveAttribute("aria-current", "true");
+    await expect(alignRow(page, "居中")).not.toHaveAttribute("aria-current", "true");
+    await expect(alignRow(page, "右")).not.toHaveAttribute("aria-current", "true");
+
+    await pressAt(page, alignRow(page, "居中"));
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：居中");
+    await expect(block).toHaveCSS("text-align", "center");
+
+    await pressAt(page, trigger);
+    await expect(alignRow(page, "居中")).toHaveAttribute("aria-current", "true");
+    await pressAt(page, alignRow(page, "右"));
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：右");
+    await expect(block).toHaveCSS("text-align", "right");
+
+    // 左 is the absence of the attribute, not a value the document stores.
+    await pressAt(page, trigger);
+    await pressAt(page, alignRow(page, "左"));
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：左");
+    expect(await block.getAttribute("style")).toBeNull();
+
+    for (const level of [1, 2, 3] as const) {
+      await block.click();
+
+      // 左 before every level, so the 居中 press below is that level's own act:
+      // converting a block copies the attributes it already had, and a heading that
+      // arrived centered would make the press a no-op that still passes. Reading the
+      // style back as absent is the other half — 左 is the absence of the attribute.
+      await pressAt(page, trigger);
+      await pressAt(page, alignRow(page, "左"));
+      expect(await block.getAttribute("style"), `heading ${level} starts from 左`).toBeNull();
+
+      await pressAt(page, blockTrigger(page));
+      await pressAt(page, page.getByRole("button", { name: `标题 ${level}`, exact: true }));
+      await expect(block).toHaveJSProperty("tagName", `H${level}`);
+
+      await pressAt(page, trigger);
+      await pressAt(page, alignRow(page, "居中"));
+
+      await expect(block).toHaveJSProperty("tagName", `H${level}`);
+      await expect(block).toHaveCSS("text-align", "center");
+    }
+  });
+
+  /*
+   * Alignment is not a block command (#230).
+   *
+   * The command table's new `align` group carries a `block` value outside the
+   * slash menu's set, and the 块类型 popover reads the same `block` group. What
+   * this case proves is the outcome both surfaces have to show: the menu is still
+   * the twelve block commands and the popover is still four rows, with no
+   * alignment offered by either.
+   */
+  test("alignment is offered by neither the slash menu nor the block-type popover", async ({
+    page,
+  }) => {
+    await open(page);
+
+    await pressAt(page, blockTrigger(page));
+    await expect(page.locator('[data-slot="popover-content"]').getByRole("button")).toHaveText([
+      "正文",
+      "标题 1",
+      "标题 2",
+      "标题 3",
+    ]);
+    await page.keyboard.press("Escape");
+
+    await bodyParagraph(page).click();
+    await page.keyboard.type("/");
+    await expect(slashMenu(page)).toBeVisible();
+    await expect(slashMenuItems(page)).toHaveCount(12);
+
+    const labels = await slashMenuItems(page).evaluateAll((items) =>
+      items.map((item) => (item.textContent ?? "").trim()),
+    );
+    expect(labels).not.toContain("居中");
+    expect(labels).not.toContain("左");
+    expect(labels).not.toContain("右");
+
+    await page.keyboard.press("Escape");
+  });
+
+  /*
+   * The two exports, judged by their bytes (#230).
+   *
+   * The mark travels in both formats; the alignment travels in HTML and is the
+   * documented degradation of Markdown, exactly as the image width is. The last
+   * step imports the file the HTML export just wrote, so the round trip is proved
+   * through the page's own import: the sanitiser kept `<mark>` and the canonical
+   * style, and TipTap's parser read both back into the document.
+   */
+  test("the exports carry the mark, only the HTML carries alignment, and that file imports again", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInTitle(page, "格式导出");
+    await writeInBody(page, "高亮居中。");
+
+    await selectBodyText(page);
+    await pressAt(page, toolbarControl(page, "高亮"));
+    await expect(bodyParagraph(page).locator("mark")).toHaveCount(1);
+
+    await pressAt(page, alignTrigger(page));
+    await pressAt(page, alignRow(page, "居中"));
+    await expect(bodyParagraph(page)).toHaveCSS("text-align", "center");
+
+    const markdown = await readDownload(await downloadFromFileMenu(page, "导出 Markdown"));
+    expect(markdown).toBe("# 格式导出\n\n<mark>高亮居中。</mark>\n");
+    // Markdown has no block alignment: the words stay, the layout does not.
+    expect(markdown).not.toContain("text-align");
+    expect(markdown).not.toContain("style");
+
+    const standalone = await readDownload(await downloadFromFileMenu(page, "导出 HTML"));
+    expect(standalone).toContain('<p style="text-align: center"><mark>高亮居中。</mark></p>');
+    expect(standalone).toContain("mark { background: #e9d391; color: #111111; }");
+
+    await clearDocument(page);
+    await importFromFileMenu(page, fileOf("格式导出.html", "text/html", standalone));
+
+    await expect(canvas(page).locator("mark")).toHaveText("高亮居中。");
+    await expect(canvas(page).locator("p").filter({ hasText: "高亮居中。" })).toHaveCSS(
+      "text-align",
+      "center",
+    );
+  });
 });
 
 /**

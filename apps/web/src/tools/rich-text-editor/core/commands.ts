@@ -5,8 +5,9 @@
  * The table is pure data plus the filter the slash menu will use (#208). Nothing
  * here knows about TipTap: a command says what it applies to and what it is
  * called, and the toolbar's executor map turns its id into a TipTap chain. One
- * table is the point: a command added here is a command the toolbar and the
- * slash menu both render, so the two cannot disagree about what exists.
+ * table is the point: a command added here is a command the toolbar, the slash
+ * menu and the block menu's block-type rows all render, so they cannot disagree
+ * about what exists.
  *
  * The `block` field names the document construct a command applies: a node name
  * for a block, a mark name for an inline command, and `document` for the ones
@@ -14,7 +15,7 @@
  * has to say what a command will produce, not a description of the executor.
  */
 
-export type CommandGroup = "history" | "block" | "mark" | "list" | "insert";
+export type CommandGroup = "history" | "block" | "mark" | "list" | "align" | "insert";
 
 export type CommandId =
   | "undo"
@@ -28,9 +29,13 @@ export type CommandId =
   | "underline"
   | "strike"
   | "code"
+  | "highlight"
   | "bullet-list"
   | "ordered-list"
   | "task-list"
+  | "align-left"
+  | "align-center"
+  | "align-right"
   | "blockquote"
   | "code-block"
   | "horizontal-rule"
@@ -46,9 +51,11 @@ export type CommandBlock =
   | "underline"
   | "strike"
   | "code"
+  | "highlight"
   | "bulletList"
   | "orderedList"
   | "taskList"
+  | "textBlock"
   | "blockquote"
   | "codeBlock"
   | "horizontalRule"
@@ -77,7 +84,8 @@ export interface CommandSpec {
  *
  * `history` is first and `insert` last because that is where the toolbar puts
  * them: undo/redo at the left, the insert actions before the file menu at the
- * right. The middle groups are the block menu, the inline marks and the lists.
+ * right. The middle groups are the block menu, the inline marks, the lists and
+ * the alignment popover (`align`, #230), each in this table's own order.
  *
  * The file menu's 导入, 导出 and 清空 are not rows here. They are not editor
  * commands: two of them surround the document instead of changing it, and 清空 is
@@ -178,6 +186,21 @@ export const COMMANDS: readonly CommandSpec[] = [
     keywords: ["行内代码", "代码", "code", "inline code"],
     label: "行内代码",
   },
+  /*
+   * 高亮 is the sixth mark (#230), and it is a mark rather than a colour: the
+   * command says a run is highlighted, and the fill behind it is the site's
+   * token, so the document carries no colour for either export to disagree with.
+   * It joins this group, which is what makes both the pinned toolbar and the
+   * selection toolbar render it without a second list.
+   */
+  {
+    block: "highlight",
+    group: "mark",
+    icon: "icon-[ph--highlighter-bold]",
+    id: "highlight",
+    keywords: ["高亮", "标记", "highlight", "marker"],
+    label: "高亮",
+  },
   {
     block: "bulletList",
     group: "list",
@@ -201,6 +224,42 @@ export const COMMANDS: readonly CommandSpec[] = [
     id: "task-list",
     keywords: ["任务列表", "任务", "待办", "task", "todo", "check"],
     label: "任务列表",
+  },
+  /*
+   * Alignment (#230): a group of three rows whose `block` is `textBlock`, a
+   * construct the slash menu's set deliberately does not contain. The menu offers
+   * commands that produce a block; alignment changes one that already exists, so
+   * it must not appear there — nor in the 块类型 popover, which reads the same
+   * predicate. The three rows are one popover in the toolbar, not three controls:
+   * the column is already at its width and these are one attribute's three values.
+   *
+   * Left is the absence of the attribute, so its executor unsets it rather than
+   * setting `left`; the command still exists because the toolbar has to offer the
+   * value, and `aria-current` has to be able to name it.
+   */
+  {
+    block: "textBlock",
+    group: "align",
+    icon: "icon-[ph--text-align-left-bold]",
+    id: "align-left",
+    keywords: ["对齐", "左对齐", "左", "align", "left"],
+    label: "左",
+  },
+  {
+    block: "textBlock",
+    group: "align",
+    icon: "icon-[ph--text-align-center-bold]",
+    id: "align-center",
+    keywords: ["对齐", "居中", "中对齐", "align", "center", "middle"],
+    label: "居中",
+  },
+  {
+    block: "textBlock",
+    group: "align",
+    icon: "icon-[ph--text-align-right-bold]",
+    id: "align-right",
+    keywords: ["对齐", "右对齐", "右", "align", "right"],
+    label: "右",
   },
   {
     block: "blockquote",
@@ -273,6 +332,31 @@ export function commandById(id: CommandId): CommandSpec {
   return command;
 }
 
+/** The block group's four rows, by the heading level each one produces. */
+const HEADING_COMMANDS: Readonly<Record<number, CommandId>> = {
+  1: "heading-1",
+  2: "heading-2",
+  3: "heading-3",
+};
+
+/**
+ * The command that makes a heading of `level`, or `null` for one the table has no
+ * row for.
+ *
+ * The table's block rows are 正文 and 标题 1–3, while the document can hold a level
+ * 4–6 heading: the Markdown reader keeps whatever `#` run a file uses, and
+ * StarterKit's own input rule turns `####` into an H4. Two readers have to give the
+ * same answer for such a heading — the toolbar's state hook, which names the block
+ * at the caret, and the block menu, which marks the type of the block it acts on —
+ * so the level-to-id mapping lives here, beside the rows it is about, rather than
+ * in either reader. `null` is the answer "no row can name this block", and each
+ * reader says what it does with that: the toolbar falls back to 正文 and the menu
+ * marks none of its four rows.
+ */
+export function headingCommand(level: number): CommandId | null {
+  return HEADING_COMMANDS[level] ?? null;
+}
+
 /**
  * The commands a query matches, in the table's order.
  *
@@ -308,6 +392,10 @@ export function filterCommands(query: string): readonly CommandSpec[] {
  * second step, so applying it inserts the documented 3 × 3 directly
  * (`TABLE_DEFAULT_SIZE`); the command says a table arrives, and the surface
  * decides whether it arrives at a chosen size or the default one.
+ *
+ * `textBlock` is the one construct in the table that is deliberately absent:
+ * alignment (#230) modifies a block instead of producing one, so neither the
+ * slash menu nor the 块类型 popover may list it.
  */
 const SLASH_BLOCKS: ReadonlySet<CommandBlock> = new Set<CommandBlock>([
   "paragraph",

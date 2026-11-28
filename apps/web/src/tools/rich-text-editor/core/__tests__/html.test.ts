@@ -104,6 +104,71 @@ describe("the standalone HTML writer", () => {
     expect(html).toContain("<p><strong><em>强调</em></strong></p>");
   });
 
+  /**
+   * 高亮 in the standalone file (#230).
+   *
+   * The mark is written as `<mark>`, and because the file opens away from this
+   * site the fill has to travel with it: the embedded stylesheet carries one rule
+   * per scheme, with the two measured token values read from `lib/tokens.ts` — the
+   * one module that owns colour — and written out as literals. The expected bytes
+   * below are spelled out rather than read from the token module, so a rule that
+   * stops following it is a red test rather than a tautology. The file names
+   * nothing it would have to fetch, so a highlighted paragraph still reads as one
+   * with no network at all.
+   */
+  it("writes a highlight as <mark>, with its rule in the embedded stylesheet", () => {
+    const html = htmlFromDocument(documentOf(paragraph(text("高亮", [{ type: "highlight" }]))));
+
+    expect(html).toContain("<p><mark>高亮</mark></p>");
+    expect(html).toContain("mark { background: #e9d391; color: #111111; }");
+    expect(html).toContain("mark { background: #544730; color: #edebe8; }");
+  });
+
+  /**
+   * Alignment in the standalone file (#230): a style on the block it belongs to.
+   *
+   * `left` is the absence of the attribute, so a document that says `left` — or
+   * anything outside the three values — exports exactly like one that says
+   * nothing. Only the two values the model can hold are written.
+   */
+  it("writes an alignment as the style on the block, and left as the absence of it", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        { attrs: { textAlign: "center" }, content: [text("居中")], type: "paragraph" },
+        { attrs: { level: 2, textAlign: "right" }, content: [text("右")], type: "heading" },
+        { attrs: { textAlign: "left" }, content: [text("左")], type: "paragraph" },
+        { attrs: { textAlign: "justify" }, content: [text("两端")], type: "paragraph" },
+      ),
+    );
+
+    expect(html).toContain('<p style="text-align: center">居中</p>');
+    expect(html).toContain('<h2 style="text-align: right">右</h2>');
+    expect(html).toContain("<p>左</p>");
+    expect(html).toContain("<p>两端</p>");
+  });
+
+  /**
+   * Alignment's scope is paragraphs and headings 1–3 (#230, F1), and the file is
+   * where the scope is kept: the document can carry a level 4–6 heading (the
+   * Markdown reader keeps whatever `#` run a file uses, and StarterKit's own input
+   * rule turns `####` into one), but no toolbar row can name such a heading, so an
+   * alignment it carries is not written. Dropping it is the recorded degradation
+   * rather than a second, out-of-scope style in the exported file.
+   */
+  it("writes no alignment on a heading 4–6, which is outside the attribute's scope", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        { attrs: { level: 4, textAlign: "center" }, content: [text("四")], type: "heading" },
+        { attrs: { level: 6, textAlign: "right" }, content: [text("六")], type: "heading" },
+      ),
+    );
+
+    expect(html).toContain("<h4>四</h4>");
+    expect(html).toContain("<h6>六</h6>");
+    expect(html).not.toContain('style="text-align: center"');
+    expect(html).not.toContain('style="text-align: right"');
+  });
+
   it("writes lists, task items and a start number", () => {
     const html = htmlFromDocument(
       documentOf(

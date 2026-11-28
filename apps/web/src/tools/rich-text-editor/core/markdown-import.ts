@@ -17,8 +17,11 @@ import { imageAltText } from "./image";
  * file written here (or anywhere else) can be continued here. It targets the
  * constructs the editor has a node or mark for (headings, paragraphs, nested
  * bulleted/ordered/task lists, quotes, fenced code with a language, rules, links,
- * emphasis, strike, inline code, pipe tables and images) and the export's one
- * inline HTML construct, underline written as `<u>…</u>`.
+ * emphasis, strike, inline code, pipe tables and images) and the export's two
+ * inline HTML constructs, underline written as `<u>…</u>` and highlight written as
+ * `<mark>…</mark>` (#230). Block alignment has no GFM form, so a file cannot carry
+ * it: the reader has nothing to read, which is the writer's degradation seen from
+ * the other side.
  *
  * It is forgiving on purpose: anything it does not recognise stays literal text,
  * and no input makes it throw. That is the opposite of a validator, and the right
@@ -1094,27 +1097,38 @@ function findRun(source: string, from: number, character: string, length: number
 }
 
 /**
- * An angle construct: the export's inline `<u>…</u>` underline, a `<br>`, or a GFM
- * autolink. Anything else is literal `<`, which is what makes a pasted tag in a
- * Markdown file stay text.
+ * An angle construct: the export's inline `<u>…</u>` underline and `<mark>…</mark>`
+ * highlight, a `<br>`, or a GFM autolink. Anything else is literal `<`, which is
+ * what makes a pasted tag in a Markdown file stay text.
  *
  * `<br>` is here because the writer puts one inside a table cell: a real newline
  * would end the row, so a cell's hard break is written as `<br>` and has to be read
  * back as one.
+ *
+ * Both inline-HTML marks are read the same way, and the body is parsed by the same
+ * `parseInline`, so `<mark>` inside a bold span and a bold run inside `<mark>` both
+ * come back with both marks. Their tags are matched case-insensitively, as HTML's
+ * are.
  */
 function inlineAngle(source: string, index: number, marks: readonly Mark[]): InlineResult | null {
   const rest = source.slice(index);
-  const underline = /^<u>/iu.exec(rest);
 
-  if (underline !== null) {
-    const close = rest.toLowerCase().indexOf("</u>");
+  for (const inline of [
+    { close: "</u>", mark: { type: "underline" } as const, open: /^<u>/iu },
+    { close: "</mark>", mark: { type: "highlight" } as const, open: /^<mark>/iu },
+  ]) {
+    const opening = inline.open.exec(rest);
+
+    if (opening === null) continue;
+
+    const close = rest.toLowerCase().indexOf(inline.close);
 
     if (close !== -1) {
-      const inner = rest.slice(underline[0].length, close);
+      const inner = rest.slice(opening[0].length, close);
 
       return {
-        nodes: parseInline(inner, addMarks(marks, [{ type: "underline" }])),
-        next: index + close + "</u>".length,
+        nodes: parseInline(inner, addMarks(marks, [inline.mark])),
+        next: index + close + inline.close.length,
       };
     }
   }
