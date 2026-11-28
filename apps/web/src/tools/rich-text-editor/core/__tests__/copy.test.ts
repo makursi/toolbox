@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BLOCK_DISABLED_REASON,
   HISTORY_DISABLED_REASON,
   IMAGE_ALT_FALLBACK,
   IMAGE_INSERT_LABEL,
@@ -47,6 +48,33 @@ describe("the history reasons", () => {
       expect(sentence.endsWith("。")).toBe(true);
       expect(sentence).not.toMatch(/[—–]/);
       expect(sentence).not.toContain("——");
+    }
+  });
+});
+
+/**
+ * The block menu's two disabled reasons (#229).
+ *
+ * 上移 on the first block and 下移 on the last one are the only rows of that menu
+ * that are greyed out, and each has to say which end it is: "nothing to do" would
+ * leave the visitor guessing whether the block is already first or the document is
+ * broken. The sentences are held here for the reason the history reasons are — the
+ * wording is a rule a unit test can read, and the gate spells out the same words.
+ */
+describe("the block reasons", () => {
+  it("says which end of the document the block is at, per direction", () => {
+    expect(BLOCK_DISABLED_REASON).toEqual({
+      "move-down": "这已经是最后一个块，不能再下移。",
+      "move-up": "这已经是第一个块，不能再上移。",
+    });
+  });
+
+  it("ends with a full-width stop and carries no dash", () => {
+    for (const sentence of Object.values(BLOCK_DISABLED_REASON)) {
+      expect(sentence.endsWith("。"), sentence).toBe(true);
+      expect(sentence, sentence).not.toMatch(/[—–]/);
+      expect(sentence, sentence).not.toContain("——");
+      expect(sentence, sentence).not.toMatch(/[,.;:!?]$/);
     }
   });
 });

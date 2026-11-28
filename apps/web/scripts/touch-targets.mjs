@@ -372,6 +372,13 @@ const PAGES = [
      * new image selected (#216), and `image-panel-clearance` compares the panel's box
      * with the picture's and the viewport. The gate used to read the panel's boxes;
      * this is where they moved (#215 review).
+     *
+     * #229's 块手柄 is an always-visible control, so it is declared by name like the
+     * toolbar's buttons, and `block` names the card it is measured against and the
+     * control itself so `block-handle-clearance` can read the handle's box and the
+     * box of the block it names. That claim needs no state of its own: the handle is
+     * on the page from the moment the editor is, and the caret starts in the first
+     * block.
      */
     controls: [
       "切换到",
@@ -393,11 +400,16 @@ const PAGES = [
       "链接",
       "插入图片",
       "表格",
+      "块手柄",
       "文件",
     ],
     name: "rich-text-editor",
     outgoing: ["body"],
     path: "/tools/rich-text-editor",
+    block: {
+      canvas: '[data-slot="rich-text-canvas"]',
+      handle: '[aria-label="块手柄"]',
+    },
     image: {
       input: '[aria-label="插入图片"] + input[type=file]',
       panel: '[aria-label="图片操作"]',
@@ -821,6 +833,54 @@ const IMAGE_PANEL = (image) => `(() => {
 })()`;
 
 assertNoDanglingInterpolation("IMAGE_PANEL", IMAGE_PANEL({ panel: "", picture: "" }));
+
+/**
+ * The block handle's box, the box of the block it names, and the viewport (#229).
+ *
+ * The block is found by its top: the handle is drawn at the named block's top and
+ * clamped inside the viewport, so the block whose top is nearest the handle's is the
+ * one the control currently acts on. Its own box — not a text range — is what the
+ * clearance is measured against, because the box contains the text and, unlike a
+ * range, still exists for an image, a table or a rule the handle can name. The
+ * claim's predicate only decides; this reading does not.
+ *
+ * No backticks in here: the expression is itself a template literal (#108).
+ */
+const BLOCK_HANDLE = (block) => `(() => {
+  const handle = document.querySelector(${JSON.stringify(block.handle)});
+  const canvas = document.querySelector(${JSON.stringify(block.canvas)});
+  if (handle === null) return JSON.stringify({ missing: "handle" });
+  if (canvas === null) return JSON.stringify({ missing: "canvas" });
+  const editable = canvas.querySelector('[contenteditable="true"]');
+  if (editable === null) return JSON.stringify({ missing: "editor" });
+  const blocks = [...editable.children];
+  if (blocks.length === 0) return JSON.stringify({ missing: "block" });
+  const box = (rect) => ({
+    bottom: Math.round(rect.bottom),
+    height: Math.round(rect.height),
+    left: Math.round(rect.left),
+    right: Math.round(rect.right),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+  });
+  const handleBox = box(handle.getBoundingClientRect());
+  let active = blocks[0];
+  let distance = Infinity;
+  for (const candidate of blocks) {
+    const gap = Math.abs(Math.round(candidate.getBoundingClientRect().top) - handleBox.top);
+    if (gap < distance) {
+      distance = gap;
+      active = candidate;
+    }
+  }
+  return JSON.stringify({
+    block: box(active.getBoundingClientRect()),
+    handle: handleBox,
+    viewport: { height: window.innerHeight, width: window.innerWidth },
+  });
+})()`;
+
+assertNoDanglingInterpolation("BLOCK_HANDLE", BLOCK_HANDLE({ canvas: "", handle: "" }));
 
 /**
  * The toolbar's scrolling region and the control outside it, before and after the
@@ -1746,6 +1806,53 @@ const CLAIMS = [
         {
           ok,
           line: `  ${ok ? "PASS" : "FAIL"}  the panel is ${above ? "above" : below ? "below" : "across"} the picture and ${inside ? "inside" : "outside"} the viewport — panel ${panel.top}..${panel.bottom} x ${panel.left}..${panel.right}, picture ${picture.top}..${picture.bottom}, viewport ${viewport.width}x${viewport.height}`,
+        },
+      ];
+    },
+  },
+  {
+    name: "block-handle-clearance",
+    about:
+      "块手柄 sits beside the block it names, clear of that block's text, and inside the viewport",
+    falsification: {
+      source:
+        "use `canvas.left` for the gutter home too, instead of only for the inset — one line in core/block.ts (placeBlockHandle). The handle then sits on the text measure where the gutter should keep it clear, and the position is React's inline style, so an injected rule cannot move it; this is the image panel's route for the same reason",
+    },
+    per: "page",
+    only: (ctx) => ctx.page.block !== undefined,
+    prepare: async (ctx) => {
+      ctx.reset();
+      await waitForElement(ctx.client, ctx.page.block.handle);
+      // The page is scrolled by the hit-area walk before this claim runs; the
+      // handle is `position: fixed` and follows the caret's block, so a reading
+      // taken mid-scroll would name a block that is no longer on screen.
+      await ctx.client.evaluate("window.scrollTo(0, 0)");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    },
+    read: (ctx) => ctx.read("blockHandle", BLOCK_HANDLE(ctx.page.block)),
+    judge: (reading) => {
+      if (reading.missing !== undefined) {
+        return [
+          {
+            ok: false,
+            line: `  FAIL  the block handle's claim has no ${reading.missing} to read — the page never drew the handle beside a block`,
+          },
+        ];
+      }
+      const { block, handle, viewport } = reading;
+      const clear = handle.right <= block.left || handle.left >= block.right;
+      const inside =
+        handle.left >= 0 &&
+        handle.top >= 0 &&
+        handle.right <= viewport.width &&
+        handle.bottom <= viewport.height &&
+        handle.width > 0 &&
+        handle.height > 0;
+      const ok = clear && inside;
+      return [
+        {
+          ok,
+          line: `  ${ok ? "PASS" : "FAIL"}  the handle is ${clear ? "clear of" : "across"} the block it names and ${inside ? "inside" : "outside"} the viewport — handle ${handle.top}..${handle.bottom} x ${handle.left}..${handle.right}, block ${block.top}..${block.bottom} x ${block.left}..${block.right}, viewport ${viewport.width}x${viewport.height}`,
         },
       ];
     },

@@ -5,8 +5,9 @@
  * The table is pure data plus the filter the slash menu will use (#208). Nothing
  * here knows about TipTap: a command says what it applies to and what it is
  * called, and the toolbar's executor map turns its id into a TipTap chain. One
- * table is the point: a command added here is a command the toolbar and the
- * slash menu both render, so the two cannot disagree about what exists.
+ * table is the point: a command added here is a command the toolbar, the slash
+ * menu and the block menu's block-type rows all render, so they cannot disagree
+ * about what exists.
  *
  * The `block` field names the document construct a command applies: a node name
  * for a block, a mark name for an inline command, and `document` for the ones

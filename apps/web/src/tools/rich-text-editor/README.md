@@ -35,6 +35,18 @@ and the width are the node's own attributes, so the draft keeps them, a reload
 brings them back, and both exports carry them: the HTML file keeps the width, and
 the Markdown file inlines the picture and drops only the width (#219).
 
+This slice (#229) makes a block something a visitor can act on. A 44×44 块手柄
+appears beside the block holding the caret — and beside the block under the pointer —
+and opens 块操作: 上移, 下移, 删除, a hairline, and the four block types the toolbar's
+块类型 popover already offers, from the same command table. 上移 on the first block
+and 下移 on the last are disabled and say which end it is. The same handle is the
+drag activator: dragging it reorders the document, dims the block being moved, and
+draws a 2px ink line where it will land; the move is one transaction, so one 撤销
+puts the block back, and Escape during the drag changes nothing. The handle sits in
+the page's gutter where there is room for it and inside the canvas's own 52px inset
+below an 856px viewport, so it never covers a glyph; below that width the text
+measure narrows instead.
+
 This slice (#208) adds the three ways to write without leaving the keyboard. Typing
 `/` at the start of a paragraph opens a menu of the block commands; typing after the
 slash filters it, the arrow keys move the choice, Enter applies it and Escape closes
@@ -129,20 +141,23 @@ link-control/link-control.tsx            the link action's trigger, field, 应�
 image-insert/image-insert.tsx            插入图片: the button and the hidden file input it opens
 image-panel/image-panel.tsx              the panel an image gets while selected: 替换, 替代文本, 删除, and the four width presets
 table-control/table-control.tsx          the 表格 button: the grid picker outside a table, the contextual row/column menu inside one
-editor/execute.ts                        what each command does: one executor for all three surfaces, plus the table's own operations
+block-handle/block-handle.tsx            块手柄: the button, its 块操作 menu, the pointer drag, the dimmed source and the drop line
+editor/execute.ts                        what each command does: one executor for all four surfaces, plus the table's and the block's own operations
+editor/block-drag.ts                     the decoration that dims the block a drag is moving
 editor/image-extension.ts                the image node: base64 allowed, width as a percentage, clamped to the measure
 editor/insert-image.ts                   the one insert the toolbar, a drop and a paste share, and the one replacement 替换 uses
 hooks/use-editor-command-state/…         the state at the cursor, read through TipTap's selector
 hooks/use-selected-image/…               the image the selection is on, as the panel needs it
 hooks/use-viewport-reposition/…          the one-per-frame redraw a fixed-position row needs on scroll and resize
 core/commands.ts                         the one command table, its filters, and the slash menu's subset
+core/block.ts                            the block handle's rules: its words, the 44px and 4px constants, the two homes' placement, and the drop arithmetic
 core/table.ts                            the table's rules: the grid's extent, the one-click default, and the seven actions' words
 core/image-panel.ts                      the panel's rules: the four presets, the four controls' words, and where the bar sits
 core/admission.ts                        what an image may be: the sniffed type, the two per-file limits, the count and the total, and what a replacement is measured against
 core/document.ts                         what an empty document is, whether it says anything, where its title comes from, and the two readers both writers share (code text and heading level)
 core/draft.ts                            the stored record's shape, its schema version and the guard that reads it back
 core/save.ts                             the save-state machine: the 800ms debounce, the flush, the retry and old-revision rejection
-core/copy.ts                             the save-state sentences, the retry label, the disabled history reasons, the two menus' sentences, the import confirmation's and the four image refusals
+core/copy.ts                             the save-state sentences, the retry label, the disabled history and block reasons, the menus' sentences, the import confirmation's and the four image refusals
 core/markdown.ts                         ProseMirror JSON to GFM
 core/markdown-import.ts                  GFM to ProseMirror JSON
 core/html.ts                             ProseMirror JSON to a complete standalone HTML document
@@ -155,8 +170,9 @@ core/__tests__/commands.test.ts          the table's contract in Vitest
 core/__tests__/admission.test.ts         the image rules: each sniff, each limit, the document's count and total
 core/__tests__/table.test.ts             the table's rules: the grid, the default size, the seven actions
 core/__tests__/image-panel.test.ts       the panel's rules: the four presets, its words, and where the bar goes
+core/__tests__/block.test.ts             the block handle's rules: the menu's words, the drop boundary and move, the two homes' placement
 core/__tests__/save.test.ts              the state machine's transitions in Vitest
-core/__tests__/copy.test.ts              the save status's wording, the menu sentences and the punctuation in Vitest
+core/__tests__/copy.test.ts              the save status's wording, the menus' and the disabled reasons' words, and the punctuation in Vitest
 core/__tests__/draft.test.ts             the stored record's guard in Vitest
 core/__tests__/document.test.ts          the title, and the emptiness the import asks about
 core/__tests__/markdown.test.ts          the Markdown writer, in GFM's terms
@@ -220,26 +236,39 @@ one.
    the link on the selection. Undo and redo work from the toolbar and from the
    keyboard, because they are the editor's own history; while one of them is disabled
    it says why, on the control itself (没有可撤销的步骤。 / 没有可重做的步骤。).
-7. **Write without the mouse.** Typing `/` where a paragraph starts opens the slash
+7. **Handle a block.** A 44×44 块手柄 is always in the document and in the tab
+   order. It is drawn beside the block holding the caret, moves to the block under
+   the pointer, and sits in the page's gutter or in the canvas's 52px inset so that
+   it never covers a glyph. Pressing it at its coordinates opens the 块操作 menu:
+   上移 / 下移 / 删除, a hairline, then the four block types from the command table.
+   The three actions run the block's own executor map on the block the handle names,
+   and the four conversions run the table's block commands there. 上移 on the first
+   block and 下移 on the last are disabled, and each row carries the sentence that
+   says which end it is for the pointer and for a screen reader. A press that moves
+   less than 4px is still a press; crossing that distance starts a drag, which dims
+   the block, draws a 2px ink line at the drop boundary, and on release reorders the
+   document in one transaction — one 撤销 puts it back, and Escape mid-drag changes
+   nothing. There is no auto-scroll and no ghost following the pointer.
+8. **Write without the mouse.** Typing `/` where a paragraph starts opens the slash
    menu at the caret; what follows filters it (`标题` leaves the three headings), the
    arrow keys move the highlight, Enter deletes the typed `/query` and applies the
    command, and Escape closes the menu and leaves the slash as text. A space ends the
    match, so `/标题 ` is text rather than a command nobody can see. The rows are the
    table's block commands, so the menu and the pinned toolbar cannot disagree.
-8. **Type Markdown.** `#`/`##`/`###`, `-`, `1.`, `>`, a backtick pair, a fenced
+9. **Type Markdown.** `#`/`##`/`###`, `-`, `1.`, `>`, a backtick pair, a fenced
    backtick block, `---`, `**`, `*` and `~~` become their block or mark as they are
    typed. Each rule needs its complete construct, so `#没有空格`, `-没有空格`,
    `` `未闭合 `` and `**未闭合` stay text — the gate holds both ends.
-9. **Select and format.** A non-empty selection shows the floating toolbar just above
-   the words (below them when there is no room above), with the five inline marks and
-   the link action; pressing one applies it to the same document selection the pinned
-   toolbar acts on. It is not in the document at all while the selection is empty.
-10. **清空.** The file menu's 清空 replaces the canvas with `EMPTY_DOCUMENT` without
+10. **Select and format.** A non-empty selection shows the floating toolbar just above
+    the words (below them when there is no room above), with the five inline marks and
+    the link action; pressing one applies it to the same document selection the pinned
+    toolbar acts on. It is not in the document at all while the selection is empty.
+11. **清空.** The file menu's 清空 replaces the canvas with `EMPTY_DOCUMENT` without
     emitting an editor update, and removes the stored record rather than writing an
     empty one. A reload therefore finds no draft to restore. A write that was already
     in flight is made stale by the revision bump, and IndexedDB runs the removal after
     it.
-11. **Export.** The file menu's 导出 Markdown and 导出 HTML ask the editor for its
+12. **Export.** The file menu's 导出 Markdown and 导出 HTML ask the editor for its
     JSON and hand it to the pure writer for that format. The writer returns a string;
     the toolbar wraps it in a blob, mints a temporary object URL, clicks an anchor
     named by `core/naming.ts`, and revokes the URL on the next task. The browser
@@ -248,7 +277,7 @@ one.
     characters, or 文档 with the date when the document has no title. An empty
     document exports as an empty Markdown file and an HTML file whose article is
     empty; both are still complete files.
-12. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
+13. **Import.** The file menu's 导入 row opens the hidden file input. The chosen file
     is read as text and its format is decided by `core/import.ts` from the extension
     (falling back to the content when the name says nothing). Markdown goes through
     `importMarkdown` to JSON — the reader for the writer, tables and images included
@@ -264,7 +293,7 @@ one.
     importing the same file twice works. A file that sanitises to nothing leaves the
     empty document, and a paste of HTML takes the same sanitiser through
     `transformPastedHTML` before ProseMirror sees it.
-13. **Read back.** The text is the editor's own document: the gate reads it from the
+14. **Read back.** The text is the editor's own document: the gate reads it from the
     contenteditable after typing, and the blocks are not re-seeded from the initial
     content when the page renders again. The same document comes back after a reload,
     marks included, because ProseMirror JSON is what the store holds.
@@ -273,8 +302,8 @@ The extension set is the minimum the slices after this one need: `StarterKit` (w
 Link configured `openOnClick: false`), `TaskList` and `TaskItem` from
 `@tiptap/extension-list`, `Placeholder` from `@tiptap/extensions`, and #208's
 `SlashMenuExtension`, which is `@tiptap/suggestion` wrapped in an `Extension` so the
-plugin gets the editor it needs. The two menus' sentences and the import
-confirmation's live in `core/copy.ts`.
+plugin gets the editor it needs. The menus' sentences, the two disabled block
+reasons and the import confirmation's live in `core/copy.ts`.
 No third-party asset and no new dependency came with any of it; the TipTap tree
 arrived in `chore(web): the TipTap tree at V1's minimum` and is the dependency
 expansion the Tool's spec records. The draft store is hand-written against IndexedDB,
@@ -283,7 +312,10 @@ the Tool's own code, and the confirmation's `alert-dialog.tsx` is generated from
 `radix-ui` package the component layer already uses. `@tiptap/extension-floating-menu`
 was declared by the spec and imported nowhere; it was **removed** in the review pass
 (#207), and `selection-toolbar.tsx` says why the row is a plain fixed-position `div`
-rather than that plugin's element.
+rather than that plugin's element. #229 added no dependency either: the drag is the
+Tool's own pointer handling, the dimmed source is a `Plugin` from `@tiptap/pm` (already
+a dependency), and `@tiptap/extension-drag-handle` was **rejected** by the spec because
+it would put a collaboration stack into an editor that has none.
 
 ## What CI covers, and what is still yours
 
@@ -328,6 +360,16 @@ browser and covers the items marked **▣**:
 - ▣ The keyboard shortcuts reach a mark (`Control+B`), the link (`Control+K` opens
   the field and 应用 writes the `a`), a heading (`Control+Alt+1`) and a list
   (`Control+Shift+8`).
+- ▣ 块手柄 opens 块操作 at its coordinates, with 上移 / 下移 / 删除 and the four block
+  types from the command table; the two end rows are disabled and say which end it
+  is, and the rows act on the block the handle names rather than on the caret's.
+- ▣ A pointer drag from 块手柄 reorders the document, one 撤销 restores the order,
+  the source block is marked while the drag lasts, the drop line is drawn at the
+  boundary, and Escape mid-drag changes nothing. A press that moves less than 4px
+  opens the menu instead of dragging.
+- ▣ Tab reaches 块手柄, Enter opens the menu with its first enabled row focused, and
+  Escape closes it. The handle's geometry is the hit-area instrument's
+  `block-handle-clearance`.
 - ▣ At 390px the file menu still opens and every row in it is there. The middle
   groups scrolling while the right end stays put, and the page not gaining a
   horizontal scrollbar, are the hit-area instrument's `toolbar-scroll-end` and
@@ -376,7 +418,13 @@ document" is the gate's claim (see `rules.md`). The save machine: dirty → savi
 saved, failure and retry, the hidden-page flush, a change during a write, a completion
 for an older revision, a debounce with no window to close, 清空 as a newer operation,
 and the 800ms constant. The copy: the four save sentences, the retry label, the two
-disabled history reasons, the two menus' sentences and the banned punctuation. The
+disabled history reasons, the two disabled block reasons, the menus' sentences and
+the banned punctuation. The block handle: the menu's three operations and its two
+names, the 4px drag threshold and the 44px control, the drop boundary at each block's
+midpoint (first, last, between, and an empty document), the move's index after the
+source is taken out (including the case where removing it shifts the target), the
+block under a pointer, the drop line's y, the two homes and their 856px crossing, and
+the placement at 390, 768, 856 and 1440px with the text measure it must not reach. The
 record: the schema version, the timestamp and the ProseMirror document, with malformed
 values refused. The Markdown writer: headings, both kinds of list and their nesting,
 task items and their checked state, quotes, fenced code with its language and backtick
@@ -476,6 +524,21 @@ here re-runs it.
 - [ ] **▣** At 390px pressing an image still opens the panel and its three actions are
       reachable; that it is drawn inside the viewport and clear of the picture is the
       hit-area instrument's `image-panel-clearance`.
+- [ ] **▣** 块手柄 is always on the page and in the tab order; pressing it at its
+      coordinates opens the 块操作 menu with 上移, 下移, 删除 and the four block types,
+      and 下移 on the last block / 上移 on the first are disabled with the sentence
+      that says which end it is (`title` and `aria-describedby`).
+- [ ] **▣** The menu's 上移, 下移, 删除 and 标题 2 act on the block the handle names —
+      moved there by hovering it while the caret is in another block — and not on
+      the caret's block.
+- [ ] **▣** A pointer drag from 块手柄 reorders the document, a single 撤销 restores
+      the order, the source block carries the drag decoration while the pointer is
+      down, and the 2px drop line is drawn; Escape during the drag changes nothing.
+- [ ] **▣** A press that moves less than 4px is a press: the menu opens and nothing
+      reorders. The handle geometry (44×44, clear of the block's text, inside the
+      viewport) is the hit-area instrument's `block-handle-clearance`.
+- [ ] **▣** Tab reaches 块手柄, Enter opens the menu, its first enabled row takes the
+      focus, and Escape closes it.
 - [ ] **▣** 表格 opens the grid picker; choosing 2 rows × 3 columns inserts a 2 × 3
       table with a header row, and typing in a cell edits that cell.
 - [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each
@@ -577,6 +640,22 @@ here re-runs it.
       block menu as 块类型：<当前块>; whether it also reads the placeholders (they are
       CSS `::before` content, which screen readers are not obliged to announce); and
       whether the slash menu and the floating row are announced by their names.
+- [ ] A screen reader announces 块手柄 as a menu button (`aria-haspopup`), the menu as
+      块操作, each row as a menu item, and the disabled 上移 / 下移 rows with the
+      sentence that says which end it is.
+- [ ] The two homes read as one control: at a wide window the handle sits in the page
+      gutter beside the canvas, and at 390px it sits in the canvas's 52px inset with
+      the text measure narrowed rather than covered. A person checks the crossing at
+      a few widths around 856px, that the handle is never drawn on a glyph, that the
+      hovered block and the caret's block both get it, and that it is back at the
+      caret's block once the pointer leaves the column.
+- [ ] A drag with a real mouse and on a real phone: the source block dims, the 2px
+      line follows the boundary, the drop is one undo step, and a finger that starts
+      on the handle reorders rather than scrolling the page. The gate's drag is a
+      mouse; the browser's own touch gesture arbitration is not something it can
+      simulate, so this is the pointer half a person owns.
+- [ ] The 块操作 menu in both colour schemes: its card, the hairline, the disabled
+      rows' dimming and the focused row read as one surface.
 - [ ] Tab reaches the toolbar controls in order, Enter or Space presses a toggle,
       the block menu and the file menu open and close with the keyboard, and Escape
       closes the link popover.

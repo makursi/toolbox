@@ -1,4 +1,5 @@
 import type { ImageRefusal } from "./admission";
+import type { BlockEndOperationId } from "./block";
 import type { SaveStatus } from "./save";
 
 /**
@@ -41,6 +42,25 @@ export const HISTORY_DISABLED_REASON = {
   redo: "没有可重做的步骤。",
   undo: "没有可撤销的步骤。",
 } as const;
+
+/**
+ * Why 上移 or 下移 is greyed out in the block menu (#229).
+ *
+ * A disabled row that says nothing is the same dead end the history controls
+ * avoid: the visitor is left to guess whether the block is already first or the
+ * control is broken. Each sentence says which end it is, so the two cases cannot
+ * quietly become one generic "nothing to do", and they live in this layer rather
+ * than the component for the reason every sentence here does — the wording is a
+ * rule a unit test can hold, and the gate spells the same words out.
+ *
+ * They are carried on the row itself (`title` plus an associated description)
+ * rather than in a line beside the menu, which is transient and would grow a
+ * second row of scrollable height for every cursor position.
+ */
+export const BLOCK_DISABLED_REASON = {
+  "move-down": "这已经是最后一个块，不能再下移。",
+  "move-up": "这已经是第一个块，不能再上移。",
+} as const satisfies Record<BlockEndOperationId, string>;
 
 /**
  * The words the two keyboard-first surfaces carry, in one place.

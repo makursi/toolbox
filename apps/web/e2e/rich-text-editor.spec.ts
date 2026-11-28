@@ -1,18 +1,27 @@
 import { readFile } from "node:fs/promises";
 
-import { expect, test, type Download } from "@playwright/test";
+import { expect, test, type Download, type Page } from "@playwright/test";
 
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
   altField,
   answerImportDialog,
+  beginBlockDrag,
+  blockBottomPoint,
+  blockDropLine,
+  blockHandle,
+  blockMenu,
+  blockMenuItem,
+  blockTexts,
   blockTrigger,
   bodyParagraph,
   canvas,
   clearDocument,
   deleteImage,
+  documentBlocks,
   downloadFromFileMenu,
+  dragBlockHandle,
   dropImage,
   dropImages,
   editor,
@@ -33,6 +42,7 @@ import {
   paintedPlaceholder,
   pasteImage,
   pngFile,
+  pointAt,
   pressAt,
   pressTableMenuItem,
   refusalNotice,
@@ -1604,6 +1614,198 @@ test("替换 swaps the bytes, and a refused replacement leaves the image unchang
  * the claim is that the browser has the record, and a read through the Tool would
  * agree with a broken writer that never touched the store.
  */
+/**
+ * The block handle, the block menu and drag-to-reorder (#229).
+ *
+ * The pure module (`core/block.ts`) holds the arithmetic and the words; these
+ * cases are what only a browser can answer: that a real pointer press opens the
+ * menu, that the rows act on the block the handle names rather than on the caret's,
+ * that a real drag reorders the document as one undo step, that Escape during a
+ * drag changes nothing, and that a press moving less than the drag threshold is
+ * still a press. The handle's geometry — 44×44, clear of the text, inside the
+ * viewport — is the hit-area Instrument's `block-handle-clearance`.
+ */
+async function writeThreeBlocks(page: Page): Promise<void> {
+  await open(page);
+  await writeInTitle(page, "第一块");
+  await writeInBody(page, "第二块");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("第三块");
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+}
+
+test("块手柄 opens 块操作, and each end's row says which end it is", async ({ page }) => {
+  await writeThreeBlocks(page);
+
+  const handle = blockHandle(page);
+  await expect(handle).toHaveAttribute("aria-haspopup", "menu");
+  await expect(handle).toHaveAttribute("aria-expanded", "false");
+
+  // The pointer is moved off the content column first, so the handle is beside the
+  // block holding the caret rather than beside the last block the pointer crossed.
+  await page.mouse.move(2, 2);
+
+  // A pointer press on the handle opens the menu: the radix layer and the pressed
+  // control are one gesture, not a keyboard escape hatch.
+  await pressAt(page, handle);
+  await expect(blockMenu(page)).toBeVisible();
+  await expect(handle).toHaveAttribute("aria-expanded", "true");
+  await expect(blockMenu(page).getByRole("menuitem")).toHaveText([
+    "上移",
+    "下移",
+    "删除",
+    "正文",
+    "标题 1",
+    "标题 2",
+    "标题 3",
+  ]);
+
+  // The caret is in the last block, so 下移 is disabled and says which end it is.
+  // The sentence is carried on the row for the pointer (`title`) and for a screen
+  // reader (`aria-describedby`), and the gate spells it out rather than reading
+  // the component's constant.
+  const down = blockMenuItem(page, "下移");
+  await expect(down).toBeDisabled();
+  await expect(down).toHaveAttribute("title", "这已经是最后一个块，不能再下移。");
+  const describedBy = await down.getAttribute("aria-describedby");
+  expect(describedBy, "a disabled row carries the reason a screen reader reads").not.toBeNull();
+  await expect(page.locator(`[id="${describedBy}"]`)).toHaveText(
+    "这已经是最后一个块，不能再下移。",
+  );
+
+  // Escape closes it.
+  await page.keyboard.press("Escape");
+  await expect(blockMenu(page)).toHaveCount(0);
+
+  // The first block's 上移 is the other end, and it is the handle's block that
+  // decides: the caret is put in the title, and the sentence names that end.
+  await titleBlock(page).click();
+  await pressAt(page, blockHandle(page));
+  await expect(blockMenuItem(page, "上移")).toBeDisabled();
+  await expect(blockMenuItem(page, "上移")).toHaveAttribute(
+    "title",
+    "这已经是第一个块，不能再上移。",
+  );
+});
+
+test("the block menu's rows act on the block the handle names, not on the caret", async ({
+  page,
+}) => {
+  await writeThreeBlocks(page);
+
+  // The caret stays in 第三块 from here on; the handle is moved to another block
+  // by hovering it, which is how a visitor acts on a block without clicking into
+  // it. If a row acted on the caret's block, the order below would differ.
+  await documentBlocks(page).nth(1).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "上移"));
+  await expect.poll(() => blockTexts(page)).toEqual(["第二块", "第一块", "第三块"]);
+
+  // 下移 acts on the named block too: hovering 第二块 (now first) moves it back
+  // below the title.
+  await documentBlocks(page).nth(0).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "下移"));
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+
+  // 转换为 is the table's own block group, applied to the named block. The caret
+  // is still in 第三块; the handle is moved to 第二块 (index 1), and that is what
+  // turns into a heading 2 — neither the caret's block nor the title changes type.
+  await documentBlocks(page).nth(1).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "标题 2"));
+  await expect(documentBlocks(page).nth(1)).toHaveJSProperty("tagName", "H2");
+  await expect(documentBlocks(page).nth(2)).toHaveJSProperty("tagName", "P");
+  expect(await blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+
+  // 删除 acts on the named block: hovering 第二块 and pressing 删除 removes that
+  // paragraph, not the block the caret is in.
+  await documentBlocks(page).nth(1).hover();
+  await pressAt(page, blockHandle(page));
+  await pressAt(page, blockMenuItem(page, "删除"));
+  await expect.poll(() => blockTexts(page)).not.toContain("第二块");
+  await expect.poll(() => blockTexts(page)).toContain("第三块");
+});
+
+/**
+ * Drag-to-reorder.
+ *
+ * The drag is a real mouse down, a move and an up from the handle's coordinates.
+ * During the drag the source block says it is the one moving and a 2px ink line
+ * is drawn at the drop boundary; on release the order changes in one transaction,
+ * so a single 撤销 puts it back.
+ */
+test("dragging 块手柄 reorders the document, and one undo restores it", async ({ page }) => {
+  await writeThreeBlocks(page);
+
+  // The source is 第二块 (index 1); its handle is reached by hovering it. The drop
+  // point is near the bottom of 第三块, which is past that block's midpoint, so the
+  // boundary is the end of the document.
+  await dragBlockHandle(page, documentBlocks(page).nth(1), await blockBottomPoint(page, 2));
+
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第三块", "第二块"]);
+  await expect(blockDropLine(page)).toHaveCount(0);
+  await expect(page.locator(".block-dragging")).toHaveCount(0);
+
+  // One 撤销, not two: the move was a single transaction with its own history
+  // group.
+  await pressAt(page, toolbarControl(page, "撤销"));
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+});
+
+test("Escape during a drag changes nothing, and a press under 4px opens the menu", async ({
+  page,
+}) => {
+  await writeThreeBlocks(page);
+
+  const source = documentBlocks(page).nth(1);
+  const to = await blockBottomPoint(page, 2);
+
+  await beginBlockDrag(page, source, to);
+
+  // The two transient marks of the gesture: the source block is the one being
+  // moved, and a 2px ink line says where it will land.
+  await expect(source).toHaveClass(/block-dragging/u);
+  await expect(blockDropLine(page)).toBeVisible();
+
+  // Escape cancels, and the release that follows must change nothing.
+  await page.keyboard.press("Escape");
+  await expect(blockDropLine(page)).toHaveCount(0);
+  await page.mouse.move(to.x, to.y + 20);
+  await page.mouse.up();
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+  await expect(page.locator(".block-dragging")).toHaveCount(0);
+
+  // A press that moves less than the 4px threshold is still a press: it opens the
+  // menu rather than starting a drag, so nothing reorders and the menu appears.
+  await documentBlocks(page).nth(1).hover();
+  const start = await pointAt(page, blockHandle(page));
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 2, start.y);
+  await page.mouse.up();
+
+  await expect(blockMenu(page)).toBeVisible();
+  await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
+});
+
+test("the keyboard reaches 块手柄, and Enter opens the menu", async ({ page }) => {
+  await open(page);
+
+  const handle = blockHandle(page);
+  await handle.focus();
+  await expect(handle).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expect(blockMenu(page)).toBeVisible();
+  // The first row that can be pressed takes the focus: the caret is in the first
+  // block, where 上移 is the disabled one.
+  await expect(blockMenuItem(page, "下移")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(blockMenu(page)).toHaveCount(0);
+});
+
 test.describe("the local draft", () => {
   test("typing and pausing writes the draft and reports 已保存到本机", async ({ page }) => {
     await open(page);
