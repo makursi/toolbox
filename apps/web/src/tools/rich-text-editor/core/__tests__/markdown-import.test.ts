@@ -123,6 +123,69 @@ describe("the Markdown reader", () => {
     );
   });
 
+  /**
+   * 高亮 is the second inline-HTML construct (#230), read in the same
+   * angle-bracket branch as underline, `<br>` and an autolink. The export writes
+   * it inside the delimitable marks, so the reader has to find it inside a bold
+   * span — and the whole document has to come back from the writer's own bytes.
+   */
+  it("reads the highlight the export writes as inline HTML, inside a bold span", () => {
+    expect(documentFromMarkdown("**<mark>高亮</mark>**")).toEqual(
+      documentOf(
+        paragraph({
+          marks: [{ type: "highlight" }, { type: "bold" }],
+          text: "高亮",
+          type: "text",
+        }),
+      ),
+    );
+  });
+
+  it("imports a highlighted document back from the writer's own Markdown", () => {
+    const document = documentOf(
+      { attrs: { level: 1 }, content: [{ text: "高亮标题", type: "text" }], type: "heading" },
+      paragraph(
+        { text: "前面", type: "text" },
+        { marks: [{ type: "highlight" }], text: "高亮", type: "text" },
+        { text: "后面", type: "text" },
+      ),
+    );
+
+    expect(importMarkdown(markdownFromDocument(document))).toEqual({
+      document,
+      refusals: [],
+    });
+  });
+
+  /**
+   * Alignment is Markdown's documented degradation (#230): the words and the
+   * block survive, the layout does not. This is not a defect in the reader — the
+   * writer never emits it — but the pair is asserted so an "alignment parsed from
+   * Markdown" cannot appear without someone deciding it should.
+   */
+  it("drops an alignment, which Markdown has no form for", () => {
+    const document = documentOf(
+      {
+        attrs: { textAlign: "center" },
+        content: [{ text: "居中", type: "text" }],
+        type: "paragraph",
+      },
+      {
+        attrs: { level: 2, textAlign: "right" },
+        content: [{ text: "右", type: "text" }],
+        type: "heading",
+      },
+    );
+
+    expect(importMarkdown(markdownFromDocument(document)).document).toEqual(
+      documentOf(paragraph({ text: "居中", type: "text" }), {
+        attrs: { level: 2 },
+        content: [{ text: "右", type: "text" }],
+        type: "heading",
+      }),
+    );
+  });
+
   it("reads emphasis nested inside emphasis and inside code spans", () => {
     expect(documentFromMarkdown("**加粗与*斜体*，还有 `a**b`**")).toEqual(
       documentOf(

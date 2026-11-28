@@ -115,7 +115,17 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
   return (
     <div
       aria-label={SELECTION_TOOLBAR_LABEL}
-      className="flex items-center gap-2 rounded-lg border border-border bg-background p-1 shadow-sm"
+      /*
+       * Six marks and the link are 375px of controls at the 44px floor, and the
+       * placement keeps 8px from either edge — 391px, which a 360px or 375px
+       * viewport cannot give. A row that cannot fit scrolls — the same answer the
+       * pinned toolbar gives its middle — rather than shrinking a control below
+       * 44px, wrapping into a second line, or growing past the viewport's edge.
+       * `max-w` keeps the box inside the viewport, so the placement's own clamp
+       * has something true to clamp; the content is reachable by the same swipe
+       * the pinned row takes at these widths.
+       */
+      className="flex max-w-[calc(100vw_-_16px)] [scrollbar-width:thin] items-center gap-2 overflow-x-auto rounded-lg border border-border bg-background p-1 shadow-sm [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
       ref={barRef}
       role="toolbar"
       style={{ left, position: "fixed", top, zIndex: FLOATING_LAYER_Z_INDEX }}

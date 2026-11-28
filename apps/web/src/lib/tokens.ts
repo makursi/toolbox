@@ -46,6 +46,8 @@ export const tokenNames = [
   "dimmed",
   "placeholder",
   "hairline",
+  "highlight",
+  "highlightInk",
   "error",
 ] as const;
 
@@ -64,10 +66,15 @@ export const tokens: Record<Scheme, Record<TokenName, string>> = {
     // Body text on the canvas is 17.47:1, the muted tone 5.14:1, the placeholder
     // 4.61:1 against the surface it sits on, and the error colour 5.05:1 both as
     // text on the canvas and as a filled control under this scheme's paper.
+    // The highlight is a marked run's fill: its ink is 12.76:1 on it, and the
+    // fill itself is 1.37:1 from the canvas — a tint rather than a border, which
+    // is what a highlight is (#230).
     canvas: "#f7f6f3",
     dimmed: "#6b6862",
     error: "#c92a2a",
     hairline: "#eaeaea",
+    highlight: "#e9d391",
+    highlightInk: "#111111",
     placeholder: "#75726a",
     surface: "#fbfaf8",
     surfaceHover: "#f2f1ed",
@@ -76,11 +83,15 @@ export const tokens: Record<Scheme, Record<TokenName, string>> = {
   dark: {
     // 15.20:1, 7.03:1 on the canvas and 5.65:1 — the muted margin kept above AA
     // on purpose. The error colour is a *lighter* red here for the same reason
-    // the ink is lighter: it has to hold 7.81:1 against this scheme's ink.
+    // the ink is lighter: it has to hold 7.81:1 against this scheme's ink. The
+    // highlight's ink is 7.60:1 on its fill, and the fill is 2.00:1 from the
+    // canvas, so the tint reads as one in the dark scheme too.
     canvas: "#171614",
     dimmed: "#a5a19a",
     error: "#ff8787",
     hairline: "#313030",
+    highlight: "#544730",
+    highlightInk: "#edebe8",
     placeholder: "#9a968e",
     surface: "#1f1e1c",
     surfaceHover: "#262523",

@@ -68,6 +68,9 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   code: (editor) => {
     editor.chain().focus().toggleCode().run();
   },
+  highlight: (editor) => {
+    editor.chain().focus().toggleHighlight().run();
+  },
   "bullet-list": (editor) => {
     editor.chain().focus().toggleBulletList().run();
   },
@@ -76,6 +79,21 @@ const EXECUTORS: Record<ExecutedCommandId, (editor: Editor) => void> = {
   },
   "task-list": (editor) => {
     editor.chain().focus().toggleTaskList().run();
+  },
+  /*
+   * Alignment's three rows (#230). Left is the absence of the attribute rather
+   * than a value it carries, so the left row unsets it: `setTextAlign("left")`
+   * would write `style="text-align: left"` and make the same document compare
+   * unequal to one that was never aligned.
+   */
+  "align-left": (editor) => {
+    editor.chain().focus().unsetTextAlign().run();
+  },
+  "align-center": (editor) => {
+    editor.chain().focus().setTextAlign("center").run();
+  },
+  "align-right": (editor) => {
+    editor.chain().focus().setTextAlign("right").run();
   },
   blockquote: (editor) => {
     editor.chain().focus().toggleBlockquote().run();

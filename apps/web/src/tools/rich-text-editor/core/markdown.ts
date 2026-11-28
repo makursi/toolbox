@@ -13,14 +13,16 @@ import { codeText, headingLevel } from "./document";
  * can apply, and it escapes text so a visitor's literal `*` or a paragraph that
  * starts with `1.` stays literal rather than becoming syntax.
  *
- * Underline is the one mark GFM has no form for, so it is written as inline HTML
- * (`<u>…</u>`), which GFM allows. Code is a span of its own: its content is
- * literal, so it is never escaped and its fence is grown past any backtick run
- * inside it.
+ * Underline and highlight are the two marks GFM has no form for, so they are
+ * written as inline HTML (`<u>…</u>`, `<mark>…</mark>`), which GFM allows. Code is
+ * a span of its own: its content is literal, so it is never escaped and its fence
+ * is grown past any backtick run inside it.
  *
  * An image keeps its alt and its bytes but not its width: GFM has no width syntax,
- * so the width is dropped here and here only (#219). The document still keeps it,
- * and the HTML export carries it; `rules.md` records the degradation.
+ * so the width is dropped here and here only (#219). Block alignment has no GFM
+ * form either, so it is dropped here too (#230): the words and the block stay, and
+ * only the layout is lost. The document still keeps both, and the HTML export
+ * carries both; `rules.md` records the two degradations.
  *
  * A table is a GFM pipe table, its first row the header (the row the editor makes
  * a header row). GFM reads a row before it reads inline syntax, so a cell is
@@ -124,8 +126,13 @@ function applyMarks(text: string, marks: readonly Mark[]): string {
   const types = new Set(marks.map((mark) => mark.type));
   let output = text;
 
-  for (const type of ["underline", "strike", "italic", "bold"] as const) {
+  for (const type of ["highlight", "underline", "strike", "italic", "bold"] as const) {
     if (!types.has(type)) continue;
+
+    if (type === "highlight") {
+      output = `<mark>${output}</mark>`;
+      continue;
+    }
 
     if (type === "underline") {
       output = `<u>${output}</u>`;

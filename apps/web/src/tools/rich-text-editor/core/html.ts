@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 
+import { TEXT_ALIGN_ATTRIBUTE, canonicalTextAlign } from "./align";
 import { codeText, documentTitle, headingLevel } from "./document";
 import { DEFAULT_IMAGE_WIDTH, asImageWidth } from "./image";
 
@@ -19,7 +20,10 @@ import { DEFAULT_IMAGE_WIDTH, asImageWidth } from "./image";
  *
  * An image embeds its bytes as `<img src="data:…">` and keeps the width the
  * document carries as the inline style the node stores (#219); a table becomes a
- * semantic `<table>` with a header row and a body. Neither asks the file to fetch
+ * semantic `<table>` with a header row and a body. A highlighted run is `<mark>`,
+ * and a block's alignment is a `style` on the element itself (#230); the
+ * stylesheet carries the mark's fill per scheme, because the file has to open
+ * away from the site that owns the token. Neither asks the file to fetch
  * anything, so the export keeps the same rule the page does.
  */
 
@@ -28,6 +32,7 @@ const MARK_ELEMENTS = [
   { element: "u", type: "underline" },
   { element: "s", type: "strike" },
   { element: "em", type: "italic" },
+  { element: "mark", type: "highlight" },
   { element: "strong", type: "bold" },
 ] as const;
 
@@ -55,6 +60,15 @@ const STYLESHEET = [
   "blockquote { margin: 1.25em 0; padding-left: 1em; border-left: 3px solid #d6d1c7; color: #57534b; }",
   "hr { margin: 2em 0; border: 0; border-top: 1px solid #d6d1c7; }",
   "a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }",
+  /*
+   * The highlight's fill, written out because this file has to open away from the
+   * site and cannot read its custom properties (#230). The two values are the
+   * measured pair `apps/web/src/lib/tokens.ts` holds (`highlight` and
+   * `highlightInk`), repeated here as literals the way this stylesheet repeats
+   * the rest of the palette: ink on its own fill is 12.76:1 in the light scheme
+   * and 7.60:1 in the dark one.
+   */
+  "mark { background: #e9d391; color: #111111; }",
   "code { padding: 0.15em 0.35em; border-radius: 4px; background: #f1efeb; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }",
   "pre { margin: 1.25em 0; padding: 16px; overflow-x: auto; border-radius: 8px; background: #f1efeb; line-height: 1.6; }",
   "pre code { padding: 0; background: none; font-size: 0.875rem; }",
@@ -68,6 +82,7 @@ const STYLESHEET = [
   "  th, td { border-color: #4a463f; }",
   "  th { background: #2b2926; }",
   "  code, pre { background: #2b2926; }",
+  "  mark { background: #544730; color: #edebe8; }",
   "}",
 ].join("\n");
 
@@ -194,6 +209,21 @@ function imageWidth(node: JSONContent): number {
 }
 
 /**
+ * A block's alignment as the one style attribute this format gives it (#230).
+ *
+ * The model stores `textAlign` on the block and HTML stores it as a style on the
+ * same element; `left` is the attribute's absence, so a block that says it (or
+ * says something outside the model) exports with no style at all. The canonical
+ * form comes from `core/align.ts`, which the sanitiser reads with too, so the file
+ * this writer produces and the file that reader accepts cannot disagree.
+ */
+function alignmentStyle(node: JSONContent): string {
+  const alignment = canonicalTextAlign(node.attrs?.[TEXT_ALIGN_ATTRIBUTE]);
+
+  return alignment === null ? "" : ` style="text-align: ${alignment}"`;
+}
+
+/**
  * An image as `<img>`: its bytes, its alt text and the width the Markdown writer
  * has to drop.
  *
@@ -269,13 +299,13 @@ function renderBlock(node: JSONContent): string {
       if (inline === "") return "";
       const level = String(headingLevel(node));
 
-      return `<h${level}>${inline}</h${level}>`;
+      return `<h${level}${alignmentStyle(node)}>${inline}</h${level}>`;
     }
 
     case "paragraph": {
       const inline = renderInline(node.content);
 
-      return inline === "" ? "" : `<p>${inline}</p>`;
+      return inline === "" ? "" : `<p${alignmentStyle(node)}>${inline}</p>`;
     }
 
     case "image":

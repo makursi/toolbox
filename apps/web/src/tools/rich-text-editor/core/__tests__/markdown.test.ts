@@ -89,6 +89,55 @@ describe("the Markdown writer", () => {
     ).toBe("**加粗**\n\n*斜体*\n\n~~删除线~~\n\n`行内代码`\n\n<u>下划线</u>\n\n***强调***\n");
   });
 
+  /**
+   * 高亮 is the second inline-HTML construct (#230), and the sibling of underline:
+   * GFM has no highlight form, so the run is written in the one inline HTML this
+   * writer already uses. The mark is a mark, not a colour, so the file carries no
+   * fill and neither export can disagree about one. A table cell goes through the
+   * same mark writer, which is why it comes free.
+   */
+  it("writes a highlight as <mark>, inside a bold run and inside a table cell", () => {
+    expect(
+      markdownFromDocument(
+        documentOf(
+          paragraph(text("高亮", [{ type: "highlight" }])),
+          paragraph(text("加粗高亮", [{ type: "highlight" }, { type: "bold" }])),
+          table(
+            row(
+              cell("tableHeader", paragraph(text("表头", [{ type: "highlight" }]))),
+              cell("tableHeader", paragraph(text("数量"))),
+            ),
+          ),
+        ),
+      ),
+    ).toBe(
+      "<mark>高亮</mark>\n\n**<mark>加粗高亮</mark>**\n\n| <mark>表头</mark> | 数量 |\n| --- | --- |\n",
+    );
+  });
+
+  /**
+   * Alignment's documented degradation (#230): GFM has no block-alignment syntax,
+   * so the words stay, the blocks keep their type, and only the layout is lost —
+   * the same shape as the image width. The document and the HTML export both keep
+   * it, so this is a degradation of the format rather than of the document.
+   */
+  it("keeps the words and drops an alignment Markdown cannot carry", () => {
+    const markdown = markdownFromDocument(
+      documentOf(
+        {
+          attrs: { textAlign: "center" },
+          content: [text("居中段落")],
+          type: "paragraph",
+        },
+        { attrs: { level: 2, textAlign: "right" }, content: [text("右标题")], type: "heading" },
+      ),
+    );
+
+    expect(markdown).toBe("居中段落\n\n## 右标题\n");
+    expect(markdown).not.toContain("text-align");
+    expect(markdown).not.toContain("style");
+  });
+
   it("writes a link with its address, and keeps a code span's backticks literal", () => {
     expect(
       markdownFromDocument(

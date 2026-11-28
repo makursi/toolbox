@@ -379,6 +379,12 @@ const PAGES = [
      * box of the block it names. That claim needs no state of its own: the handle is
      * on the page from the moment the editor is, and the caret starts in the first
      * block.
+     *
+     * #230 adds two always-visible controls, so both are declared here: 高亮 is the
+     * mark group's sixth toggle, and 对齐 is one popover trigger whose name carries
+     * the value in force (`对齐：<当前>`, the stable prefix is declared for the same
+     * reason `块类型` is). The alignment rows themselves live in that popover, so
+     * they are transient like the block menu's rows and the gate presses them.
      */
     controls: [
       "切换到",
@@ -391,9 +397,11 @@ const PAGES = [
       "下划线",
       "删除线",
       "行内代码",
+      "高亮",
       "项目符号列表",
       "编号列表",
       "任务列表",
+      "对齐",
       "引用",
       "代码块",
       "分隔线",

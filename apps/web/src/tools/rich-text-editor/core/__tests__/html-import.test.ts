@@ -263,3 +263,56 @@ describe("sanitizeHtml, tables and images", () => {
     expect(fragment).not.toContain("<thead>");
   });
 });
+
+/**
+ * The mark and the alignment (#230).
+ *
+ * The sanitiser's job is to keep what the editor's schema has a mark or an
+ * attribute for, and to hand TipTap the canonical form: `<mark>`, and the one
+ * alignment spelling `text-align: center`. A `left` is the absence of the
+ * attribute, so it leaves no style behind; a `justify` is outside the model and
+ * leaves none either. The last case is the round trip the ticket asks for: the
+ * writer's own bytes come back as the same markup.
+ */
+describe("sanitizeHtml, the mark and the alignment", () => {
+  it("keeps a mark the export writes", () => {
+    expect(sanitizeHtml("<p>前<mark>高亮</mark>后</p>")).toBe("<p>前<mark>高亮</mark>后</p>");
+    expect(sanitizeHtml("<p><mark><strong>叠</strong></mark></p>")).toBe(
+      "<p><mark><strong>叠</strong></mark></p>",
+    );
+  });
+
+  it("reads text-align from a paragraph or heading style, and re-emits only the canonical form", () => {
+    expect(sanitizeHtml('<p style="TEXT-ALIGN: CENTER; color: red">居中</p>')).toBe(
+      '<p style="text-align: center">居中</p>',
+    );
+    expect(sanitizeHtml('<h2 style="text-align:right">右</h2>')).toBe(
+      '<h2 style="text-align: right">右</h2>',
+    );
+    expect(sanitizeHtml('<p style="text-align: left">左</p>')).toBe("<p>左</p>");
+    expect(sanitizeHtml('<p style="text-align: justify">两端</p>')).toBe("<p>两端</p>");
+    expect(sanitizeHtml('<mark style="text-align: center">标记</mark>')).toBe("<mark>标记</mark>");
+  });
+
+  it("keeps the highlight and the alignment the writer wrote, so an exported file imports again", () => {
+    const document = {
+      content: [
+        {
+          attrs: { level: 1, textAlign: "center" },
+          content: [{ text: "居中标题", type: "text" }],
+          type: "heading",
+        },
+        {
+          attrs: { textAlign: "right" },
+          content: [{ marks: [{ type: "highlight" }], text: "高亮", type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    };
+    const fragment = sanitizeHtml(htmlFromDocument(document));
+
+    expect(fragment).toContain('<h1 style="text-align: center">居中标题</h1>');
+    expect(fragment).toContain('<p style="text-align: right"><mark>高亮</mark></p>');
+  });
+});

@@ -200,6 +200,30 @@ export function blockTrigger(page: Page): Locator {
 }
 
 /**
+ * 对齐's trigger (#230), whose name carries the alignment in force.
+ *
+ * It is the second popover trigger in the toolbar, and it is addressed the way
+ * `blockTrigger` is: by the prefix of the accessible name that says what it is,
+ * so a case can read the value in force without opening it.
+ */
+export function alignTrigger(page: Page): Locator {
+  return page.getByRole("button", { name: /^对齐：/ });
+}
+
+/**
+ * One row of the alignment popover.
+ *
+ * Scoped to the popover's own content because 左 / 居中 / 右 are short names that a
+ * document's words could otherwise satisfy: the row is a control of that popover,
+ * and the claim is about the row rather than about any button on the page.
+ */
+export function alignRow(page: Page, label: string): Locator {
+  return page
+    .locator('[data-slot="popover-content"]')
+    .getByRole("button", { name: label, exact: true });
+}
+
+/**
  * Select the text of the first body paragraph with the keyboard.
  *
  * Home then Shift+End is a selection the visitor could make with two keys, and it

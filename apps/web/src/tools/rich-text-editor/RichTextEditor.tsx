@@ -1,5 +1,6 @@
 "use client";
 
+import { Highlight } from "@tiptap/extension-highlight";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
@@ -16,6 +17,7 @@ import { IMAGE_REFUSAL_TEXT } from "./core/copy";
 import { EMPTY_DOCUMENT } from "./core/document";
 import { sanitizeHtml } from "./core/html-import";
 import type { SaveStatus } from "./core/save";
+import { Alignment } from "./editor/align-extension";
 import { ImageNode } from "./editor/image-extension";
 import {
   imageFiles,
@@ -104,6 +106,14 @@ const EDITOR_CLASS = [
   "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
   "[&_hr]:my-8 [&_hr]:border-t [&_hr]:border-border",
   "[&_a]:underline [&_a]:underline-offset-[3px]",
+  /*
+   * A highlighted run (#230) is a `<mark>` with no attributes: the mark means
+   * highlighted, and the fill is the site's measured token pair rather than a
+   * colour the document carries. The two properties are the pair the token test
+   * walks — `highlight` and `highlightInk` — so the canvas and the exported file
+   * cannot disagree about what a highlight looks like in either scheme.
+   */
+  "[&_mark]:bg-[var(--site-highlight)] [&_mark]:text-[var(--site-highlight-ink)]",
   "[&_.tableWrapper]:my-4 [&_.tableWrapper]:overflow-x-auto",
   "[&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
   "[&_th]:border [&_th]:border-border [&_th]:bg-secondary [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
@@ -371,6 +381,22 @@ function EditorSurface({
        * `image-extension.ts` explains why both are decisions rather than defaults.
        */
       ImageNode,
+      /*
+       * 高亮 (#230). One mark and no attributes: `multicolor` stays off, so the
+       * mark carries no `color` and renders as a plain `<mark>`. The fill is the
+       * site's token, which is what makes the document's meaning "highlighted"
+       * rather than "yellow", and what lets the two exports and the canvas agree.
+       */
+      Highlight,
+      /*
+       * 对齐 (#230). A global attribute on a paragraph and a heading, over the
+       * three values the toolbar offers; `defaultAlignment` stays null so the
+       * absence of the attribute is left-alignment, which is the model's statement
+       * that left is not something the document says. `editor/align-extension.ts`
+       * holds the configuration and the one thing it overrides: the extension's
+       * own four key bindings, which this Tool's keyboard surface does not have.
+       */
+      Alignment,
       Placeholder.configure({
         /*
          * One placeholder function, two sentences: the document's first block says

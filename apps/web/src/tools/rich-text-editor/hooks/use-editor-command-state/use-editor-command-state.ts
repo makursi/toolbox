@@ -65,9 +65,22 @@ export function useEditorCommandState(editor: Editor): EditorCommandState {
           underline: current.isActive("underline"),
           strike: current.isActive("strike"),
           code: current.isActive("code"),
+          highlight: current.isActive("highlight"),
           "bullet-list": current.isActive("bulletList"),
           "ordered-list": current.isActive("orderedList"),
           "task-list": current.isActive("taskList"),
+          /*
+           * Alignment is one attribute with three rows, and left is the absence of
+           * it: the left row is on when neither of the other two is, so the
+           * toolbar's trigger always has one value to name. The caret's block may
+           * be one that cannot carry the attribute (a code block, an image), and
+           * the row in force is still left, which is what a block with no
+           * alignment renders as.
+           */
+          "align-left":
+            !current.isActive({ textAlign: "center" }) && !current.isActive({ textAlign: "right" }),
+          "align-center": current.isActive({ textAlign: "center" }),
+          "align-right": current.isActive({ textAlign: "right" }),
           blockquote: current.isActive("blockquote"),
           "code-block": current.isActive("codeBlock"),
           "horizontal-rule": false,

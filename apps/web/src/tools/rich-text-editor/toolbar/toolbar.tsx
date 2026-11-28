@@ -6,6 +6,7 @@ import { Fragment, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
+import { AlignControl } from "../align-control/align-control";
 import { CommandToggle } from "../command-toggle/command-toggle";
 import type { ImageRefusal } from "../core/admission";
 import { commandById, commandsInGroup, type CommandId, type CommandSpec } from "../core/commands";
@@ -75,6 +76,7 @@ const TOGGLE_COMMANDS: ReadonlySet<CommandId> = new Set([
   "underline",
   "strike",
   "code",
+  "highlight",
   "bullet-list",
   "ordered-list",
   "task-list",
@@ -234,6 +236,17 @@ export function EditorToolbar({
         <Separator />
 
         {commandsInGroup("list").map(toggle)}
+
+        <Separator />
+
+        {/*
+         * Alignment is one trigger over the group's three rows (#230), not three
+         * controls: the toolbar is already at its column's width, and the values
+         * of one attribute read better as a named menu than as three buttons.
+         * Nothing else in the row renders this group, and the slash menu never
+         * will — its `block` value is outside the set the menu offers.
+         */}
+        <AlignControl editor={editor} pressed={state.pressed} />
 
         <Separator />
 

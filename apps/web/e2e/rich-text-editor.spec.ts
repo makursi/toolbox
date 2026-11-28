@@ -5,6 +5,8 @@ import { expect, test, type Download, type Page } from "@playwright/test";
 import {
   BODY_PLACEHOLDER,
   TITLE_PLACEHOLDER,
+  alignRow,
+  alignTrigger,
   altField,
   answerImportDialog,
   beginBlockDrag,
@@ -74,7 +76,9 @@ import {
  * command table (#207), the three ways to write without leaving the keyboard (#208),
  * the two exports (#210), the local draft with its save status (#209), the import
  * (#211), the images and tables that travel with the document (#216, #217), the
- * two formats that carry them (#219), and the same two formats read back (#220).
+ * two formats that carry them (#219), the same two formats read back (#220), the
+ * block handle and its menu (#229), and the sixth mark with block alignment
+ * (#230).
  *
  * What this holds is the document's *external* behaviour: the two sentences an
  * empty document paints, the text a visitor typed read back out of the browser,
@@ -93,12 +97,14 @@ import {
  */
 
 /**
- * The five inline marks, in the order the toolbar offers them, with the element
- * TipTap's mark renders as.
+ * The five inline marks the #207 slice introduced, in the order the toolbar offers
+ * them, with the element TipTap's mark renders as.
  *
  * Spelled out rather than read from the command table: the table is the other side
  * of this assertion, and an expectation derived from the code under test would
- * agree with it whether or not it is right.
+ * agree with it whether or not it is right. 高亮 is the sixth mark (#230) and has
+ * its own case, because its claim includes the reload and the selection toolbar
+ * as well as the toggle.
  */
 const MARKS = [
   { element: "strong", label: "加粗" },
@@ -801,7 +807,7 @@ test("the selection toolbar offers the marks and the link, and applies them", as
   const bar = selectionToolbar(page);
   await expect(bar).toBeVisible();
 
-  for (const label of ["加粗", "斜体", "下划线", "删除线", "行内代码", "链接"]) {
+  for (const label of ["加粗", "斜体", "下划线", "删除线", "行内代码", "高亮", "链接"]) {
     await expect(selectionControl(page, label)).toBeVisible();
   }
 
@@ -1804,6 +1810,181 @@ test("the keyboard reaches 块手柄, and Enter opens the menu", async ({ page }
 
   await page.keyboard.press("Escape");
   await expect(blockMenu(page)).toHaveCount(0);
+});
+
+test.describe("highlight and alignment (#230)", () => {
+  /*
+   * 高亮 is the sixth mark, and the two surfaces that render the mark group render
+   * it without a second list: the pinned toolbar and the row that follows a
+   * selection. The mark is a mark — the fill is the site's token — so what this
+   * case reads is the element in the canvas and the button's own `aria-pressed`,
+   * and then the same two facts after a reload, because the mark is document
+   * content rather than a screen effect.
+   */
+  test("高亮 toggles from both toolbars, and a reload keeps the mark", async ({ page }) => {
+    await open(page);
+    await writeInBody(page, "高亮这一段。");
+    await selectBodyText(page);
+
+    const pinned = toolbarControl(page, "高亮");
+    await expect(pinned).toHaveAttribute("aria-pressed", "false");
+
+    await pressAt(page, pinned);
+    await expect(pinned).toHaveAttribute("aria-pressed", "true");
+    await expect(bodyParagraph(page).locator("mark")).toHaveText("高亮这一段。");
+
+    await pressAt(page, pinned);
+    await expect(pinned).toHaveAttribute("aria-pressed", "false");
+    await expect(bodyParagraph(page).locator("mark")).toHaveCount(0);
+
+    // The second surface offers the same row, and applies the same command.
+    const floating = selectionControl(page, "高亮");
+    await pressAt(page, floating);
+    await expect(floating).toHaveAttribute("aria-pressed", "true");
+    await expect(bodyParagraph(page).locator("mark")).toHaveText("高亮这一段。");
+
+    await expect(saveStatus(page)).toHaveText("已保存到本机");
+    await page.reload();
+    await expect(editor(page)).toBeVisible();
+    await expect(bodyParagraph(page).locator("mark")).toHaveText("高亮这一段。");
+  });
+
+  /*
+   * 对齐's one trigger and its three rows (#230).
+   *
+   * The list's own no-`aria-current` assertion is part of the state claim: the
+   * value in force is the one the trigger names and the one row that says it is
+   * current, so a row that merely looks selected cannot pass. The loop over the
+   * three heading levels is the ticket's "for a paragraph and for headings 1–3",
+   * read off each element's computed alignment rather than off a class.
+   */
+  test("对齐 names the value in force, and sets it on a paragraph and on headings 1-3", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInBody(page, "对齐这一段。");
+    await selectBodyText(page);
+
+    const trigger = alignTrigger(page);
+    const block = canvas(page).locator("h1, h2, h3, p").filter({ hasText: "对齐这一段。" });
+
+    await block.click();
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：左");
+
+    await pressAt(page, trigger);
+    await expect(alignRow(page, "左")).toHaveAttribute("aria-current", "true");
+    await expect(alignRow(page, "居中")).not.toHaveAttribute("aria-current", "true");
+    await expect(alignRow(page, "右")).not.toHaveAttribute("aria-current", "true");
+
+    await pressAt(page, alignRow(page, "居中"));
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：居中");
+    await expect(block).toHaveCSS("text-align", "center");
+
+    await pressAt(page, trigger);
+    await expect(alignRow(page, "居中")).toHaveAttribute("aria-current", "true");
+    await pressAt(page, alignRow(page, "右"));
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：右");
+    await expect(block).toHaveCSS("text-align", "right");
+
+    // 左 is the absence of the attribute, not a value the document stores.
+    await pressAt(page, trigger);
+    await pressAt(page, alignRow(page, "左"));
+    await expect(trigger).toHaveAttribute("aria-label", "对齐：左");
+    expect(await block.getAttribute("style")).toBeNull();
+
+    for (const level of [1, 2, 3] as const) {
+      await block.click();
+      await pressAt(page, blockTrigger(page));
+      await pressAt(page, page.getByRole("button", { name: `标题 ${level}`, exact: true }));
+      await pressAt(page, trigger);
+      await pressAt(page, alignRow(page, "居中"));
+
+      await expect(block).toHaveJSProperty("tagName", `H${level}`);
+      await expect(block).toHaveCSS("text-align", "center");
+    }
+  });
+
+  /*
+   * Alignment is not a block command (#230).
+   *
+   * The command table's new `align` group carries a `block` value outside the
+   * slash menu's set, and the 块类型 popover reads the same `block` group. What
+   * this case proves is the outcome both surfaces have to show: the menu is still
+   * the twelve block commands and the popover is still four rows, with no
+   * alignment offered by either.
+   */
+  test("alignment is offered by neither the slash menu nor the block-type popover", async ({
+    page,
+  }) => {
+    await open(page);
+
+    await pressAt(page, blockTrigger(page));
+    await expect(page.locator('[data-slot="popover-content"]').getByRole("button")).toHaveText([
+      "正文",
+      "标题 1",
+      "标题 2",
+      "标题 3",
+    ]);
+    await page.keyboard.press("Escape");
+
+    await bodyParagraph(page).click();
+    await page.keyboard.type("/");
+    await expect(slashMenu(page)).toBeVisible();
+    await expect(slashMenuItems(page)).toHaveCount(12);
+
+    const labels = await slashMenuItems(page).evaluateAll((items) =>
+      items.map((item) => (item.textContent ?? "").trim()),
+    );
+    expect(labels).not.toContain("居中");
+    expect(labels).not.toContain("左");
+    expect(labels).not.toContain("右");
+
+    await page.keyboard.press("Escape");
+  });
+
+  /*
+   * The two exports, judged by their bytes (#230).
+   *
+   * The mark travels in both formats; the alignment travels in HTML and is the
+   * documented degradation of Markdown, exactly as the image width is. The last
+   * step imports the file the HTML export just wrote, so the round trip is proved
+   * through the page's own import: the sanitiser kept `<mark>` and the canonical
+   * style, and TipTap's parser read both back into the document.
+   */
+  test("the exports carry the mark, only the HTML carries alignment, and that file imports again", async ({
+    page,
+  }) => {
+    await open(page);
+    await writeInTitle(page, "格式导出");
+    await writeInBody(page, "高亮居中。");
+
+    await selectBodyText(page);
+    await pressAt(page, toolbarControl(page, "高亮"));
+    await expect(bodyParagraph(page).locator("mark")).toHaveCount(1);
+
+    await pressAt(page, alignTrigger(page));
+    await pressAt(page, alignRow(page, "居中"));
+    await expect(bodyParagraph(page)).toHaveCSS("text-align", "center");
+
+    const markdown = await readDownload(await downloadFromFileMenu(page, "导出 Markdown"));
+    expect(markdown).toBe("# 格式导出\n\n<mark>高亮居中。</mark>\n");
+    // Markdown has no block alignment: the words stay, the layout does not.
+    expect(markdown).not.toContain("text-align");
+    expect(markdown).not.toContain("style");
+
+    const standalone = await readDownload(await downloadFromFileMenu(page, "导出 HTML"));
+    expect(standalone).toContain('<p style="text-align: center"><mark>高亮居中。</mark></p>');
+    expect(standalone).toContain("mark { background: #e9d391; color: #111111; }");
+
+    await clearDocument(page);
+    await importFromFileMenu(page, fileOf("格式导出.html", "text/html", standalone));
+
+    await expect(canvas(page).locator("mark")).toHaveText("高亮居中。");
+    await expect(canvas(page).locator("p").filter({ hasText: "高亮居中。" })).toHaveCSS(
+      "text-align",
+      "center",
+    );
+  });
 });
 
 test.describe("the local draft", () => {
