@@ -46,8 +46,13 @@ jobs:
           pnpm check:docs
           pnpm check:docs --falsify
 
+      # The one source rule no linter in this repo can express — a `scroll`
+      # listener on `window`, forbidden by apps/web/docs/design/motion.md —
+      # beside the package linters rather than as a ninth step.
       - name: Lint
-        run: pnpm lint
+        run: |
+          pnpm lint
+          pnpm check:banned-calls
 
       - name: Typecheck
         run: pnpm typecheck

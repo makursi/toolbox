@@ -16,6 +16,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "check:docs": "node scripts/check-doc-pointers.mjs",
+    "check:banned-calls": "node scripts/check-banned-calls.mjs",
     "check:readme": "node scripts/check-readme-parity.mjs",
     "prepare": "simple-git-hooks"
   },

@@ -14,7 +14,7 @@
  * Cheapest first means a push that fails does so early, and the output above the
  * failure is the whole diff's context.
  *
- *   pnpm gate          the seven checks that need no build: about fifteen seconds warm
+ *   pnpm gate          the eight checks that need no build: about fifteen seconds warm
  *   pnpm gate --full   adds `build` and `e2e` (the browser gate builds first anyway)
  *   pnpm gate --list   print the steps and stop
  *
@@ -33,6 +33,7 @@ const FAST = [
   ["check:readme", "pnpm check:readme"],
   ["check:docs", "pnpm check:docs"],
   ["check:docs --falsify", "pnpm check:docs --falsify"],
+  ["check:banned-calls", "pnpm check:banned-calls"],
   ["lint", "pnpm lint"],
   ["typecheck", "pnpm typecheck"],
   ["test", "pnpm test"],
