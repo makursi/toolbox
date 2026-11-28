@@ -294,6 +294,25 @@ describe("sanitizeHtml, the mark and the alignment", () => {
     expect(sanitizeHtml('<mark style="text-align: center">标记</mark>')).toBe("<mark>标记</mark>");
   });
 
+  /**
+   * Alignment's scope is paragraphs and headings 1–3 (#230, F1): an `h4`–`h6` is a
+   * heading the document can hold but no toolbar row can name, so the alignment it
+   * carries is dropped here rather than travelling in as a state the toolbar cannot
+   * undo. The heading itself is kept — only the style goes.
+   */
+  it("keeps an h4–h6 but drops the alignment on it, which is outside the attribute's scope", () => {
+    expect(sanitizeHtml('<h4 style="text-align: center">四</h4>')).toBe("<h4>四</h4>");
+    expect(sanitizeHtml('<h6 style="text-align: right">六</h6>')).toBe("<h6>六</h6>");
+    // The three levels in scope keep it, so the drop is about the level and not
+    // about headings in general.
+    expect(sanitizeHtml('<h1 style="text-align: center">一</h1>')).toBe(
+      '<h1 style="text-align: center">一</h1>',
+    );
+    expect(sanitizeHtml('<h3 style="text-align: right">三</h3>')).toBe(
+      '<h3 style="text-align: right">三</h3>',
+    );
+  });
+
   it("keeps the highlight and the alignment the writer wrote, so an exported file imports again", () => {
     const document = {
       content: [

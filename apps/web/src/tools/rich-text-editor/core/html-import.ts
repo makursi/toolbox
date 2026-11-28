@@ -36,7 +36,7 @@
  */
 
 import { importAdmission, type ImageRefusal, type ImportAdmission } from "./admission";
-import { canonicalTextAlign } from "./align";
+import { TEXT_ALIGN_HEADING_LEVELS, canonicalTextAlign } from "./align";
 import { imageAltText } from "./image";
 
 interface TextNode {
@@ -474,19 +474,31 @@ function percentageWidth(element: ElementNode): number | null {
   return Math.min(100, Math.max(1, Math.round(parsed)));
 }
 
-/** Elements whose `style` may carry a block alignment: a paragraph or a heading. */
-const TEXT_ALIGN_ELEMENTS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p"]);
+/**
+ * Elements whose `style` may carry a block alignment: a paragraph, or a heading
+ * 1–3.
+ *
+ * The set is derived from `core/align.ts`'s scope rather than written out, so the
+ * levels the reader accepts and the levels the writer emits cannot drift. `h4`–`h6`
+ * are headings the document holds — they are kept elements — and the alignment on
+ * one of them is dropped here: it is outside the attribute's scope, which is a
+ * realm no toolbar row can name or undo.
+ */
+const TEXT_ALIGN_ELEMENTS: ReadonlySet<string> = new Set([
+  "p",
+  ...TEXT_ALIGN_HEADING_LEVELS.map((level) => `h${String(level)}`),
+]);
 
 /**
- * The canonical `text-align` style a paragraph or a heading declares (#230).
+ * The canonical `text-align` style a paragraph or a heading 1–3 declares (#230).
  *
  * This is `percentageWidth`'s sibling: `style` is not a kept attribute, and the
  * two values read out of it are the ones that are part of the document — an
  * image's width and a block's alignment. The value is put through
  * `core/align.ts`'s one whitelist and re-emitted from scratch, so
  * `TEXT-ALIGN:CENTER; color: red` arrives as `text-align: center`, `left` and
- * `justify` arrive as no style at all, and a style on anything but a p or an h is
- * not an alignment. TipTap's own parser reads the attribute back from the style
+ * `justify` arrive as no style at all, and a style on anything but a p or an h1–h3
+ * is not an alignment. TipTap's own parser reads the attribute back from the style
  * this emits, which is why the canonical form has to be the CSS spelling.
  */
 function textAlignmentOf(element: ElementNode): string | null {

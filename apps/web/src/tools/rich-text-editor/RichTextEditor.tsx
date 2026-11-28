@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import { BlockHandle } from "./block-handle/block-handle";
 import type { ImageRefusal } from "./core/admission";
-import { blockHandleHome } from "./core/block";
+import { BLOCK_HANDLE_INSET, blockHandleHome } from "./core/block";
 import { IMAGE_REFUSAL_TEXT } from "./core/copy";
 import { EMPTY_DOCUMENT } from "./core/document";
 import { sanitizeHtml } from "./core/html-import";
@@ -264,9 +264,11 @@ function EditorSurface({
    * The canvas card, which the block handle measures to choose its home (#229),
    * and the one decision that changes the card: below an 856px viewport the page
    * gutter is narrower than a 44px control plus 8px of clearance, so the card
-   * carries a 52px left inset and the text measure narrows instead of the handle
+   * carries a 52px left padding and the text measure narrows instead of the handle
    * covering a glyph. `blockHandleHome` makes that decision for the handle's
-   * placement too, so the text and the control cannot land in different homes.
+   * placement too, and the padding is `BLOCK_HANDLE_INSET` — the same two constants
+   * the placement uses — so the text and the control cannot land in different homes
+   * or disagree about where the gap is.
    *
    * The state is the answer, not the width: a resize recomputes it and React's
    * own equality check turns the same answer into no render. It is initialised
@@ -630,13 +632,12 @@ function EditorSurface({
       )}
 
       <div
-        className={`mx-auto mt-6 w-full max-w-[720px] rounded-lg border border-border bg-background focus-within:border-ring ${
-          inset ? "py-5 pr-5 pl-[52px]" : "p-5"
-        }`}
+        className="mx-auto mt-6 w-full max-w-[720px] rounded-lg border border-border bg-background p-5 focus-within:border-ring"
         data-slot="rich-text-canvas"
         onDragOver={handleCanvasDragOver}
         onDrop={handleCanvasDrop}
         ref={canvas}
+        style={inset ? { paddingLeft: BLOCK_HANDLE_INSET } : undefined}
       >
         <EditorContent editor={editor} />
       </div>

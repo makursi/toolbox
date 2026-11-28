@@ -109,7 +109,10 @@ describe("the standalone HTML writer", () => {
    *
    * The mark is written as `<mark>`, and because the file opens away from this
    * site the fill has to travel with it: the embedded stylesheet carries one rule
-   * per scheme, with the two measured token values written out. The file names
+   * per scheme, with the two measured token values read from `lib/tokens.ts` — the
+   * one module that owns colour — and written out as literals. The expected bytes
+   * below are spelled out rather than read from the token module, so a rule that
+   * stops following it is a red test rather than a tautology. The file names
    * nothing it would have to fetch, so a highlighted paragraph still reads as one
    * with no network at all.
    */
@@ -142,6 +145,28 @@ describe("the standalone HTML writer", () => {
     expect(html).toContain('<h2 style="text-align: right">右</h2>');
     expect(html).toContain("<p>左</p>");
     expect(html).toContain("<p>两端</p>");
+  });
+
+  /**
+   * Alignment's scope is paragraphs and headings 1–3 (#230, F1), and the file is
+   * where the scope is kept: the document can carry a level 4–6 heading (the
+   * Markdown reader keeps whatever `#` run a file uses, and StarterKit's own input
+   * rule turns `####` into one), but no toolbar row can name such a heading, so an
+   * alignment it carries is not written. Dropping it is the recorded degradation
+   * rather than a second, out-of-scope style in the exported file.
+   */
+  it("writes no alignment on a heading 4–6, which is outside the attribute's scope", () => {
+    const html = htmlFromDocument(
+      documentOf(
+        { attrs: { level: 4, textAlign: "center" }, content: [text("四")], type: "heading" },
+        { attrs: { level: 6, textAlign: "right" }, content: [text("六")], type: "heading" },
+      ),
+    );
+
+    expect(html).toContain("<h4>四</h4>");
+    expect(html).toContain("<h6>六</h6>");
+    expect(html).not.toContain('style="text-align: center"');
+    expect(html).not.toContain('style="text-align: right"');
   });
 
   it("writes lists, task items and a start number", () => {

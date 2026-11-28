@@ -332,6 +332,31 @@ export function commandById(id: CommandId): CommandSpec {
   return command;
 }
 
+/** The block group's four rows, by the heading level each one produces. */
+const HEADING_COMMANDS: Readonly<Record<number, CommandId>> = {
+  1: "heading-1",
+  2: "heading-2",
+  3: "heading-3",
+};
+
+/**
+ * The command that makes a heading of `level`, or `null` for one the table has no
+ * row for.
+ *
+ * The table's block rows are 正文 and 标题 1–3, while the document can hold a level
+ * 4–6 heading: the Markdown reader keeps whatever `#` run a file uses, and
+ * StarterKit's own input rule turns `####` into an H4. Two readers have to give the
+ * same answer for such a heading — the toolbar's state hook, which names the block
+ * at the caret, and the block menu, which marks the type of the block it acts on —
+ * so the level-to-id mapping lives here, beside the rows it is about, rather than
+ * in either reader. `null` is the answer "no row can name this block", and each
+ * reader says what it does with that: the toolbar falls back to 正文 and the menu
+ * marks none of its four rows.
+ */
+export function headingCommand(level: number): CommandId | null {
+  return HEADING_COMMANDS[level] ?? null;
+}
+
 /**
  * The commands a query matches, in the table's order.
  *

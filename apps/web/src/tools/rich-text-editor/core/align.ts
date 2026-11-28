@@ -29,6 +29,26 @@ export type TextAlignment = (typeof TEXT_ALIGNMENTS)[number];
  */
 export const TEXT_ALIGN_NODE_TYPES = ["paragraph", "heading"] as const;
 
+/**
+ * The heading levels alignment is a property of: the spec's "headings 1–3".
+ *
+ * The document itself carries six. TipTap's heading node accepts any level, the
+ * Markdown reader keeps whatever `#` run a file uses, the sanitiser keeps `h1`–`h6`,
+ * and StarterKit's own input rule turns `####` into an H4 as it is typed — so a
+ * level outside this list is a real block a visitor can hold. What this list bounds
+ * is the attribute: 1–3 is the only scope the toolbar can name (its four block rows
+ * are 正文 and 标题 1–3), so an alignment on a level 4–6 heading is a state no row
+ * can show or undo, and both HTML paths therefore leave it out. That is a
+ * degradation of the attribute's scope rather than of the heading, and `rules.md`
+ * records it.
+ */
+export const TEXT_ALIGN_HEADING_LEVELS = [1, 2, 3] as const;
+
+/** Whether a heading of this level can carry the alignment. */
+export function headingTakesAlignment(level: number): boolean {
+  return (TEXT_ALIGN_HEADING_LEVELS as readonly number[]).includes(level);
+}
+
 /** The attribute name TipTap's text-align extension stores on the block. */
 export const TEXT_ALIGN_ATTRIBUTE = "textAlign";
 

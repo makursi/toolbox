@@ -30,11 +30,16 @@ import {
   type BlockHandlePlacement,
   type BlockOperationId,
 } from "../core/block";
-import { commandsInGroup, type CommandId } from "../core/commands";
+import { commandsInGroup, headingCommand, type CommandId } from "../core/commands";
 import { BLOCK_DISABLED_REASON } from "../core/copy";
 import { FLOATING_LAYER_Z_INDEX } from "../core/layers";
 import { blockDragKey, blockDragPlugin, setBlockDragging } from "../editor/block-drag";
-import { moveBlockToBoundary, runBlockOperation, runCommandOnBlock } from "../editor/execute";
+import {
+  moveBlockToBoundary,
+  runBlockOperation,
+  runCommandOnBlock,
+  topLevelBlocks,
+} from "../editor/execute";
 import { useViewportReposition } from "../hooks/use-viewport-reposition/use-viewport-reposition";
 
 /**
@@ -79,9 +84,10 @@ export interface BlockHandleProps {
   readonly editor: Editor;
   /**
    * The canvas card. Its measured left edge is where the inset home puts the
-   * handle, and its width is what the drop line spans; the 52px inset itself is
-   * the card's own class, derived from the same `blockHandleHome` the placement
-   * uses.
+   * handle, and its width is what the drop line spans; the 52px inset itself is the
+   * card's own left padding, from `core/block.ts`'s `BLOCK_HANDLE_INSET` — the same
+   * two constants this placement is made of, so the card and the handle cannot land
+   * in different homes.
    */
   readonly canvas: RefObject<HTMLDivElement | null>;
 }
@@ -106,6 +112,34 @@ interface DragView {
   readonly canvasWidth: number;
   readonly lineTop: number;
   readonly pos: number;
+}
+
+/**
+ * The pointer's own state during a drag: where it last was, and which block the
+ * gesture is moving.
+ *
+ * The line's `lineTop` is *not* kept here, because it is a coordinate in a page the
+ * pointer can move underneath: a wheel or PageDown mid-drag scrolls the document
+ * while the pointer stays still, and a stored top would leave the 2px line at the
+ * screen coordinate it was drawn at — over the wrong gap (user story 27). The
+ * pointer's client y is the stable fact, so it is what the drag keeps; the line is
+ * re-derived from it on the same `useViewportReposition` signal the handle's own
+ * placement uses.
+ */
+interface DragPointer {
+  readonly pointerY: number;
+  readonly pos: number;
+}
+
+/** Whether two drag views draw the same thing, so a re-measure can settle. */
+function sameDragView(one: DragView, other: DragView): boolean {
+  return (
+    one.boundary === other.boundary &&
+    one.canvasLeft === other.canvasLeft &&
+    one.canvasWidth === other.canvasWidth &&
+    one.lineTop === other.lineTop &&
+    one.pos === other.pos
+  );
 }
 
 /** The press in progress, before and after it becomes a drag. */
@@ -158,17 +192,19 @@ function measuredBlocks(editor: Editor): readonly MeasuredBlock[] {
   return blocks;
 }
 
-/** A block node's type as the command table names it, or `null` for a non-text block. */
+/**
+ * A block node's type as the command table names it, or `null` for a type no row
+ * offers.
+ *
+ * The level-to-command mapping is `core/commands.ts`'s, shared with the toolbar's
+ * state hook: a heading 4–6 is a block the document can hold and this table cannot
+ * name, so both readers answer "no row" rather than inventing an id.
+ */
 function blockTypeCommand(node: ProseMirrorNode): CommandId | null {
   if (node.type.name === "paragraph") return "paragraph";
   if (node.type.name !== "heading") return null;
 
-  const level = Number(node.attrs.level ?? 1);
-  if (level === 1) return "heading-1";
-  if (level === 2) return "heading-2";
-  if (level === 3) return "heading-3";
-
-  return null;
+  return headingCommand(Number(node.attrs.level ?? 1));
 }
 
 export function BlockHandle({ editor, canvas }: BlockHandleProps) {
@@ -193,6 +229,7 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
   const [menuBlock, setMenuBlock] = useState<MenuBlock | null>(null);
   const [drag, setDrag] = useState<DragView | null>(null);
   const dragRef = useRef<DragView | null>(null);
+  const dragPointer = useRef<DragPointer | null>(null);
   const gesture = useRef<Gesture | null>(null);
   const gestureSource = useRef(0);
   const suppressClick = useRef(false);
@@ -226,6 +263,31 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
   useViewportReposition(true);
 
   /*
+   * The drag's view at a pointer position: the gap the block would land in, and
+   * where the 2px line is drawn for it.
+   *
+   * It measures on every call rather than caching a rectangle, because both sides
+   * move: a scroll changes every block's viewport band while the pointer's client
+   * y stays exactly where it was. That is the whole of user story 27 — the line
+   * follows the document, not the screen — so the pointer's y is the only thing a
+   * drag keeps and this function turns it into a line again on the pointer's own
+   * moves and on the layout pass that follows a scroll.
+   */
+  const dragViewFor = (pointerY: number, pos: number): DragView | null => {
+    const card = canvas.current;
+    if (card === null) return null;
+
+    const bands = measuredBlocks(editor);
+    const boundary = dropBoundary(bands, pointerY);
+    const lineTop = dropIndicatorTop(bands, boundary);
+    if (lineTop === null) return null;
+
+    const box = card.getBoundingClientRect();
+
+    return { boundary, canvasLeft: box.left, canvasWidth: box.width, lineTop, pos };
+  };
+
+  /*
    * Two passes: draw at the last placement, then measure the block and the canvas
    * before the browser paints and place again, so no frame shows the handle beside
    * the wrong block. It runs after *every* commit rather than on a dependency list
@@ -233,27 +295,43 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
    * refusal sentence above the canvas, a heading that grew — which is the image
    * panel's reasoning, and `setPlacement` compares before storing so the extra pass
    * settles instead of looping.
+   *
+   * The drag's line is re-derived in the same pass for the same reason: this is the
+   * commit a scroll produces (`useViewportReposition`), and the line's y is a
+   * viewport coordinate that has to be measured again whenever the page moves under
+   * the pointer. It is a no-op unless a drag is in progress.
    */
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- no list on purpose: the block moves without these values changing (see above), and the equality guard is what ends the chain
   useLayoutEffect(() => {
     const card = canvas.current;
     const dom = editor.view.nodeDOM(blockPos);
 
-    if (card === null || !(dom instanceof HTMLElement)) return;
+    if (card === null) return;
 
-    const block = dom.getBoundingClientRect();
-    const box = card.getBoundingClientRect();
-    const next = placeBlockHandle(
-      { bottom: block.bottom, top: block.top },
-      { left: box.left, top: box.top, width: box.width },
-      { height: window.innerHeight, width: window.innerWidth },
-    );
+    if (dom instanceof HTMLElement) {
+      const block = dom.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      const next = placeBlockHandle(
+        { bottom: block.bottom, top: block.top },
+        { left: box.left },
+        { height: window.innerHeight, width: window.innerWidth },
+      );
 
-    setPlacement((current) =>
-      current.home === next.home && current.left === next.left && current.top === next.top
-        ? current
-        : next,
-    );
+      setPlacement((current) =>
+        current.home === next.home && current.left === next.left && current.top === next.top
+          ? current
+          : next,
+      );
+    }
+
+    const pointer = dragPointer.current;
+    if (pointer === null) return;
+
+    const view = dragViewFor(pointer.pointerY, pointer.pos);
+    if (view === null) return;
+
+    dragRef.current = view;
+    setDrag((current) => (current !== null && sameDragView(current, view) ? current : view));
   });
 
   /*
@@ -356,6 +434,7 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
         gesture.current.cancelled = true;
         suppressClick.current = true;
       }
+      dragPointer.current = null;
       dragRef.current = null;
       setDrag(null);
     };
@@ -419,24 +498,12 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
       current.dragging = true;
     }
 
-    const bands = measuredBlocks(editor);
-    const boundary = dropBoundary(bands, event.clientY);
-    const lineTop = dropIndicatorTop(bands, boundary);
-    const card = canvas.current;
+    const view = dragViewFor(event.clientY, gestureSource.current);
+    if (view === null) return;
 
-    if (lineTop === null || card === null) return;
-
-    const box = card.getBoundingClientRect();
-    const next: DragView = {
-      boundary,
-      canvasLeft: box.left,
-      canvasWidth: box.width,
-      lineTop,
-      pos: gestureSource.current,
-    };
-
-    dragRef.current = next;
-    setDrag(next);
+    dragPointer.current = { pointerY: event.clientY, pos: gestureSource.current };
+    dragRef.current = view;
+    setDrag(view);
   };
 
   const endGesture = (event: ReactPointerEvent<HTMLButtonElement>, commit: boolean) => {
@@ -449,6 +516,7 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
       event.currentTarget.releasePointerCapture(current.pointerId);
     }
 
+    dragPointer.current = null;
     const view = dragRef.current;
     dragRef.current = null;
     setDrag(null);
@@ -464,7 +532,15 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
     }
   };
 
-  const run = (id: BlockOperationId) => {
+  /*
+   * The menu's two kinds of row, named for what they do rather than for the type of
+   * control they are: one runs a block operation (上移 / 下移 / 删除) through the
+   * block executor map, the other converts the block's type through the command
+   * table's own executor. Both act on the block the menu was opened for, and both
+   * close the menu; the flag tells the close that this was a commit, so the focus
+   * is left where the command put it rather than pulled back to the handle.
+   */
+  const applyBlockOperation = (id: BlockOperationId) => {
     if (menuBlock === null) return;
 
     committed.current = true;
@@ -472,7 +548,7 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
     showMenu(false);
   };
 
-  const convert = (id: CommandId) => {
+  const convertBlockType = (id: CommandId) => {
     if (menuBlock === null) return;
 
     committed.current = true;
@@ -587,7 +663,7 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
                       className="touch-target h-11 w-full justify-start px-3 text-sm font-normal"
                       disabled={disabled}
                       key={operation.id}
-                      onClick={() => run(operation.id)}
+                      onClick={() => applyBlockOperation(operation.id)}
                       role="menuitem"
                       title={reason ?? undefined}
                       variant="ghost"
@@ -604,7 +680,7 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
                     aria-current={menuBlock.type === command.id ? "true" : undefined}
                     className="touch-target h-11 w-full justify-start gap-2 px-3 text-sm font-normal"
                     key={command.id}
-                    onClick={() => convert(command.id)}
+                    onClick={() => convertBlockType(command.id)}
                     role="menuitem"
                     variant="ghost"
                   >
@@ -648,11 +724,8 @@ export function BlockHandle({ editor, canvas }: BlockHandleProps) {
 
 /** What the menu was opened for: the named block, its index and its own type. */
 function snapshotMenuBlock(editor: Editor, pos: number): MenuBlock | null {
-  const blocks: { node: ProseMirrorNode; offset: number }[] = [];
-
-  editor.state.doc.forEach((node, offset) => blocks.push({ node, offset }));
-
-  const index = blocks.findIndex((block) => block.offset === pos);
+  const blocks = topLevelBlocks(editor.state.doc);
+  const index = blocks.findIndex((block) => block.pos === pos);
   const found = blocks[index];
   if (found === undefined) return null;
 

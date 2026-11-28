@@ -27,10 +27,11 @@ import { TableControl } from "../table-control/table-control";
  * It is the table's renderer, not a second list. The groups come from
  * `commandsInGroup` in table order, so a command added to the core appears here
  * without an edit. What each command does is `runCommand` (`editor/execute.ts`),
- * which the slash menu and the selection toolbar run too: one table, one executor,
- * three surfaces. The file menu's four actions are the exception, and they say why
- * in `file-menu/file-menu.tsx`: they are file I/O around the document rather than
- * editor commands, so they have no row in the table and no executor.
+ * which the slash menu, the selection toolbar and the block menu's four block-type
+ * rows run too: one table, one executor, four surfaces. The file menu's four
+ * actions are the exception, and they say why in `file-menu/file-menu.tsx`: they
+ * are file I/O around the document rather than editor commands, so they have no
+ * row in the table and no executor.
  *
  * The state at the cursor comes from `useEditorCommandState`, so a mark that is on
  * says so and the block menu names the block the caret is in, without this component

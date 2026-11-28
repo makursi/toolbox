@@ -160,7 +160,7 @@ export async function pressAt(page: Page, control: Locator): Promise<void> {
  *
  * It is scoped to the pinned toolbar's region because there are two toolbars on this
  * page: the one above the canvas and the one that follows a selection, which offers
- * the same five marks and the link. A document-wide query would find both names and
+ * the same six marks and the link. A document-wide query would find both names and
  * fail on the ambiguity rather than on the control.
  */
 export function toolbarControl(page: Page, name: string): Locator {

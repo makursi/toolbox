@@ -14,9 +14,11 @@ import { insertionPointAfterSelectedNode } from "./insertion-point";
  * What each command of the table does, as one TipTap chain.
  *
  * The table says what exists; this map says what it does, and it is the only such
- * map: the pinned toolbar, the slash menu and the selection toolbar all run a
- * command through `runCommand`, so a command cannot behave one way in the menu and
- * another on the bar. `Record<Exclude<CommandId, "link" | "image" | "table">, ...>`
+ * map: the pinned toolbar, the slash menu, the selection toolbar and the block
+ * menu's four block-type rows all run a command through `runCommand` (the last of
+ * them through `runCommandOnBlock`, which moves the selection into the named block
+ * first), so a command cannot behave one way in one menu and another elsewhere.
+ * `Record<Exclude<CommandId, "link" | "image" | "table">, ...>`
  * is the exhaustiveness check TipTap's own commands cannot give: adding an id to
  * the table without a line here is a `tsc` error rather than a control that does
  * nothing.
@@ -206,18 +208,34 @@ export function runTableOperation(editor: Editor, id: TableOperationId): void {
 }
 
 /**
- * A top-level block of the document: where it starts, what it is, and which of
- * the document's blocks it is.
+ * A top-level block of the document: what it is, where it starts, and which of the
+ * document's blocks it is.
  *
  * `pos` is a document position at a node boundary, which is what a caret's
  * `$from.before(1)` and a pointer's measured block both give. `index` is the same
  * block counted among the document's top-level children, which is what the move
  * arithmetic and the menu's two disabled ends are about.
  */
-interface BlockTarget {
+export interface TopLevelBlock {
   readonly index: number;
   readonly node: ProseMirrorNode;
   readonly pos: number;
+}
+
+/**
+ * Every top-level block of the document, in document order.
+ *
+ * The block menu's snapshot, the block arithmetic and the two operations all need
+ * the same walk, so it is one function rather than a `doc.forEach` at each call
+ * site: a second copy is a second answer to "what is a top-level block", and the
+ * menu's index of a block has to be the index the move arithmetic uses.
+ */
+export function topLevelBlocks(doc: ProseMirrorNode): readonly TopLevelBlock[] {
+  const blocks: TopLevelBlock[] = [];
+
+  doc.forEach((node, offset, index) => blocks.push({ index, node, pos: offset }));
+
+  return blocks;
 }
 
 /**
@@ -230,19 +248,9 @@ interface BlockTarget {
  * whole blocks, and a caller that handed over a text position has already made a
  * mistake that this guard turns into nothing rather than into a wrong deletion.
  */
-function blockAt(doc: ProseMirrorNode, pos: number): BlockTarget | null {
-  let target: BlockTarget | null = null;
-  let index = 0;
-
-  doc.forEach((node, offset) => {
-    if (offset === pos) target = { index, node, pos };
-
-    index += 1;
-  });
-
-  return target;
+function blockAt(doc: ProseMirrorNode, pos: number): TopLevelBlock | null {
+  return topLevelBlocks(doc).find((block) => block.pos === pos) ?? null;
 }
-
 /**
  * Run a command-table command on the block at `pos` rather than on wherever the
  * selection happens to be (#229).

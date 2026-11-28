@@ -193,9 +193,11 @@ describe("placeBlockHandle", () => {
 
   it("lands in the home the gutter width decides", () => {
     for (const entry of VIEWPORTS) {
-      expect(
-        placeBlockHandle(BLOCK, { left: entry.canvasLeft, top: 100, width: 720 }, entry.viewport),
-      ).toEqual({ home: entry.home, left: entry.left, top: 120 });
+      expect(placeBlockHandle(BLOCK, { left: entry.canvasLeft }, entry.viewport)).toEqual({
+        home: entry.home,
+        left: entry.left,
+        top: 120,
+      });
     }
   });
 
@@ -207,11 +209,7 @@ describe("placeBlockHandle", () => {
     const textLefts = [68, 76, 88, 380];
 
     VIEWPORTS.forEach((entry, index) => {
-      const placement = placeBlockHandle(
-        BLOCK,
-        { left: entry.canvasLeft, top: 100, width: 720 },
-        entry.viewport,
-      );
+      const placement = placeBlockHandle(BLOCK, { left: entry.canvasLeft }, entry.viewport);
       const textLeft = textLefts[index];
       if (textLeft === undefined) throw new Error(`no text left for case ${index}`);
 
@@ -225,7 +223,7 @@ describe("placeBlockHandle", () => {
 
   it("stays inside the viewport when the block is above or below it", () => {
     const viewport = { height: 900, width: 1024 };
-    const canvas = { left: 152, top: 100, width: 720 };
+    const canvas = { left: 152 };
 
     expect(placeBlockHandle({ bottom: 40, top: 0 }, canvas, viewport).top).toBe(8);
     expect(placeBlockHandle({ bottom: 960, top: 920 }, canvas, viewport).top).toBe(848);

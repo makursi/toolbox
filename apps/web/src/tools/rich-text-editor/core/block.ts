@@ -74,12 +74,19 @@ export interface BlockBand {
   readonly top: number;
 }
 
-/** The canvas card's box, in viewport coordinates. */
+/**
+ * The canvas card's box, in viewport coordinates.
+ *
+ * Only the left edge is here, because it is the one the placement reads: the gutter
+ * home measures leftwards from it and the inset home starts on it. The card's top
+ * and width were declared here and never read by anything, so they are gone rather
+ * than kept as a description of a box the function does not use — the drop line's
+ * span is the card's own width, read where the line is drawn
+ * (`block-handle/block-handle.tsx`), not by this arithmetic.
+ */
 export interface CanvasBox {
   /** The card's outer left edge; the inset home starts the handle here. */
   readonly left: number;
-  readonly top: number;
-  readonly width: number;
 }
 
 /** The viewport the control has to stay inside. */
@@ -115,6 +122,17 @@ const CANVAS_WIDTH = 720;
 
 /** The gap between the handle and the text measure it never covers. */
 const CLEARANCE = 8;
+
+/**
+ * The left inset the canvas card carries in the inset home: the control plus its
+ * clearance.
+ *
+ * `placeBlockHandle` puts the handle on the card's own left edge in that home, so
+ * the text has to start this far in; the card reads this number rather than
+ * spelling 52 a second time, because two copies of it are two ways for the text and
+ * the control to end up in different homes.
+ */
+export const BLOCK_HANDLE_INSET = BLOCK_HANDLE_SIZE + CLEARANCE;
 
 /** The room the handle keeps from the viewport's edges when it is clamped. */
 const EDGE = 8;

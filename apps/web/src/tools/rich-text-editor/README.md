@@ -115,9 +115,10 @@ pipe table, HTML writes `<img src="data:…">` with the width and a semantic `<t
 and the image's width and a block's alignment are the two things only Markdown has to
 drop.
 
-Everything the three surfaces can do comes from one table in the Tool's pure core
+Everything the four surfaces can do comes from one table in the Tool's pure core
 (`core/commands.ts`): the slash menu offers its block rows, the floating toolbar its
-marks plus the link, and the pinned toolbar all of them. What each command _does_ is
+marks plus the link, the block menu its four block types, and the pinned toolbar all
+of them. What each command _does_ is
 one executor in `editor/execute.ts`, and that map is typed
 `Record<Exclude<CommandId, "link" | "image" | "table">, …>`, so a command in the
 table with no handler is a `tsc` error rather than a dead button. 链接, 图片 and
@@ -382,7 +383,7 @@ browser and covers the items marked **▣**:
 - ▣ A paragraph that begins with the same characters but makes no rule stays text
   (`#没有空格`, `>没有空格`, `-没有空格`, `1.没有空格`, an unclosed backtick, an
   unclosed `**`), and a slash inside a sentence is a slash.
-- ▣ The selection toolbar shows the five marks and the link on a selection, applies
+- ▣ The selection toolbar shows the six marks and the link on a selection, applies
   加粗 at its own coordinates, and is gone when the selection becomes a caret. Its
   placement (outside the selected words, inside the viewport) is the hit-area
   instrument's `selection-toolbar-clearance`, not this file's: it is geometry, and
@@ -397,11 +398,12 @@ browser and covers the items marked **▣**:
   is, and the rows act on the block the handle names rather than on the caret's.
 - ▣ A pointer drag from 块手柄 reorders the document, one 撤销 restores the order,
   the source block is marked while the drag lasts, the drop line is drawn at the
-  boundary, and Escape mid-drag changes nothing. A press that moves less than 4px
+  boundary and follows the document when the page scrolls under a still pointer,
+  and Escape mid-drag changes nothing. A press that moves less than 4px
   opens the menu instead of dragging.
-- ▣ Tab reaches 块手柄, Enter opens the menu with its first enabled row focused, and
-  Escape closes it. The handle's geometry is the hit-area instrument's
-  `block-handle-clearance`.
+- ▣ A real Tab walk reaches 块手柄, Enter and Space each open the menu with its first
+  enabled row focused, and Escape closes it. The handle's geometry is the hit-area
+  instrument's `block-handle-clearance`.
 - ▣ 高亮 toggles from the pinned toolbar and from the selection toolbar at their
   coordinates, reads back as `aria-pressed`, draws a `<mark>` in the canvas, and a
   reload brings the mark back from the draft.
@@ -594,12 +596,14 @@ here re-runs it.
       the caret's block.
 - [ ] **▣** A pointer drag from 块手柄 reorders the document, a single 撤销 restores
       the order, the source block carries the drag decoration while the pointer is
-      down, and the 2px drop line is drawn; Escape during the drag changes nothing.
+      down, and the 2px drop line is drawn; scrolling the page without moving the
+      pointer moves the line with the document; Escape during the drag changes
+      nothing.
 - [ ] **▣** A press that moves less than 4px is a press: the menu opens and nothing
       reorders. The handle geometry (44×44, clear of the block's text, inside the
       viewport) is the hit-area instrument's `block-handle-clearance`.
-- [ ] **▣** Tab reaches 块手柄, Enter opens the menu, its first enabled row takes the
-      focus, and Escape closes it.
+- [ ] **▣** Tab reaches 块手柄, Enter or Space opens the menu, its first enabled row
+      takes the focus, and Escape closes it.
 - [ ] **▣** 表格 opens the grid picker; choosing 2 rows × 3 columns inserts a 2 × 3
       table with a header row, and typing in a cell edits that cell.
 - [ ] **▣** Inside a table the same button opens the seven-row 表格 menu, and each

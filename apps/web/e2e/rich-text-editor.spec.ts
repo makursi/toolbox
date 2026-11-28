@@ -790,7 +790,7 @@ test("a paragraph that begins with the same characters but makes no rule stays t
 });
 
 /**
- * The toolbar that follows a selection: the five marks and the link, from the same
+ * The toolbar that follows a selection: the six marks and the link, from the same
  * command table, applied at the row's own coordinates.
  *
  * Where the row sits — above the words when there is room, below them otherwise,
@@ -1613,14 +1613,6 @@ test("替换 swaps the bytes, and a refused replacement leaves the image unchang
 });
 
 /**
- * The local draft (#209): what the browser keeps, what the toolbar says about it,
- * and what a returning visit and 清空 do.
- *
- * The store is read through the page's own IndexedDB rather than through a module:
- * the claim is that the browser has the record, and a read through the Tool would
- * agree with a broken writer that never touched the store.
- */
-/**
  * The block handle, the block menu and drag-to-reorder (#229).
  *
  * The pure module (`core/block.ts`) holds the arithmetic and the words; these
@@ -1795,17 +1787,116 @@ test("Escape during a drag changes nothing, and a press under 4px opens the menu
   await expect.poll(() => blockTexts(page)).toEqual(["第一块", "第二块", "第三块"]);
 });
 
-test("the keyboard reaches 块手柄, and Enter opens the menu", async ({ page }) => {
+/**
+ * A document long enough to scroll, whose first body block is tall.
+ *
+ * The import path builds it: typing thirty blocks with a keyboard would cost the
+ * case nothing but seconds, and the trick is the shape, not how it was written. The
+ * tall block is what makes the scroll case below unambiguous — the pointer can sit
+ * in the middle of one block while the page scrolls under it, so the line has one
+ * reason to move and it is the page's.
+ */
+async function writeScrollingDocument(page: Page): Promise<void> {
+  const tall = "这是一段很长的话。".repeat(80);
+  const rest = Array.from({ length: 30 }, (_unused, index) => `第 ${index + 1} 段。`);
+  const markdown = ["# 长文档", "", tall, "", ...rest.flatMap((line) => [line, ""])].join("\n");
+
+  await open(page);
+  await importFromFileMenu(page, fileOf("长文档.md", "text/markdown", markdown));
+  await expect.poll(() => blockTexts(page)).toHaveLength(32);
+}
+
+/**
+ * User story 27: the drop line follows the document when the page scrolls under a
+ * still pointer.
+ *
+ * The handle is placed by a layout pass the reposition hook re-runs on every scroll;
+ * the line's top used to be written only while the pointer moved, so a wheel or
+ * PageDown mid-drag left the 2px line at the viewport coordinate it was drawn at —
+ * across the wrong gap. This case starts a real drag over a tall block, scrolls the
+ * page without moving the pointer, and reads the line again. The claim is the
+ * comparison ("it followed the document"), not a number: where the line has to land
+ * is the hit-area instrument's business, and the numbers stay there.
+ */
+test("the drop line follows the page when it scrolls under a still drag", async ({ page }) => {
+  await writeScrollingDocument(page);
+
+  const target = documentBlocks(page).nth(1);
+  await target.hover();
+
+  const box = await target.boundingBox();
+  if (box === null) throw new Error("the tall block has no geometry to drag against");
+
+  // A point well above the tall block's own midpoint, so a small scroll keeps the
+  // pointer inside the same block and the same gap under it.
+  const pointer = { x: box.x + box.width / 2, y: box.y + 60 };
+  const viewport = page.viewportSize();
+  if (
+    viewport !== null &&
+    (pointer.x < 0 || pointer.y < 0 || pointer.x >= viewport.width || pointer.y >= viewport.height)
+  ) {
+    throw new Error(
+      `the drag point is at ${Math.round(pointer.x)},${Math.round(pointer.y)}, outside the ${viewport.width}×${viewport.height} viewport, so a point there would be dropped rather than fail`,
+    );
+  }
+
+  await beginBlockDrag(page, target, pointer);
+
+  const line = blockDropLine(page);
+  await expect(line).toBeVisible();
+  const before = await line.boundingBox();
+  if (before === null) throw new Error("the drop line has no geometry to read");
+
+  const scrolled = await page.evaluate(() => window.scrollY);
+  await page.mouse.wheel(0, 60);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(scrolled);
+
+  // The pointer has not moved and the drag is still live: if the line's own place
+  // on the page is the one it kept, it is glued to the screen rather than to the
+  // document, and it is now drawn across the wrong gap.
+  await expect
+    .poll(async () => Math.round((await line.boundingBox())?.y ?? before.y))
+    .not.toBe(Math.round(before.y));
+  await expect(line).toBeVisible();
+
+  await page.mouse.up();
+  await expect(line).toHaveCount(0);
+});
+
+test("Tab reaches 块手柄, and Enter or Space opens the menu", async ({ page }) => {
   await open(page);
 
   const handle = blockHandle(page);
-  await handle.focus();
+  if (!(await handle.evaluate((element) => element instanceof HTMLButtonElement))) {
+    throw new Error("the handle is no longer a button, so it cannot be reached by Tab");
+  }
+
+  // A real Tab walk, not `.focus()`: `focus()` also succeeds on a `tabindex="-1"`
+  // element, so it would prove nothing about the tab order the ticket promises. The
+  // walk is bounded, and the bounded count is the assertion: a handle that is not in
+  // the order never arrives.
+  let steps = 0;
+  while (steps < 60 && !(await handle.evaluate((element) => element === document.activeElement))) {
+    await page.keyboard.press("Tab");
+    steps += 1;
+  }
+  expect(steps, "the number of Tab presses that reached 块手柄").toBeLessThan(60);
   await expect(handle).toBeFocused();
 
   await page.keyboard.press("Enter");
   await expect(blockMenu(page)).toBeVisible();
   // The first row that can be pressed takes the focus: the caret is in the first
   // block, where 上移 is the disabled one.
+  await expect(blockMenuItem(page, "下移")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(blockMenu(page)).toHaveCount(0);
+
+  // Space is the other key user story 11 promises. A `<button>` reports Space as a
+  // click on release, which is why this proves the menu's own toggle rather than a
+  // key the component listens for.
+  await page.keyboard.press("Space");
+  await expect(blockMenu(page)).toBeVisible();
   await expect(blockMenuItem(page, "下移")).toBeFocused();
 
   await page.keyboard.press("Escape");
@@ -1894,8 +1985,19 @@ test.describe("highlight and alignment (#230)", () => {
 
     for (const level of [1, 2, 3] as const) {
       await block.click();
+
+      // 左 before every level, so the 居中 press below is that level's own act:
+      // converting a block copies the attributes it already had, and a heading that
+      // arrived centered would make the press a no-op that still passes. Reading the
+      // style back as absent is the other half — 左 is the absence of the attribute.
+      await pressAt(page, trigger);
+      await pressAt(page, alignRow(page, "左"));
+      expect(await block.getAttribute("style"), `heading ${level} starts from 左`).toBeNull();
+
       await pressAt(page, blockTrigger(page));
       await pressAt(page, page.getByRole("button", { name: `标题 ${level}`, exact: true }));
+      await expect(block).toHaveJSProperty("tagName", `H${level}`);
+
       await pressAt(page, trigger);
       await pressAt(page, alignRow(page, "居中"));
 
@@ -1987,6 +2089,14 @@ test.describe("highlight and alignment (#230)", () => {
   });
 });
 
+/**
+ * The local draft (#209): what the browser keeps, what the toolbar says about it,
+ * and what a returning visit and 清空 do.
+ *
+ * The store is read through the page's own IndexedDB rather than through a module:
+ * the claim is that the browser has the record, and a read through the Tool would
+ * agree with a broken writer that never touched the store.
+ */
 test.describe("the local draft", () => {
   test("typing and pausing writes the draft and reports 已保存到本机", async ({ page }) => {
     await open(page);

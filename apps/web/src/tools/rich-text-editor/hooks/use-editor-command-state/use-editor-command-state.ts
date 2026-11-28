@@ -2,7 +2,7 @@
 
 import { useEditorState, type Editor } from "@tiptap/react";
 
-import type { CommandId } from "../../core/commands";
+import { headingCommand, type CommandId } from "../../core/commands";
 
 /**
  * The state at the cursor, read through TipTap's own selector.
@@ -40,13 +40,18 @@ export function useEditorCommandState(editor: Editor): EditorCommandState {
   return useEditorState({
     editor,
     selector: ({ editor: current }): EditorCommandState => {
-      const block: CommandId = current.isActive("heading", { level: 1 })
-        ? "heading-1"
-        : current.isActive("heading", { level: 2 })
-          ? "heading-2"
-          : current.isActive("heading", { level: 3 })
-            ? "heading-3"
-            : "paragraph";
+      /*
+       * The block at the caret, named by the command that produces it. The level is
+       * read through the extension's own attributes and mapped by
+       * `core/commands.ts`'s `headingCommand`, which is the same mapping the block
+       * menu uses: a level the table has no row for (4–6) has no command to name it,
+       * and 正文 is the fallback both readers share.
+       */
+      const level = current.isActive("heading")
+        ? Number(current.getAttributes("heading").level ?? 1)
+        : null;
+      const block: CommandId =
+        level === null ? "paragraph" : (headingCommand(level) ?? "paragraph");
 
       return {
         block,
