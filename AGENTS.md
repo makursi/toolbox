@@ -14,20 +14,21 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Commands
 
-| Command             | Purpose                                            |
-| ------------------- | -------------------------------------------------- |
-| `pnpm dev`          | run the site via `turbo run dev`                   |
-| `pnpm start`        | serve the production build                         |
-| `pnpm build`        | production build                                   |
-| `pnpm lint`         | `oxlint --type-aware --deny-warnings` per package  |
-| `pnpm lint:fix`     | same, with `--fix`                                 |
-| `pnpm typecheck`    | `tsc --noEmit` per package                         |
-| `pnpm test`         | run Vitest via `turbo run test`                    |
-| `pnpm e2e`          | the browser gate below, via `turbo run e2e`        |
-| `pnpm fmt`          | format the repo with Oxfmt                         |
-| `pnpm check:readme` | check the two READMEs against each other           |
-| `pnpm check:docs`   | check the instruments' pointers both ways          |
-| `pnpm gate`         | the CI chain locally (`--full` adds build and e2e) |
+| Command                   | Purpose                                            |
+| ------------------------- | -------------------------------------------------- |
+| `pnpm dev`                | run the site via `turbo run dev`                   |
+| `pnpm start`              | serve the production build                         |
+| `pnpm build`              | production build                                   |
+| `pnpm lint`               | `oxlint --type-aware --deny-warnings` per package  |
+| `pnpm lint:fix`           | same, with `--fix`                                 |
+| `pnpm typecheck`          | `tsc --noEmit` per package                         |
+| `pnpm test`               | run Vitest via `turbo run test`                    |
+| `pnpm e2e`                | the browser gate below, via `turbo run e2e`        |
+| `pnpm fmt`                | format the repo with Oxfmt                         |
+| `pnpm check:readme`       | check the two READMEs against each other           |
+| `pnpm check:docs`         | check the instruments' pointers both ways          |
+| `pnpm check:banned-calls` | the one source rule no linter can express          |
+| `pnpm gate`               | the CI chain locally (`--full` adds build and e2e) |
 
 **The two instruments** live in `apps/web/scripts/` (`node:` plus CDP, against a Chrome you start) and answer the two questions a build cannot: _did this change move anything on screen_, and _is every control the page declares still there and still a target_. `pnpm --filter @toolbox/web fingerprint capture|compare` (`ui-fingerprint.mjs`) snapshots every page at five widths in both colour schemes and diffs two snapshots; it stays local, because its "before" is a file a person saved on this machine. `pnpm --filter @toolbox/web touch-targets` (`touch-targets.mjs`) measures every `.touch-target` control's hit area and checks the controls and regions each page declares. **CI runs that one**, with its falsification mode, as the Hit areas step in `.github/workflows/ci.yml` — after the gate, on the build the gate already drove, with the browser the gate pinned — because a threshold nobody runs is not a check, and this probe was found red on the cover generator's page for five days. What it can fail on is in the instruments' module (`apps/web/docs/design/instruments.md#touch-targets`), and the usage of both, including the Chrome they need already running, is in each script's header comment.
 
@@ -70,7 +71,7 @@ Traps that cost an hour to find the first time and that no check can see.
 - **`next build` rewrites `apps/web/CLAUDE.md`**, the agent-rules block Next re-adds itself. Run `pnpm fmt` after a build so the tree reads clean.
 - **A build that dies spawning a worker** — `node process exited before we could connect`, exit code `0xc0000142` — is a Turbopack flake on this machine. Retry once before treating it as a regression.
 - **Build large fixtures in a page that is not the one under test.** Generating a 13.7 MB PNG and then uploading it from that same page wedged the renderer twice; a fresh page took the same file in 9 ms. The mechanism is unknown, so the habit is the rule: build in one page, upload in another.
-- **A control can pass keyboard QA and be dead to the mouse.** `.touch-target` grows a hit area with a pseudo-element, and a pseudo-element's clicks belong to the element it is generated on — so the class on a wrapper that merely _renders_ a control does not grow the target, it becomes the target: every pointer click lands on an element that handles none. A key never hits a pseudo-element, so the keyboard keeps working and the bug survives a QA round that used Space. Put the class on the element that owns the click — a `<button>`, an `<a>`, a `<label for>` — which is what the format row does (its label is stretched across the row and carries the class) and what the remove cross, the scheme switch and 清空 do. The gate in `e2e/interaction.spec.ts` presses at coordinates for exactly this reason, and it has been watched fail on this bug. **The same overlay also covers an inner element a platform control needs** (#172): on an `input[type=range]` it is painted above the browser's own thumb, and Chromium starts a range drag only when the touch hits that thumb — so the slider is dead to a finger while the mouse (which moves the value from anywhere on the track) and the keyboard keep working. `pointer-events: none` on the overlay is the repair there, because a range's 44px is its own `h-11` and the class is only the Instrument's marker. A pseudo-element that is a target for one control can be a mask for another.
+- **A control can pass keyboard QA and be dead to the mouse.** `.touch-target` grows a hit area with a pseudo-element, and a pseudo-element's clicks belong to the element it is generated on: put the class on the element that owns the click — a `<button>`, an `<a>`, a `<label for>` — never on a wrapper that only renders one. A key never hits a pseudo-element, so the keyboard keeps working and the bug survives a Space-key QA pass; `e2e/interaction.spec.ts` presses at coordinates for this reason, and it has been watched fail on it. The same overlay also masks an inner element a platform control needs: on `input[type=range]` it sits above the browser's own thumb, and `pointer-events: none` is the repair. Both halves, with the measurements, are in `apps/web/docs/design/components.md`.
 - **`shadcn add` works only through this machine's wrapper.** The registry host is SNI-blocked here, so the bare CLI dies in the TLS handshake (`ECONNRESET`) with nothing in the error to act on. `C:\Users\29634\.local\bin\shadcn` — outside version control, and a premise of `docs/adr/0016-the-component-layer-is-shadcn-ui-again.md` — points the CLI at a local proxy and calls the real shim; `SHADCN_WRAPPER_INFO=1` prints what it resolved. The site does not depend on it — the Primitive layer is vendored in `apps/web/src/components/ui/` — so what it still decides is the next Primitive (`docs/adr/0018-one-component-layer.md`). Run `pnpm fmt` after a generation: a regenerated file arrives in the registry's own formatting.
 - **A pull request that conflicts with `main` gets no CI run at all.** A `pull_request` workflow runs against the merge commit GitHub builds for the PR, and a conflicting PR has none: the checks list stays empty and the silence reads like a workflow that never triggered. Rebase onto `main` — or merge it in — and the run appears; until then the local checks are the only evidence, and a reviewer sees an untested diff.
 - **`page.mouse.click` drops coordinates outside the viewport without a word.** `boundingBox()` is viewport-relative and does not scroll, so a row measured below the fold produces a click that lands nowhere — which reads as a missing handler rather than a missing scroll. Measure _after_ `scrollIntoViewIfNeeded()`, and assert the point is inside `page.viewportSize()` so the failure is loud (`e2e/tool-page.ts`).
@@ -85,6 +86,10 @@ Issues and specs live as GitHub issues, driven by the `gh` CLI (it infers the re
 ### Triage labels
 
 The five canonical triage roles map 1:1 to `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Implementer dispatch
+
+A background implementer's protocol — worktree base, checks, landing, the single report — is `docs/agents/implementer-brief.md`.
 
 ### Domain docs
 

@@ -21,7 +21,15 @@ import { defineConfig } from "@playwright/test";
  * lockfile. Install it once with
  * `pnpm --filter @toolbox/web exec playwright install chromium`.
  */
-const PORT = 3111;
+/*
+ * The port the gate's server listens on, overridable because a worktree is a
+ * full checkout: two gate runs at once would compete for 3111, and because
+ * `reuseExistingServer` is on below, the second run would silently reuse the
+ * first worktree's server and test the wrong build. Give each worktree its own
+ * value — `PW_PORT=31216 pnpm --filter @toolbox/web e2e` — and the collision
+ * cannot happen. The default keeps CI and a single checkout unchanged.
+ */
+const PORT = Number(process.env.PW_PORT ?? 3111);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
