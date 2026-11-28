@@ -227,3 +227,44 @@ The Rich Text Editor's cover was cropped with a one-off PowerShell + GDI+ comman
 - **GDI+ (the previous method).** Windows-only, and no EXIF handling.
 - **`sharp` or `image-size` as a dependency.** The script already has Pillow, and the reader is 80 lines of header parsing.
 - **An `icons` subcommand now.** An API for a brand change that has not happened.
+
+---
+
+# Rich Text Editor V3 — the block menu, highlight and alignment (2026-11-28)
+
+## The question
+
+V2 landed (#215, PR #221), and #214's checklist still lists three unbuilt items: the block-level operation menu (§4.4), text colour or highlight (§4.2 and §4.5, both marked optional in the document), and alignment (§4.2, which the document itself defers to a later version). The owner asked to continue with the checklist. One round of six questions settled the shape; the spec is #228, the slices are #229 (block handle, block menu, drag) and #230 (highlight, alignment).
+
+## Settled branches
+
+1. **Two slices, not one.** A is the block handle, its menu and drag-to-reorder; B is highlight and alignment. They touch the same two files (`toolbar.tsx`, `core/commands.ts`) but in different regions, and each is a complete path through the layers on its own.
+2. **The block menu is a handle with four abilities.** 上移, 下移, 删除 and 转换为 — the last rendering the command table's existing `block` group rather than a second list of block types. The two PRD directions left out are deliberate: 添加新内容块 is what Enter already does, and 块设置 has nothing to set, because an image's width and alt text are its own panel's.
+3. **Free drag-to-reorder — the owner's choice, asked directly.** The question offered up/down-only (which is what the repo's "presets instead of free resize" precedent would suggest) and the owner took the drag. The menu's 上移/下移 stay as the keyboard path rather than as an alternative to the gesture.
+4. **The drag is ours.** A pointer drag on the handle with a 4px click/drag threshold, a pure drop-boundary function over the blocks' vertical midpoints, and one transaction so one 撤销 undoes the move. No new package in slice A.
+5. **The handle is one element, always in the DOM, never over text.** It sits in the page gutter beside the canvas when the gutter holds it (52px: the control plus 8px of clearance, reached at an 856px viewport), and inside a 52px left inset of the canvas below that — the text measure narrows rather than the handle covering a glyph. One pure placement function, two homes; on 390px the reserved strip does not shrink the handle into a 36px control.
+6. **The block operations are a second executor map**, keyed by their own union and living in a pure module — the shape the table's seven operations already established — not rows of the command table, because they act on the block the handle names.
+7. **Highlight is one mark, not a colour.** The mark means _highlighted_; the fill is a site token per scheme, so the document carries no colour, both exports cannot disagree about one, and Markdown's `<mark>` needs no attribute. A palette would have made the colour a document value and turned Markdown into a second, lossier degradation.
+8. **Alignment is an attribute of paragraphs and headings 1–3**, left being its absence, chosen from one toolbar trigger that shows the value in force. Three 44px buttons were rejected: the toolbar is already at its column's width, and a secondary formatting action does not get 132px of it.
+9. **Markdown writes `<mark>`; Markdown drops alignment.** `<mark>` is underline's sibling, not a new precedent — the writer already owns exactly one inline-HTML construct for a mark GFM cannot express. Alignment is dropped the way the image width is dropped: a degradation of the format, recorded, with the words intact. The HTML export carries both, and both parsers learn both.
+10. **Two new packages**, `@tiptap/extension-highlight` and `@tiptap/extension-text-align`, at the tree's 3.35 line.
+11. **The highlight fill is a measured pair**, declared in the token module and walked by the token test in both schemes, so an unmeasured colour fails a test instead of shipping.
+12. **No new test seam.** The pure core carries the writers, the parsers, the block arithmetic, the copy and the tokens; the gesture, the menu and the presses are the gate; the handle's geometry is the hit-area instrument.
+
+## Open branches
+
+- Whether the handle should also appear on a block that a touch user has tapped, or whether the caret-block rule is enough on a phone. The spec takes the caret-block rule; a real device check may ask for more.
+- Whether the drag should gain auto-scroll once long documents are real in this Tool; the slice deliberately stops at the blocks on screen.
+- How the handle behaves on a table row or a code block — the block it names is the top-level node, which is the answer the slice assumes and the gate does not yet probe.
+- Whether 高亮 belongs in the selection toolbar at 390px: the row is clamped to the viewport with no scroll container, and a sixth mark narrows the margin (slice B's own check).
+
+## Rejected branches, and why
+
+- **`@tiptap/extension-drag-handle` plus its React binding.** The obvious buy, and its required peers would pull `@tiptap/extension-node-range` and the collaboration pair (`@tiptap/extension-collaboration`, `@tiptap/y-tiptap`) into an editor with no collaboration. The layer it replaces is a rectangle and some arithmetic.
+- **Up/down only, with no drag.** The owner chose the gesture; it is recorded here so a later session does not re-open it as an oversight.
+- **Auto-scroll during the drag.** A control class of its own — edge cases, timers, and a second way to move a block.
+- **Three alignment buttons in the toolbar.** 132px of a bar that is already full, for a state the popover already shows.
+- **A multi-colour highlight, or text colour.** The product document offers "colour _or_ highlight"; one mark is the complete version of the feature, and a colour stored in the document is a second degradation in Markdown and a palette to measure twice.
+- **A block settings panel.** Nothing on a paragraph or a heading is configurable; an image's settings live in the panel that already exists.
+- **Adding a block from the menu.** Enter at the end of a block is the same action with no menu.
+- **Folding slice B's alignment into the existing `block` command group.** It would have put 左/居中/右 into the 块类型 popover and into the slash menu, which the group's own predicate decides.
