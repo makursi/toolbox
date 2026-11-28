@@ -12,6 +12,7 @@
     "lint:fix": "turbo run lint -- --fix",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "gate": "node scripts/gate.mjs",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "check:docs": "node scripts/check-doc-pointers.mjs",
@@ -27,7 +28,7 @@
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged",
-    "pre-push": "pnpm lint && pnpm typecheck"
+    "pre-push": "pnpm gate"
   },
   "devEngines": {
     "packageManager": {
