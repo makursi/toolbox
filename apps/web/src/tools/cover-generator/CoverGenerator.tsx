@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 /*
  * The incoming component layer's parts of this page (#117). `Button` is aliased
@@ -189,7 +189,7 @@ export function CoverGenerator() {
           className="cover-tabs"
           data-slot="cover-tabs"
           defaultValue="content"
-          style={{ "--cover-preview-height": `${paneHeight}px` } as CSSProperties}
+          style={{ "--cover-preview-height": `${paneHeight}px` }}
         >
           {/* `variant="line"` rather than the registry's default: the default marks
               the active tab with a filled pill and `shadow-sm`, and a resting shadow
@@ -882,7 +882,7 @@ export function CoverGenerator() {
           ref={wrapperRef}
           className="cover-preview-pane relative w-full overflow-hidden rounded-md border border-border bg-white"
           data-slot="cover-preview-pane"
-          style={{ "--cover-aspect": aspect, aspectRatio: aspect } as CSSProperties}
+          style={{ "--cover-aspect": aspect, aspectRatio: aspect }}
         >
           {/* The composition is a fixed 1280×720 box, so it sits out of the
               layout flow: a `w-full` pane whose child is 1280px wide has an

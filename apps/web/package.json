@@ -10,7 +10,7 @@
     "fingerprint": "node scripts/ui-fingerprint.mjs",
     "start": "next start",
     "touch-targets": "node scripts/touch-targets.mjs",
-    "lint": "oxlint --type-aware",
+    "lint": "oxlint --type-aware --deny-warnings",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -14,19 +14,20 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Commands
 
-| Command             | Purpose                                     |
-| ------------------- | ------------------------------------------- |
-| `pnpm dev`          | run the site via `turbo run dev`            |
-| `pnpm start`        | serve the production build                  |
-| `pnpm build`        | production build                            |
-| `pnpm lint`         | `oxlint --type-aware` per package           |
-| `pnpm lint:fix`     | same, with `--fix`                          |
-| `pnpm typecheck`    | `tsc --noEmit` per package                  |
-| `pnpm test`         | run Vitest via `turbo run test`             |
-| `pnpm e2e`          | the browser gate below, via `turbo run e2e` |
-| `pnpm fmt`          | format the repo with Oxfmt                  |
-| `pnpm check:readme` | check the two READMEs against each other    |
-| `pnpm check:docs`   | check the instruments' pointers both ways   |
+| Command             | Purpose                                            |
+| ------------------- | -------------------------------------------------- |
+| `pnpm dev`          | run the site via `turbo run dev`                   |
+| `pnpm start`        | serve the production build                         |
+| `pnpm build`        | production build                                   |
+| `pnpm lint`         | `oxlint --type-aware --deny-warnings` per package  |
+| `pnpm lint:fix`     | same, with `--fix`                                 |
+| `pnpm typecheck`    | `tsc --noEmit` per package                         |
+| `pnpm test`         | run Vitest via `turbo run test`                    |
+| `pnpm e2e`          | the browser gate below, via `turbo run e2e`        |
+| `pnpm fmt`          | format the repo with Oxfmt                         |
+| `pnpm check:readme` | check the two READMEs against each other           |
+| `pnpm check:docs`   | check the instruments' pointers both ways          |
+| `pnpm gate`         | the CI chain locally (`--full` adds build and e2e) |
 
 **The two instruments** live in `apps/web/scripts/` (`node:` plus CDP, against a Chrome you start) and answer the two questions a build cannot: _did this change move anything on screen_, and _is every control the page declares still there and still a target_. `pnpm --filter @toolbox/web fingerprint capture|compare` (`ui-fingerprint.mjs`) snapshots every page at five widths in both colour schemes and diffs two snapshots; it stays local, because its "before" is a file a person saved on this machine. `pnpm --filter @toolbox/web touch-targets` (`touch-targets.mjs`) measures every `.touch-target` control's hit area and checks the controls and regions each page declares. **CI runs that one**, with its falsification mode, as the Hit areas step in `.github/workflows/ci.yml` — after the gate, on the build the gate already drove, with the browser the gate pinned — because a threshold nobody runs is not a check, and this probe was found red on the cover generator's page for five days. What it can fail on is in the instruments' module (`apps/web/docs/design/instruments.md#touch-targets`), and the usage of both, including the Chrome they need already running, is in each script's header comment.
 
@@ -34,7 +35,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Layout
 
-- `apps/web` — the only App, arranged the way Next.js documents for a project that uses `src` (see “Project structure and organization” in the installed `next` package's docs). `src/app` is the routing tree plus this project's own site-level files there (`globals.css` — the layer order, the document's typography, and the handful of rules that are geometry rather than decoration — and the tests for the icon check).
+- `apps/web` — the only App, arranged the way Next.js documents for a project that uses `src` (see “Project structure and organization” in the installed `next` package's docs). `src/app` is the routing tree plus this project's own site-level files there (`globals.css` — the layer order, the document's typography, and the handful of rules that are geometry rather than decoration — the tests for the icon check, and `css-properties.d.ts`, which types a `--*` custom property on `style` so no call site needs a cast).
 - The rest of `src` is ours, and the rule for it is **who owns it**: code a route or a Tool owns lives with it — a Tool's whole implementation is `src/tools/<slug>/` (`core/` pure and tested, `worker/`, `hooks/`, `meta.ts`, `README.md`), and the Tool Registry is `src/tools/registry.ts` with its `ToolMeta` in `src/tools/types.ts`; code no single route owns goes to `src/components/<name>/<name>.tsx`, `src/hooks/<name>/<name>.ts`, or `src/lib/` for helpers that are not UI.
 - Directory name equals file name, kebab-case, and no barrel files: every import names the file it wants.
 - **Ownership is the threshold here, not the number of consumers.** The one that counts consumers is `packages/*`, and it is unchanged: a second consumer is when something becomes a Package.
@@ -44,14 +45,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Conventions
 
-- **Root scripts only delegate.** Root `package.json` runs `turbo run <task>`; the actual task commands live in each package. Never put task logic in the root. The exception is repo-level tooling that belongs to no package: `fmt` and `fmt:check` run Oxfmt across the whole repository and `check:readme` runs `scripts/check-readme-parity.mjs` across its two READMEs — neither has a package to live in, and neither gains parallelism or caching as a task.
+- **Root scripts only delegate.** Root `package.json` runs `turbo run <task>`; the actual task commands live in each package. Never put task logic in the root. The exception is repo-level tooling that belongs to no package: `fmt` and `fmt:check` run Oxfmt across the whole repository, `check:readme` runs `scripts/check-readme-parity.mjs` across its two READMEs, and `gate` runs `scripts/gate.mjs` — the CI chain for the whole repository; none has a package to live in, and none gains parallelism or caching as a task.
 - **A Tool is not a Package.** No `packages/<tool-name>`. Shared code moves to `packages/*` when a second consumer reuses it, and Tool metadata lives beside its implementation.
 - **Toolchain is Oxlint + Oxfmt.** There is no ESLint, Prettier or Biome anywhere; do not add configuration for them. Lint config is a root baseline (`.oxlintrc.json`) plus small per-package files that `extends` it — only `rules`, `plugins` and `overrides` are inheritable, so `env`, `settings` and `ignorePatterns` stay per package.
-- **Type-aware linting runs from package scripts** (`oxlint --type-aware`), never from `lint-staged`, which runs only `oxfmt` and a non-type-aware `oxlint --fix` on staged files.
+- **Type-aware linting runs from package scripts** (`oxlint --type-aware --deny-warnings`), never from `lint-staged`, which runs only `oxfmt` and a non-type-aware `oxlint --fix` on staged files. **A warning is a failure**: `suspicious` is a warn category, so without `--deny-warnings` a rule still prints and the run still exits 0 — which is how `no-shadow` reported a shadowed helper in `image-header.ts` and nothing stopped it.
 - **Types are checked by `tsc`**, not by Oxlint's `--type-check` (still experimental).
 - **Tests are Vitest unit tests in a `__tests__` directory beside the code they cover, named `*.test.ts`.** They run in a Node environment with no Next or DOM, and `@/*` resolves through `apps/web/vitest.config.ts`; see `docs/adr/0003-vitest-for-unit-tests.md`. `vite` is a required peer of `vitest`, so the two are versioned together in the catalog.
 - **Browser checks split by what they claim, not by tool.** An **instrument** (`apps/web/scripts/`, `node:` plus CDP, connecting to a Chrome — one you started, or the one the CI step starts for the hit areas) measures the rendered page and prints numbers — geometry, computed style, whether anything moved — and it **reaches the state it measures** itself where a region only exists there: dropping a file, pressing the page's own action. Reaching a state is not asserting it, so what the site _does_ — the bytes that come out, the names they carry, the requests it makes — stays the gate's. A **gate** (`apps/web/e2e/`, `@playwright/test`) asserts what the site does and blocks a PR, on every change, against the production build. A claim about how something is drawn goes in `scripts/`; a claim about what it does goes in `e2e/`; when it could be either, `scripts/` wins, because geometry wants pixels rather than an expectation. Both words are defined in `CONTEXT.md` and the reasoning is in `docs/adr/0012-playwright-for-the-browser-gate.md`. The instrument that carries a threshold — the hit areas — runs in CI as well; the one whose "before" is a file a person saved stays local.
-- **CI is `fmt:check` + the `docs` step (`check:readme`, `check:docs`, `check:docs --falsify`) + `lint` + `typecheck` + `test` + `build` + `e2e` + the hit-area instrument.** `.github/workflows/ci.yml` runs all eight on every push to `main` and every pull request, so work is not finished until `pnpm fmt:check` passes too — the pre-push hook only runs `lint` and `typecheck`.
+- **CI is the eight steps in `.github/workflows/ci.yml`, and `pnpm gate` is that chain locally** — `fmt:check`, the two document checks, `lint`, `typecheck`, `test`, then `--full` adds `build` and `e2e`; the hit-area instrument stays CI's step because it needs a server and a Chrome. The pre-push hook runs `pnpm gate`, and a commit that bypasses the hooks with `--no-verify` is finished when the same chain has passed by hand — not before.
 - **The README is one document in two languages.** `README.md` is the English original and the one GitHub shows; `README.zh-CN.md` is its Chinese translation. `pnpm check:readme` (`scripts/check-readme-parity.mjs`) compares the heading structure, every language-tagged code block verbatim, and the links and inline code spans — the parts a translation has no licence to change — because a translation that quietly stops tracking the original is invisible in review.
 - **Server-only values** such as `SITE_URL` are read in server components and route metadata, never inlined into client code. `SITE_URL` is declared in the build task's `env` _and_ `.env*` is in its `inputs`, so a changed `.env.local` cannot be served a cached build with a stale origin.
 - **Catalog versions.** The catalog holds versions shared by more than one package plus the repo toolchain; single-consumer dependencies use literal ranges in their own `package.json`. `typescript` and `oxlint-tsgolint` are pinned exactly because tsgolint tracks one TypeScript release.
