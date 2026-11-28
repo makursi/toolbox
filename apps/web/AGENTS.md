@@ -38,3 +38,10 @@ apps/web/
 `scripts/` is the **instruments**: `node` plus CDP, printing numbers. `ui-fingerprint.mjs` says whether anything moved between two snapshots, against a Chrome you started; `touch-targets.mjs` says how big a hit area really is, whether the controls and regions each page declares are there and still carry the hit-area class, and whether anything on a page still carries the outgoing layer's class names — and **also runs in CI** (the Hit areas step), where it exits 1 on the conditions `apps/web/docs/design/instruments.md#touch-targets` states, and the same step runs the instrument's falsification mode, so every claim's injection is proved unattended (#109).
 
 The directories are named for the tier, not for the tool, and neither is a `tests/`: the unit tests are already `__tests__/*.test.ts` beside the code they cover, so a third name would say nothing about which runner runs what. A claim about how something is _drawn_ goes in `scripts/`; a claim about what it _does_ goes in `e2e/`; when it could be either, `scripts/` wins — see `docs/adr/0012-playwright-for-the-browser-gate.md`, and each script's header comment for its usage, including the Chrome it needs already running.
+
+## Running two worktrees at once
+
+A worktree is a full checkout, so two can build and test side by side — but they share two machine-wide resources, and both collisions are silent rather than loud.
+
+- **The gate's port.** `playwright.config.ts` reads `PW_PORT` (default 3111). Give every worktree its own value (`PW_PORT=31216 pnpm --filter @toolbox/web e2e`). A second run on a taken port does not fail: `reuseExistingServer` is on, so it reuses the first worktree's server and tests that worktree's build.
+- **The pnpm store lock.** Two `pnpm` invocations from different worktrees can collide on the store's operation lock (`ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK … access denied`) before the task starts. Run them one at a time; when a root `turbo` command dies this way, the package script run from `apps/web` is the same task without the extra pnpm layer.
