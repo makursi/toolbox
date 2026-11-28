@@ -33,6 +33,15 @@ Create a GitHub issue.
 
 Run `gh issue view <number> --comments`.
 
+## Splitting a spec into tickets
+
+A spec becomes vertical slices: each ticket cuts a narrow but complete path through the layers and can be verified on its own. Two rules keep the slices from colliding when they land in parallel:
+
+- **One owner per file per round.** Two tickets that must edit the same file land in sequence — the second's `Blocked by` names the first — or a prefactor ticket splits the file before either starts. Parallel tickets are for disjoint files.
+- **The ticket names the file it shares.** When a ticket must edit a file another round owns, its body says so, so the collision is visible before a merge instead of after it.
+
+The cost this avoids is a merger session per parallel ticket, each re-running the whole gate on a conflicted worktree.
+
 ## Wayfinding operations
 
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
